@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+*.swp
+
+# Xcode / Swift
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.moved-aside
+.swiftpm/
+Package.resolved
+
+# Dependencias
+Pods/
+Carthage/Build/
+node_modules/
+
+# Secretos / config local (NUNCA commitear claves)
+*.xcconfig.local
+.env
+.env.*
+secrets/
+*.p8
+*.p12
+*.mobileprovision
+
+# gstack / brain local
+.gbrain/
+.gbrain-source
+
+# Temporales
+*.log
+.cache/

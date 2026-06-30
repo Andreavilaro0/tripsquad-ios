@@ -1,0 +1,2384 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Travesía — Mapa de Vistas y Navegación</title>
+<style>
+:root {
+  --bg:        #0b1220;
+  --surface:   #131e30;
+  --surface2:  #1a2640;
+  --border:    rgba(255,255,255,0.08);
+  --brand:     #2563eb;
+  --brand-dim: #1d4ed8;
+  --accent:    #ff7a4a;
+  --text:      #f1f5f9;
+  --muted:     #64748b;
+  --connector: rgba(255,255,255,0.12);
+
+  /* status colors */
+  --s-verified:    #16a34a;
+  --s-verified-bg: rgba(22,163,74,0.12);
+  --s-unverified:    #ca8a04;
+  --s-unverified-bg: rgba(202,138,4,0.12);
+  --s-stub:    #ea580c;
+  --s-stub-bg: rgba(234,88,12,0.12);
+  --s-missing:    #dc2626;
+  --s-missing-bg: rgba(220,38,38,0.14);
+  --s-future:    #7c3aed;
+  --s-future-bg: rgba(124,58,237,0.12);
+  --s-blocked:    #475569;
+  --s-blocked-bg: rgba(71,85,105,0.15);
+  --s-backend:    #0891b2;
+  --s-backend-bg: rgba(8,145,178,0.12);
+  --s-premium:    #9333ea;
+  --s-premium-bg: rgba(147,51,234,0.15);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 32px 24px;
+  line-height: 1.4;
+}
+
+/* ── HEADER ───────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.header-left h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #fff 30%, #93c5fd);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.header-left p {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.stats-bar {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 16px;
+  min-width: 64px;
+}
+.stat-num { font-size: 22px; font-weight: 700; }
+.stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.stat-num.green  { color: var(--s-verified); }
+.stat-num.yellow { color: var(--s-unverified); }
+.stat-num.red    { color: var(--s-missing); }
+.stat-num.purple { color: var(--s-premium); }
+.stat-num.cyan   { color: var(--s-backend); }
+
+/* ── LEGEND ───────────────────────────────────── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 28px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot.verified   { background: var(--s-verified); }
+.dot.unverified { background: var(--s-unverified); }
+.dot.stub       { background: var(--s-stub); }
+.dot.missing    { background: var(--s-missing); }
+.dot.future     { background: var(--s-future); }
+.dot.blocked    { background: var(--s-blocked); }
+.dot.backend    { background: var(--s-backend); }
+.dot.premium    { background: var(--s-premium); }
+
+/* ── SECTION TITLES ──────────────────────────── */
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── AUTH FLOW ────────────────────────────────── */
+.auth-flow {
+  margin-bottom: 28px;
+}
+.auth-chain {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.auth-node {
+  background: var(--surface2);
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  position: relative;
+}
+.auth-node .tag {
+  font-size: 9px;
+  color: var(--muted);
+  display: block;
+  margin-top: 1px;
+}
+.auth-node.onboarding {
+  border-color: var(--accent);
+  background: rgba(255,122,74,0.08);
+}
+.auth-node.destination {
+  border-color: var(--s-verified);
+  background: var(--s-verified-bg);
+}
+.arrow {
+  color: var(--muted);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.branch-label {
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 0 4px;
+}
+
+/* ── MAIN GRID ────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 1100px) {
+  .main-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 720px) {
+  .main-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── TAB COLUMN ──────────────────────────────── */
+.tab-col {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.tab-header {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.tab-icon {
+  font-size: 16px;
+}
+.tab-body {
+  padding: 12px;
+}
+
+/* ── NODE TREE ───────────────────────────────── */
+.node-group { margin-bottom: 4px; }
+.node {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: default;
+  transition: opacity 0.15s;
+}
+.node:hover { opacity: 0.85; }
+.node-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.node-text { flex: 1; }
+.node-sub {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+  display: block;
+  margin-top: 1px;
+}
+.node-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* status variants */
+.node.verified   { background: var(--s-verified-bg);   border-color: rgba(22,163,74,0.2); }
+.node.unverified { background: var(--s-unverified-bg); border-color: rgba(202,138,4,0.2); }
+.node.stub       { background: var(--s-stub-bg);       border-color: rgba(234,88,12,0.2); }
+.node.missing    { background: var(--s-missing-bg);    border-color: rgba(220,38,38,0.3); }
+.node.future     { background: var(--s-future-bg);     border-color: rgba(124,58,237,0.25); }
+.node.blocked    { background: var(--s-blocked-bg);    border-color: rgba(71,85,105,0.25); }
+.node.backend    { background: var(--s-backend-bg);    border-color: rgba(8,145,178,0.25); }
+.node.premium    { background: var(--s-premium-bg);    border-color: rgba(147,51,234,0.3); }
+.node.widget     { background: rgba(37,99,235,0.08);   border-color: rgba(37,99,235,0.2); }
+
+.node-dot.verified   { background: var(--s-verified); }
+.node-dot.unverified { background: var(--s-unverified); }
+.node-dot.stub       { background: var(--s-stub); }
+.node-dot.missing    { background: var(--s-missing); }
+.node-dot.future     { background: var(--s-future); }
+.node-dot.blocked    { background: var(--s-blocked); }
+.node-dot.backend    { background: var(--s-backend); }
+.node-dot.premium    { background: var(--s-premium); }
+.node-dot.widget     { background: var(--brand); }
+
+.node-badge.verified   { background: var(--s-verified-bg);   color: var(--s-verified); }
+.node-badge.unverified { background: var(--s-unverified-bg); color: var(--s-unverified); }
+.node-badge.missing    { background: var(--s-missing-bg);    color: var(--s-missing); }
+.node-badge.blocked    { background: var(--s-blocked-bg);    color: #94a3b8; }
+.node-badge.premium    { background: var(--s-premium-bg);    color: #c084fc; }
+.node-badge.bug        { background: rgba(239,68,68,0.18);   color: #f87171; }
+
+.children {
+  padding-left: 14px;
+  margin-left: 6px;
+  border-left: 1px solid var(--connector);
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+}
+
+.nav-arrow {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 2px 0 2px 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── GLOBAL SHEETS ───────────────────────────── */
+.sheets-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 28px;
+}
+@media (max-width: 900px) { .sheets-grid { grid-template-columns: 1fr 1fr; } }
+
+.sheet-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.sheet-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── MISSING / FUTURE SECTIONS ───────────────── */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+@media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+}
+.panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-title .badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+.missing-badge { background: var(--s-missing-bg); color: var(--s-missing); }
+.future-badge  { background: var(--s-future-bg);  color: #a78bfa; }
+.logic-badge   { background: rgba(8,145,178,0.15); color: #38bdf8; }
+
+.missing-row {
+  display: flex;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.missing-row.red    { background: var(--s-missing-bg);  border-left: 3px solid var(--s-missing); }
+.missing-row.purple { background: var(--s-future-bg);   border-left: 3px solid var(--s-future); }
+.missing-row.cyan   { background: rgba(8,145,178,0.1);  border-left: 3px solid var(--s-backend); }
+.missing-row .mr-name { font-weight: 600; flex: 1; }
+.missing-row .mr-desc { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+/* ── BACKEND TABLE ───────────────────────────── */
+.backend-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 28px;
+}
+@media (max-width: 800px) { .backend-grid { grid-template-columns: 1fr 1fr; } }
+.backend-card {
+  background: var(--surface);
+  border: 1px solid rgba(8,145,178,0.2);
+  border-radius: 10px;
+  padding: 12px;
+}
+.bc-title { font-size: 12px; font-weight: 700; color: #38bdf8; margin-bottom: 6px; }
+.bc-item  { font-size: 11px; color: var(--muted); margin-bottom: 3px; display: flex; gap: 6px; align-items: flex-start; }
+.bc-item::before { content: '·'; color: #38bdf8; flex-shrink: 0; }
+.bc-missing { font-size: 11px; color: var(--s-missing); font-weight: 600; margin-top: 6px; padding: 4px 8px; background: var(--s-missing-bg); border-radius: 5px; }
+
+/* ── LOGIC FLOWS ─────────────────────────────── */
+.flow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+@media (max-width: 800px) { .flow-grid { grid-template-columns: 1fr; } }
+.flow-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.flow-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.flow-status {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.fs-partial { background: rgba(202,138,4,0.15); color: var(--s-unverified); }
+.fs-missing { background: var(--s-missing-bg); color: var(--s-missing); }
+.flow-desc { font-size: 11px; color: var(--muted); }
+
+/* ── ARCHITECTURE SECTIONS ───────────────────── */
+.arch-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 28px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.arch-layer {
+  display: flex;
+  align-items: stretch;
+  min-height: 72px;
+}
+.arch-layer-label {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-right: 1px solid var(--border);
+}
+.arch-layer-body {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+}
+.arch-layer.presentation { background: rgba(37,99,235,0.08); }
+.arch-layer.presentation .arch-layer-label { color: #60a5fa; border-right-color: rgba(37,99,235,0.2); }
+.arch-layer.domain      { background: rgba(255,122,74,0.07); }
+.arch-layer.domain .arch-layer-label      { color: #fb923c; border-right-color: rgba(255,122,74,0.2); }
+.arch-layer.data        { background: rgba(22,163,74,0.07); }
+.arch-layer.data .arch-layer-label        { color: #4ade80; border-right-color: rgba(22,163,74,0.2); }
+.arch-layer.infra       { background: rgba(147,51,234,0.07); }
+.arch-layer.infra .arch-layer-label       { color: #c084fc; border-right-color: rgba(147,51,234,0.2); }
+.arch-layer.cicd        { background: rgba(8,145,178,0.07); }
+.arch-layer.cicd .arch-layer-label        { color: #22d3ee; border-right-color: rgba(8,145,178,0.2); }
+.arch-layer.external    { background: rgba(202,138,4,0.07); }
+.arch-layer.external .arch-layer-label    { color: #fbbf24; border-right-color: rgba(202,138,4,0.2); }
+
+.arch-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.arch-pill span { font-size: 9px; color: var(--muted); font-weight: 400; margin-top: 1px; }
+.arch-pill.blue   { border-color: rgba(37,99,235,0.3);  background: rgba(37,99,235,0.1); }
+.arch-pill.green  { border-color: rgba(22,163,74,0.3);  background: rgba(22,163,74,0.1); }
+.arch-pill.orange { border-color: rgba(255,122,74,0.3); background: rgba(255,122,74,0.1); }
+.arch-pill.purple { border-color: rgba(147,51,234,0.3); background: rgba(147,51,234,0.1); }
+.arch-pill.cyan   { border-color: rgba(8,145,178,0.3);  background: rgba(8,145,178,0.1); }
+.arch-pill.amber  { border-color: rgba(202,138,4,0.3);  background: rgba(202,138,4,0.1); }
+.arch-pill.red    { border-color: rgba(220,38,38,0.3);  background: rgba(220,38,38,0.1); }
+
+.arch-arrow {
+  color: var(--muted);
+  font-size: 12px;
+  align-self: center;
+  flex-shrink: 0;
+}
+.layer-note {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+  display: block;
+  margin-top: 2px;
+}
+
+/* ── DATA FLOWS ──────────────────────────────── */
+.flow-chains {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.flow-chain {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-chain-name {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  width: 140px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+  margin-right: 6px;
+}
+.fc-node {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  white-space: nowrap;
+}
+.fc-node.blue   { background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.25); color: #93c5fd; }
+.fc-node.green  { background: rgba(22,163,74,0.12); border-color: rgba(22,163,74,0.25); color: #86efac; }
+.fc-node.orange { background: rgba(255,122,74,0.1); border-color: rgba(255,122,74,0.25); color: #fdba74; }
+.fc-node.purple { background: rgba(147,51,234,0.1); border-color: rgba(147,51,234,0.25); color: #d8b4fe; }
+.fc-node.amber  { background: rgba(202,138,4,0.1);  border-color: rgba(202,138,4,0.25); color: #fcd34d; }
+.fc-node.cyan   { background: rgba(8,145,178,0.1);  border-color: rgba(8,145,178,0.25); color: #67e8f9; }
+.fc-arrow { color: #475569; font-size: 12px; flex-shrink: 0; }
+.fc-tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+/* ── DATABASE & APIs ─────────────────────────── */
+.db-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 28px;
+}
+@media (max-width: 900px) { .db-grid { grid-template-columns: repeat(2, 1fr); } }
+.db-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.db-title { font-size: 11px; font-weight: 700; color: #4ade80; margin-bottom: 5px; font-family: monospace; }
+.db-field { font-size: 10px; color: var(--muted); margin-bottom: 2px; display: flex; gap: 6px; }
+.db-field::before { content: '·'; color: #4ade80; }
+.db-pk { color: #fbbf24; font-weight: 600; }
+.db-fk { color: #93c5fd; }
+.db-rt { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(22,163,74,0.15); color: #4ade80; border: 1px solid rgba(22,163,74,0.2); margin-left: auto; }
+.db-rls { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(147,51,234,0.12); color: #c084fc; border: 1px solid rgba(147,51,234,0.2); margin-left: auto; }
+
+.api-grid-ext {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 28px;
+}
+@media (max-width: 800px) { .api-grid-ext { grid-template-columns: 1fr 1fr; } }
+.api-card-ext {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.api-name { font-size: 13px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.api-url  { font-size: 10px; color: var(--s-backend); font-family: monospace; margin-bottom: 6px; }
+.api-desc { font-size: 11px; color: var(--muted); }
+.api-status-ok   { font-size: 9px; padding: 2px 6px; border-radius: 4px; background: var(--s-verified-bg); color: var(--s-verified); }
+.api-status-block{ font-size: 9px; padding: 2px 6px; border-radius: 4px; background: var(--s-blocked-bg); color: #94a3b8; }
+
+/* ── SECURITY PIPELINE ───────────────────────── */
+.sec-pipeline {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+  align-items: stretch;
+}
+.sec-stage {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  flex: 1;
+  min-width: 140px;
+}
+.sec-stage-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+.sec-stage-name {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #22d3ee;
+}
+.sec-stage-tool {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: monospace;
+  margin-bottom: 2px;
+}
+.sec-stage-result {
+  font-size: 10px;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(22,163,74,0.1);
+  color: #4ade80;
+  display: inline-block;
+}
+.sec-arrow-big { color: #334155; font-size: 18px; align-self: center; flex-shrink: 0; }
+
+/* ── DEPLOY ──────────────────────────────────── */
+.deploy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 28px;
+}
+@media (max-width: 700px) { .deploy-grid { grid-template-columns: 1fr; } }
+.deploy-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.deploy-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.deploy-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.deploy-step-num {
+  font-size: 9px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.07);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  color: var(--text);
+  margin-top: 1px;
+}
+
+/* ── TAB HEADER COLORS ───────────────────────── */
+.tab-col:nth-child(1) .tab-header { border-bottom-color: rgba(37,99,235,0.4); background: rgba(37,99,235,0.06); }
+.tab-col:nth-child(2) .tab-header { border-bottom-color: rgba(22,163,74,0.4); background: rgba(22,163,74,0.06); }
+.tab-col:nth-child(3) .tab-header { border-bottom-color: rgba(8,145,178,0.4); background: rgba(8,145,178,0.06); }
+.tab-col:nth-child(4) .tab-header { border-bottom-color: rgba(147,51,234,0.4); background: rgba(147,51,234,0.06); }
+.tab-col:nth-child(5) .tab-header { border-bottom-color: rgba(255,122,74,0.4); background: rgba(255,122,74,0.06); }
+
+.tab-col:nth-child(1) .tab-icon { color: #60a5fa; }
+.tab-col:nth-child(2) .tab-icon { color: #4ade80; }
+.tab-col:nth-child(3) .tab-icon { color: #22d3ee; }
+.tab-col:nth-child(4) .tab-icon { color: #c084fc; }
+.tab-col:nth-child(5) .tab-icon { color: #fb923c; }
+
+.version-tag {
+  font-size: 9px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--muted);
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════ HEADER ══════ -->
+<div class="header">
+  <div class="header-left">
+    <h1>Travesía — Mapa de Navegación</h1>
+    <p>Estado de vistas · Flujos de acceso · Ramas faltantes · Sistema lógico</p>
+  </div>
+  <div class="stats-bar">
+    <div class="stat"><span class="stat-num green">35</span><span class="stat-lbl">Implementadas</span></div>
+    <div class="stat"><span class="stat-num yellow">18</span><span class="stat-lbl">Sin QA</span></div>
+    <div class="stat"><span class="stat-num red">9</span><span class="stat-lbl">Faltantes</span></div>
+    <div class="stat"><span class="stat-num purple">12</span><span class="stat-lbl">Fase E</span></div>
+    <div class="stat"><span class="stat-num cyan">6</span><span class="stat-lbl">Solo backend</span></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════ LEGEND ═════════ -->
+<div class="legend">
+  <div class="legend-item"><div class="dot verified"></div> Verificada en sim</div>
+  <div class="legend-item"><div class="dot unverified"></div> Existe · sin QA</div>
+  <div class="legend-item"><div class="dot stub"></div> Stub / mínimo</div>
+  <div class="legend-item"><div class="dot missing"></div> Faltante (en scope)</div>
+  <div class="legend-item"><div class="dot future"></div> Fase E · futuro</div>
+  <div class="legend-item"><div class="dot blocked"></div> Bloqueada (ext dep)</div>
+  <div class="legend-item"><div class="dot backend"></div> Solo backend · sin UI</div>
+  <div class="legend-item"><div class="dot premium"></div> Premium / Brújula</div>
+</div>
+
+<!-- ════════════════════════ AUTH FLOW ══════════ -->
+<div class="auth-flow">
+  <div class="section-title">Flujo de Autenticación</div>
+  <div class="auth-chain">
+    <div class="auth-node">
+      TripSquadApp
+      <span class="tag">Entry point · TripSquadApp.swift</span>
+    </div>
+    <div class="arrow">→</div>
+    <div class="auth-node">
+      AuthGate
+      <span class="tag">Supabase session check</span>
+    </div>
+    <div class="arrow">→</div>
+    <div class="branch-label">nuevo usuario</div>
+    <div class="auth-node onboarding">
+      OnboardingView
+      <span class="tag">6 capítulos · boarding pass final ✅</span>
+    </div>
+    <div class="arrow">→</div>
+    <div class="auth-node">
+      ProfileSetupView
+      <span class="tag">Avatar · nombre · preferencias 🟡</span>
+    </div>
+    <div class="arrow">→</div>
+    <div class="auth-node destination">
+      AppRoot
+      <span class="tag">5 tabs · TSNavBarFloating ✅</span>
+    </div>
+    <div class="branch-label" style="margin-left:8px">usuario existente</div>
+    <div class="arrow">→→</div>
+    <div class="auth-node destination">AppRoot directo ✅</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ MAIN 5 TABS ══════════ -->
+<div class="section-title">Navegación Principal — 5 Tabs</div>
+<div class="main-grid">
+
+  <!-- ─── TAB 1: INICIO ─── -->
+  <div class="tab-col">
+    <div class="tab-header">
+      <span class="tab-icon">🏠</span>
+      INICIO
+    </div>
+    <div class="tab-body">
+
+      <div class="node-group">
+        <div class="node verified">
+          <div class="node-dot verified"></div>
+          <div class="node-text">InicioView <span class="version-tag">router</span>
+            <span class="node-sub">Explore/Presentation/InicioView</span>
+          </div>
+        </div>
+        <div class="children">
+          <div class="node verified">
+            <div class="node-dot verified"></div>
+            <div class="node-text">HubViewModel <span class="version-tag">state machine</span>
+              <span class="node-sub">discovery | active | inTrip</span>
+            </div>
+          </div>
+
+          <div class="children">
+            <!-- Discovery -->
+            <div class="node-group">
+              <div class="node verified">
+                <div class="node-dot verified"></div>
+                <div class="node-text">HubDiscoveryView
+                  <span class="node-sub">Sin viajes activos</span>
+                </div>
+                <span class="node-badge bug">🐛 inset</span>
+              </div>
+              <div class="children">
+                <div class="node verified">
+                  <div class="node-dot verified"></div>
+                  <div class="node-text">Destinations carousel
+                    <span class="node-sub">Supabase · tabla destinations</span>
+                  </div>
+                </div>
+                <div class="node verified">
+                  <div class="node-dot verified"></div>
+                  <div class="node-text">Brújula discovery chip
+                    <span class="node-sub">→ BrujulaContainerView</span>
+                  </div>
+                </div>
+                <div class="node verified">
+                  <div class="node-dot verified"></div>
+                  <div class="node-text">Experiencias populares
+                    <span class="node-sub">GetYourGuide embeds</span>
+                  </div>
+                </div>
+                <div class="node unverified">
+                  <div class="node-dot unverified"></div>
+                  <div class="node-text">DestinationDetailSheet
+                    <span class="node-sub">Inicio/Presentation 🟡</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Active -->
+            <div class="node-group">
+              <div class="node verified">
+                <div class="node-dot verified"></div>
+                <div class="node-text">HubActiveView
+                  <span class="node-sub">Viaje próximo · fondo blanco</span>
+                </div>
+              </div>
+              <div class="children">
+                <div class="node widget">
+                  <div class="node-dot widget"></div>
+                  <div class="node-text">HubTripHeroCard
+                    <span class="node-sub">Countdown · squad avatars</span>
+                  </div>
+                </div>
+                <div class="node widget">
+                  <div class="node-dot widget"></div>
+                  <div class="node-text">HubBudgetWidget</div>
+                </div>
+                <div class="node widget">
+                  <div class="node-dot widget"></div>
+                  <div class="node-text">HubNextActivityWidget</div>
+                </div>
+                <div class="node widget">
+                  <div class="node-dot widget"></div>
+                  <div class="node-text">HubChatPreviewWidget</div>
+                </div>
+                <div class="node widget">
+                  <div class="node-dot widget"></div>
+                  <div class="node-text">HubWeatherWidget
+                    <span class="node-sub">Open-Meteo API</span>
+                  </div>
+                </div>
+                <div class="node widget">
+                  <div class="node-dot widget"></div>
+                  <div class="node-text">HubForexWidget
+                    <span class="node-sub">Frankfurter API</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- InTrip -->
+            <div class="node-group">
+              <div class="node verified">
+                <div class="node-dot verified"></div>
+                <div class="node-text">HubInTripView
+                  <span class="node-sub">Viaje activo · fondo navy</span>
+                </div>
+              </div>
+              <div class="children">
+                <div class="node widget">
+                  <div class="node-dot widget"></div>
+                  <div class="node-text">Mismos widgets
+                    <span class="node-sub">isDark: true — tema oscuro</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── TAB 2: VIAJES ─── -->
+  <div class="tab-col">
+    <div class="tab-header">
+      <span class="tab-icon">✈️</span>
+      VIAJES
+    </div>
+    <div class="tab-body">
+
+      <div class="node-group">
+        <div class="node verified">
+          <div class="node-dot verified"></div>
+          <div class="node-text">HomeView
+            <span class="node-sub">Lista trips · PRÓXIMOS / RECORDADOS</span>
+          </div>
+        </div>
+        <div class="children">
+          <div class="node verified">
+            <div class="node-dot verified"></div>
+            <div class="node-text">TripCard → TripBentoView
+              <span class="node-sub">Tap en cualquier trip</span>
+            </div>
+          </div>
+          <div class="node missing">
+            <div class="node-dot missing"></div>
+            <div class="node-text">TripArchiveView
+              <span class="node-sub">Vista dedicada de trips pasados</span>
+            </div>
+            <span class="node-badge missing">falta</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- TripBentoView -->
+      <div class="node-group">
+        <div class="node verified">
+          <div class="node-dot verified"></div>
+          <div class="node-text">TripBentoView
+            <span class="node-sub">Hub del viaje · bento grid</span>
+          </div>
+        </div>
+        <div class="children">
+          <div class="node verified">
+            <div class="node-dot verified"></div>
+            <div class="node-text">TripTabBar
+              <span class="node-sub">8 tabs horizontales · matchedGeometry</span>
+            </div>
+          </div>
+          <div class="children">
+
+            <div class="node verified">
+              <div class="node-dot verified"></div>
+              <div class="node-text">💬 Chat → ChatView
+                <span class="node-sub">Real-time · attachments · reactions</span>
+              </div>
+            </div>
+            <div class="children">
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">EditMessageSheet 🟡</div>
+              </div>
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">ReactionDetailSheet 🟡</div>
+              </div>
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">MentionPopup 🟡</div>
+              </div>
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">LinkPreviewCard 🟡
+                  <span class="node-sub">Inline en MessageBubble</span>
+                </div>
+              </div>
+              <div class="node missing">
+                <div class="node-dot missing"></div>
+                <div class="node-text">MediaViewerSheet
+                  <span class="node-sub">Ver fotos/video full screen</span>
+                </div>
+                <span class="node-badge missing">falta</span>
+              </div>
+            </div>
+
+            <div class="node unverified">
+              <div class="node-dot unverified"></div>
+              <div class="node-text">📅 Itinerario → ItineraryView
+                <span class="node-sub">Days + timeline + weather</span>
+              </div>
+            </div>
+            <div class="children">
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">ActivityDetailView 🟡
+                  <span class="node-sub">Hero + facts + quién va</span>
+                </div>
+              </div>
+              <div class="children">
+                <div class="node missing">
+                  <div class="node-dot missing"></div>
+                  <div class="node-text">ActivityEditView
+                    <span class="node-sub">Editar actividad existente</span>
+                  </div>
+                  <span class="node-badge missing">falta</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="node unverified">
+              <div class="node-dot unverified"></div>
+              <div class="node-text">🗳 Votaciones → VotingView
+                <span class="node-sub">Real-time · polls activas</span>
+              </div>
+            </div>
+            <div class="children">
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">CreateVoteView 🟡
+                  <span class="node-sub">FAB → wizard pregunta+opciones</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="node unverified">
+              <div class="node-dot unverified"></div>
+              <div class="node-text">💰 Gastos → ExpensesHubView
+                <span class="node-sub">4 tabs · real-time</span>
+              </div>
+              <span class="version-tag">V2</span>
+            </div>
+            <div class="children">
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">Tab: Actividad
+                  <span class="node-sub">Feed ExpenseRow ordenado</span>
+                </div>
+              </div>
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">Tab: Balances → SettlementView
+                  <span class="node-sub">Greedy settlement algorithm</span>
+                </div>
+              </div>
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">Tab: Insights
+                  <span class="node-sub">DonutChart · ranking · métricas</span>
+                </div>
+              </div>
+              <div class="node future">
+                <div class="node-dot future"></div>
+                <div class="node-text">InsightsV2 · V3
+                  <span class="node-sub">Timeline bars · trip comparison</span>
+                </div>
+                <span class="node-badge future">Fase E</span>
+              </div>
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">Tab: Grupo
+                  <span class="node-sub">Totales por miembro</span>
+                </div>
+              </div>
+              <div class="nav-arrow">FAB ↓</div>
+              <div class="node unverified">
+                <div class="node-dot unverified"></div>
+                <div class="node-text">AddExpenseView 🟡
+                  <span class="node-sub">Keypad · quick amounts · categoría</span>
+                </div>
+              </div>
+              <div class="children">
+                <div class="node unverified">
+                  <div class="node-dot unverified"></div>
+                  <div class="node-text">SplitExpenseView 🟡
+                    <span class="node-sub">Igual / Porcentaje / Items</span>
+                  </div>
+                </div>
+                <div class="node future">
+                  <div class="node-dot future"></div>
+                  <div class="node-text">AddExpenseV2 · OCR scan
+                    <span class="node-sub">VisionKit · escanear ticket</span>
+                  </div>
+                  <span class="node-badge future">Fase E</span>
+                </div>
+                <div class="node future">
+                  <div class="node-dot future"></div>
+                  <div class="node-text">AddExpenseV3 · bunq import
+                    <span class="node-sub">bunq PSD2 API</span>
+                  </div>
+                  <span class="node-badge future">Fase E</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="node unverified">
+              <div class="node-dot unverified"></div>
+              <div class="node-text">📸 Fotos → PhotosView
+                <span class="node-sub">Day groups · masonry grid · upload</span>
+              </div>
+            </div>
+
+            <div class="node unverified">
+              <div class="node-dot unverified"></div>
+              <div class="node-text">👥 Squad → SquadView
+                <span class="node-sub">Members · roles · balances</span>
+              </div>
+            </div>
+            <div class="children">
+              <div class="node missing">
+                <div class="node-dot missing"></div>
+                <div class="node-text">MemberProfileView
+                  <span class="node-sub">Perfil individual de miembro</span>
+                </div>
+                <span class="node-badge missing">falta</span>
+              </div>
+            </div>
+
+            <div class="node missing">
+              <div class="node-dot missing"></div>
+              <div class="node-text">🗺 Mapa → MapaView
+                <span class="node-sub">Tab existe · backend listo · sin UI</span>
+              </div>
+              <span class="node-badge missing">falta</span>
+            </div>
+            <div class="children">
+              <div class="node backend">
+                <div class="node-dot backend"></div>
+                <div class="node-text">AddPinSheet
+                  <span class="node-sub">Maps/Presentation — existe</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="node unverified">
+              <div class="node-dot unverified"></div>
+              <div class="node-text">🤖 Copilot → BrujulaContainerView
+                <span class="node-sub">→ Tab 4 Brújula</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── TAB 3: MENSAJES ─── -->
+  <div class="tab-col">
+    <div class="tab-header">
+      <span class="tab-icon">💬</span>
+      MENSAJES
+    </div>
+    <div class="tab-body">
+
+      <div class="node-group">
+        <div class="node unverified">
+          <div class="node-dot unverified"></div>
+          <div class="node-text">MessagesListView
+            <span class="node-sub">Lista de conversaciones del squad</span>
+          </div>
+        </div>
+        <div class="children">
+          <div class="node unverified">
+            <div class="node-dot unverified"></div>
+            <div class="node-text">MessagesListViewModel
+              <span class="node-sub">Carga chats por usuario</span>
+            </div>
+          </div>
+          <div class="node verified">
+            <div class="node-dot verified"></div>
+            <div class="node-text">ConversationRow → ChatView ✅
+              <span class="node-sub">Reutiliza ChatView del tab Viajes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="node missing">
+        <div class="node-dot missing"></div>
+        <div class="node-text">NotificationCenter
+          <span class="node-sub">Bandeja de notificaciones históricas</span>
+        </div>
+        <span class="node-badge missing">falta</span>
+      </div>
+
+      <div class="node missing">
+        <div class="node-dot missing"></div>
+        <div class="node-text">SearchView
+          <span class="node-sub">Búsqueda global: trips · mensajes · personas</span>
+        </div>
+        <span class="node-badge missing">falta</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── TAB 4: BRÚJULA ─── -->
+  <div class="tab-col">
+    <div class="tab-header">
+      <span class="tab-icon">🧭</span>
+      BRÚJULA
+    </div>
+    <div class="tab-body">
+
+      <div class="node-group">
+        <div class="node premium">
+          <div class="node-dot premium"></div>
+          <div class="node-text">BrujulaContainerView
+            <span class="node-sub">4 sub-tabs · PremiumGate wrapper</span>
+          </div>
+        </div>
+        <div class="children">
+
+          <div class="node premium">
+            <div class="node-dot premium"></div>
+            <div class="node-text">PremiumGate
+              <span class="node-sub">Verifica subscripción activa</span>
+            </div>
+          </div>
+          <div class="children">
+            <div class="node premium">
+              <div class="node-dot premium"></div>
+              <div class="node-text">BrujulaPaywallView
+                <span class="node-sub">Free vs Premium · $89/mes · features</span>
+              </div>
+            </div>
+            <div class="node blocked">
+              <div class="node-dot blocked"></div>
+              <div class="node-text">StoreKit Integration
+                <span class="node-sub">Pendiente product IDs App Store</span>
+              </div>
+              <span class="node-badge blocked">blocked</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="node premium">
+            <div class="node-dot premium"></div>
+            <div class="node-text">Tab: Chat → BrujulaChatView
+              <span class="node-sub">Conversación con IA · Anthropic API</span>
+            </div>
+          </div>
+          <div class="children">
+            <div class="node premium">
+              <div class="node-dot premium"></div>
+              <div class="node-text">BrujulaOrb (component)
+                <span class="node-sub">Avatar animado de la IA</span>
+              </div>
+            </div>
+            <div class="node premium">
+              <div class="node-dot premium"></div>
+              <div class="node-text">BrujulaSuggestionCard</div>
+            </div>
+            <div class="node premium">
+              <div class="node-dot premium"></div>
+              <div class="node-text">BrujulaThinkingBar
+                <span class="node-sub">Loading mientras IA procesa</span>
+              </div>
+            </div>
+            <div class="node future">
+              <div class="node-dot future"></div>
+              <div class="node-text">BrujulaChatV2 · V3
+                <span class="node-sub">Split-view · context-aware</span>
+              </div>
+              <span class="node-badge future">Fase E</span>
+            </div>
+          </div>
+
+          <div class="node premium">
+            <div class="node-dot premium"></div>
+            <div class="node-text">Tab: Explore → BrujulaExploreView
+              <span class="node-sub">Masonry grid · Comer/Hacer/Dormir</span>
+            </div>
+          </div>
+          <div class="children">
+            <div class="node future">
+              <div class="node-dot future"></div>
+              <div class="node-text">BrujulaExploreV2 · V3
+                <span class="node-sub">MapKit integration · places API</span>
+              </div>
+              <span class="node-badge future">Fase E</span>
+            </div>
+          </div>
+
+          <div class="node premium">
+            <div class="node-dot premium"></div>
+            <div class="node-text">Tab: Build → BrujulaBuildView
+              <span class="node-sub">Prompt → itinerario streaming</span>
+            </div>
+          </div>
+          <div class="children">
+            <div class="node premium">
+              <div class="node-dot premium"></div>
+              <div class="node-text">Generation phases reveal
+                <span class="node-sub">Contexto → Vibes → Actividades → Ruta</span>
+              </div>
+            </div>
+            <div class="node future">
+              <div class="node-dot future"></div>
+              <div class="node-text">BrujulaBuildV2 · V3
+                <span class="node-sub">LLM streaming real · edit en vivo</span>
+              </div>
+              <span class="node-badge future">Fase E</span>
+            </div>
+          </div>
+
+          <div class="node premium">
+            <div class="node-dot premium"></div>
+            <div class="node-text">Tab: Itinerario → BrujulaItinerarioView
+              <span class="node-sub">Day train horizontal · timeline vertical</span>
+            </div>
+          </div>
+          <div class="children">
+            <div class="node future">
+              <div class="node-dot future"></div>
+              <div class="node-text">BrujulaItinerarioV2 · V3
+                <span class="node-sub">MapKit · GPS path · realtime edit</span>
+              </div>
+              <span class="node-badge future">Fase E</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── TAB 5: PERFIL ─── -->
+  <div class="tab-col">
+    <div class="tab-header">
+      <span class="tab-icon">👤</span>
+      PERFIL
+    </div>
+    <div class="tab-body">
+
+      <div class="node-group">
+        <div class="node unverified">
+          <div class="node-dot unverified"></div>
+          <div class="node-text">ProfileView
+            <span class="node-sub">Avatar · stats · settings rows</span>
+          </div>
+        </div>
+        <div class="children">
+          <div class="node unverified">
+            <div class="node-dot unverified"></div>
+            <div class="node-text">Stat: Viajes completados</div>
+          </div>
+          <div class="node unverified">
+            <div class="node-dot unverified"></div>
+            <div class="node-text">Stat: Squads activos</div>
+          </div>
+          <div class="node missing">
+            <div class="node-dot missing"></div>
+            <div class="node-text">Stat: Memorias → MemoriesView
+              <span class="node-sub">Feature folder vacío · "214 memorias" es mock</span>
+            </div>
+            <span class="node-badge missing">falta</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="node-group">
+        <div class="node verified">
+          <div class="node-dot verified"></div>
+          <div class="node-text">→ PreferenciasView (sheet) ✅
+            <span class="node-sub">Moneda · Idioma · Brújula toggle</span>
+          </div>
+        </div>
+      </div>
+      <div class="node-group">
+        <div class="node verified">
+          <div class="node-dot verified"></div>
+          <div class="node-text">→ NotificacionesView (sheet) ✅
+            <span class="node-sub">8 toggles · 3 categorías</span>
+          </div>
+        </div>
+      </div>
+      <div class="node-group">
+        <div class="node verified">
+          <div class="node-dot verified"></div>
+          <div class="node-text">→ PrivacidadView (sheet) ✅
+            <span class="node-sub">Visibilidad · ubicación · danger zone</span>
+          </div>
+        </div>
+      </div>
+      <div class="node-group">
+        <div class="node verified">
+          <div class="node-dot verified"></div>
+          <div class="node-text">→ AyudaView (sheet) ✅
+            <span class="node-sub">Status pill · 5 FAQ · mailto soporte</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="node missing">
+        <div class="node-dot missing"></div>
+        <div class="node-text">PremiumUpgradeView
+          <span class="node-sub">Acceso directo al paywall desde perfil</span>
+        </div>
+        <span class="node-badge missing">falta</span>
+      </div>
+      <div class="node missing">
+        <div class="node-dot missing"></div>
+        <div class="node-text">AccountDeletionFlow
+          <span class="node-sub">UI existe en Privacidad · lógica pendiente</span>
+        </div>
+        <span class="node-badge missing">falta</span>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /main-grid -->
+
+<!-- ════════════════════ GLOBAL SHEETS ══════════ -->
+<div class="section-title">Sheets Globales — AppRouter</div>
+<div class="sheets-grid">
+
+  <div class="sheet-card">
+    <div class="sheet-card-title">⊕ ActionMenuSheet</div>
+    <div class="node verified" style="margin-bottom:6px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Trigger: FAB en HomeView ✅</div>
+    </div>
+    <div class="node verified" style="margin-bottom:6px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">→ .newTrip → CreateTripView ✅
+        <span class="node-sub">Wizard 4 pasos</span>
+      </div>
+    </div>
+    <div class="node verified" style="margin-bottom:6px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">→ .joinTrip(code) → JoinTripView ✅
+        <span class="node-sub">Preview invitación</span>
+      </div>
+    </div>
+    <div class="node unverified" style="margin-bottom:6px">
+      <div class="node-dot unverified"></div>
+      <div class="node-text">→ .addExpense → AddExpenseView 🟡</div>
+    </div>
+    <div class="node missing">
+      <div class="node-dot missing"></div>
+      <div class="node-text">→ .invite → InviteViaLinkView
+        <span class="node-sub">Generar/compartir link de viaje</span>
+      </div>
+      <span class="node-badge missing">falta</span>
+    </div>
+  </div>
+
+  <div class="sheet-card">
+    <div class="sheet-card-title">🗺️ CreateTripView — Wizard</div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Step 1 — Destino + Fechas ✅
+        <span class="node-sub">Suggestions · date pickers · noches</span>
+      </div>
+    </div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Step 2 — Squad ✅
+        <span class="node-sub">Search · avatar stack · invite link</span>
+      </div>
+    </div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Step 3 — Budget + Estilo ✅
+        <span class="node-sub">Slider $2k-$30k · 6 style pills</span>
+      </div>
+    </div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Step 4 — Módulos ✅
+        <span class="node-sub">Gastos/Chat/Fotos/Votaciones/Mapa/IA</span>
+      </div>
+    </div>
+    <div class="node verified">
+      <div class="node-dot verified"></div>
+      <div class="node-text">ConfettiView → Trip creado ✅</div>
+    </div>
+  </div>
+
+  <div class="sheet-card">
+    <div class="sheet-card-title">✉️ JoinTripView</div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Hero destino + gradient overlay ✅</div>
+    </div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Pill "X te invita" + pulsating dot ✅</div>
+    </div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">3 summary cards: noches/viajeros/budget ✅</div>
+    </div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">Members con status: Confirmado/Pendiente ✅</div>
+    </div>
+    <div class="node verified">
+      <div class="node-dot verified"></div>
+      <div class="node-text">CTA "Unirme" → ConfettiView ✅</div>
+    </div>
+  </div>
+
+  <div class="sheet-card">
+    <div class="sheet-card-title">📍 AppRouter Destinations</div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">.tripExpenses(UUID) → ExpensesHubView ✅</div>
+    </div>
+    <div class="node verified" style="margin-bottom:5px">
+      <div class="node-dot verified"></div>
+      <div class="node-text">.tripChat(UUID) → ChatView ✅</div>
+    </div>
+    <div class="node unverified" style="margin-bottom:5px">
+      <div class="node-dot unverified"></div>
+      <div class="node-text">.tripItinerary(UUID) → ItineraryView 🟡</div>
+    </div>
+    <div class="node unverified" style="margin-bottom:5px">
+      <div class="node-dot unverified"></div>
+      <div class="node-text">.tripPhotos(UUID) → PhotosView 🟡</div>
+    </div>
+    <div class="node missing">
+      <div class="node-dot missing"></div>
+      <div class="node-text">.notification(type,id) → Deep link routing
+        <span class="node-sub">NotificationRouter sin implementar</span>
+      </div>
+      <span class="node-badge missing">falta</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════════════════ BACKEND SIN UI ════════════ -->
+<div class="section-title">Backend Implementado — Sin Vista de UI</div>
+<div class="backend-grid">
+
+  <div class="backend-card">
+    <div class="bc-title">🗺 Maps Feature</div>
+    <div class="bc-item">MapRepositoryImpl</div>
+    <div class="bc-item">MapUseCase</div>
+    <div class="bc-item">MapPinValidator</div>
+    <div class="bc-item">AddPinSheet (sub-view)</div>
+    <div class="bc-missing">❌ MapaView principal — falta</div>
+  </div>
+
+  <div class="backend-card">
+    <div class="bc-title">✅ Checklist Feature</div>
+    <div class="bc-item">ChecklistRepositoryImpl</div>
+    <div class="bc-item">ChecklistItem + Status</div>
+    <div class="bc-item">ChecklistContribution</div>
+    <div class="bc-item">Real-time Supabase</div>
+    <div class="bc-missing">❌ ChecklistView — sin UI completa</div>
+  </div>
+
+  <div class="backend-card">
+    <div class="bc-title">💾 Memorias Feature</div>
+    <div class="bc-item">Folder creado en proyecto</div>
+    <div class="bc-item">Stat "214 memorias" en ProfileView</div>
+    <div class="bc-missing">❌ Todo — domain, data, presentation</div>
+  </div>
+
+  <div class="backend-card">
+    <div class="bc-title">🌦 Weather Feature</div>
+    <div class="bc-item">WeatherService (Open-Meteo)</div>
+    <div class="bc-item">WeatherUseCase + WeatherData</div>
+    <div class="bc-item">WeatherView + ViewModel ✅</div>
+    <div class="bc-item">Usado en HubWeatherWidget ✅</div>
+  </div>
+
+  <div class="backend-card">
+    <div class="bc-title">💱 Forex Feature</div>
+    <div class="bc-item">ForexService actor (Frankfurter)</div>
+    <div class="bc-item">Cache 5min + retry</div>
+    <div class="bc-item">Wired AddExpenseViewModel ✅</div>
+    <div class="bc-item">HubForexWidget ✅</div>
+  </div>
+
+  <div class="backend-card">
+    <div class="bc-title">🛠 Utility Feature</div>
+    <div class="bc-item">UtilityView + ViewModel</div>
+    <div class="bc-item">UtilityTileView</div>
+    <div class="bc-item">Propósito: herramientas misc</div>
+    <div class="bc-missing">⚠️ Sin acceso claro desde navigation</div>
+  </div>
+
+</div>
+
+<!-- ════════════════ RAMAS FALTANTES ═══════════ -->
+<div class="section-title">Ramas Faltantes por Área</div>
+<div class="two-col">
+
+  <div class="panel">
+    <div class="panel-title">
+      🔴 Vistas Faltantes — En Scope
+      <span class="badge missing-badge">9 faltantes</span>
+    </div>
+
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">MapaView</div>
+        <div class="mr-desc">Tab en TripBentoView · backend listo (MapUseCase, AddPinSheet) · solo falta la vista principal con MapKit</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">ChecklistView</div>
+        <div class="mr-desc">Backend completo (3 tablas, real-time) · sin pantalla de UI · debería ser otro tab en TripBento</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">MemoriesView</div>
+        <div class="mr-desc">Stat en ProfileView muestra "214 memorias" pero no hay feature construida</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">MediaViewerSheet</div>
+        <div class="mr-desc">Ver fotos/videos en full screen desde ChatView o PhotosView</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">TripArchiveView</div>
+        <div class="mr-desc">Vista dedicada para trips pasados — actualmente solo hay una sección en HomeView</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">MemberProfileView</div>
+        <div class="mr-desc">Tap en miembro del squad → ver su perfil, trips compartidos, balance</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">ActivityEditView</div>
+        <div class="mr-desc">Editar una actividad existente en el itinerario</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">NotificationCenter</div>
+        <div class="mr-desc">Bandeja de notificaciones históricas accesible desde Mensajes o ícono de campana</div>
+      </div>
+    </div>
+    <div class="missing-row red">
+      <div>
+        <div class="mr-name">SearchView</div>
+        <div class="mr-desc">Búsqueda global: trips, actividades, miembros del squad, mensajes</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">
+      🟣 Fase E — Futuro (fuera de scope actual)
+      <span class="badge future-badge">12 items</span>
+    </div>
+
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">AddExpenseV2 — OCR scan</div>
+        <div class="mr-desc">VisionKit · escanear ticket físico para extraer monto automáticamente</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">AddExpenseV3 — bunq import</div>
+        <div class="mr-desc">Conectar cuenta bunq PSD2 · importar transacciones automáticamente</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">SplitV2 — Por items</div>
+        <div class="mr-desc">Desglosar la cuenta por ítem individual y asignar a personas específicas</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">SettlementRefined — Payment methods</div>
+        <div class="mr-desc">Pagar directamente: bunq / Venmo / PayPal / MercadoPago integrados</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">InsightsV2 — Timeline bars</div>
+        <div class="mr-desc">Gasto diario en barras, comparación por períodos del viaje</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">InsightsV3 — Trip comparison</div>
+        <div class="mr-desc">Comparar gasto entre distintos viajes del squad</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">SplitwiseImport</div>
+        <div class="mr-desc">Importar historial de gastos de Splitwise via OAuth</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">BrujulaChat V2 / V3</div>
+        <div class="mr-desc">Split-view · context-aware del viaje · historial persistente</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">BrujulaExplore V2 / V3</div>
+        <div class="mr-desc">MapKit integration · places API real · guardar en itinerario directo</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">BrujulaBuild V2 / V3</div>
+        <div class="mr-desc">LLM API streaming real · edición colaborativa del itinerario generado</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">BrujulaItinerario V2 / V3</div>
+        <div class="mr-desc">GPS path visualización · MapKit · edición en tiempo real</div>
+      </div>
+    </div>
+    <div class="missing-row purple">
+      <div>
+        <div class="mr-name">BunqOnboarding</div>
+        <div class="mr-desc">Onboarding de conexión cuenta bancaria bunq PSD2</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════════════════ FLUJOS LÓGICOS ═══════════ -->
+<div class="section-title">Flujos Lógicos del Sistema</div>
+<div class="flow-grid" style="margin-bottom: 28px;">
+
+  <div class="flow-card">
+    <div class="flow-title">
+      🔔 Push Notifications
+      <span class="flow-status fs-missing">sin implementar</span>
+    </div>
+    <div class="flow-desc">
+      El NotificationRouter existe en el repo pero no hay routing real. Una notificación de "nuevo gasto" debería navegar directamente a ExpensesHubView del trip correcto. Falta: URL scheme, AppRouter.handleNotification(), deep link por tipo (chat, gasto, voto, actividad).
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      🔗 Deep Linking
+      <span class="flow-status fs-missing">sin implementar</span>
+    </div>
+    <div class="flow-desc">
+      No hay URL scheme configurado (travesia://). JoinTripView funciona por código manual, no por link universal. Falta: entitlement Associated Domains, onOpenURL handler en App, routing desde link → vista correcta.
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      📡 Offline Mode
+      <span class="flow-status fs-partial">parcial</span>
+    </div>
+    <div class="flow-desc">
+      NetworkMonitor (@Observable) está implementado y en el entorno DI. Pero los estados de UI offline (banners, deshabilitación de acciones, caché local) no están diseñados ni implementados en las vistas.
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      🎉 First Launch CTA
+      <span class="flow-status fs-missing">sin implementar</span>
+    </div>
+    <div class="flow-desc">
+      Tras completar onboarding, el usuario llega a HomeView vacío. No hay CTA "Crea tu primer viaje" ni guía contextual. El estado HubDiscoveryView muestra destinos pero no orienta al usuario recién llegado.
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      🔄 Session Expiry
+      <span class="flow-status fs-missing">sin implementar</span>
+    </div>
+    <div class="flow-desc">
+      Si el token de Supabase expira mientras la app está en uso, el comportamiento es incierto. Falta: interceptor de error 401, refresh automático de token, redirect a AuthGate con mensaje de sesión expirada.
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      💳 Premium Upgrade
+      <span class="flow-status fs-partial">parcial — bloqueado</span>
+    </div>
+    <div class="flow-desc">
+      BrujulaPaywallView existe con UI completa. SubscriptionUseCase y SubscriptionRepository implementados. Bloqueado por falta de product IDs en App Store Connect. StoreKit code existe, no puede activarse.
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      📲 Real-time Sync
+      <span class="flow-status fs-partial">parcial</span>
+    </div>
+    <div class="flow-desc">
+      Chat ✅, Expenses ✅, Voting ✅ tienen real-time via Supabase Realtime. Itinerary, Photos, Checklist y Squad NO tienen subscripciones en tiempo real — requieren pull-to-refresh manual.
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      🗑 Account Deletion
+      <span class="flow-status fs-partial">parcial</span>
+    </div>
+    <div class="flow-desc">
+      PrivacidadView tiene el botón "Eliminar cuenta" con danger zone. No está conectado a lógica real: falta AuthUseCase.deleteAccount(), limpieza de datos Supabase (trips, gastos, fotos), confirmación y logout final.
+    </div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title">
+      🔄 Background Refresh
+      <span class="flow-status fs-missing">sin implementar</span>
+    </div>
+    <div class="flow-desc">
+      Cuando la app vuelve a foreground, no hay refresh automático de datos. Cada ViewModel hace fetch en onAppear pero no hay BGTaskScheduler para mantener datos frescos. Crítico para viajes en curso (itinerario, gastos, mensajes).
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════ CLEAN ARCHITECTURE ═════════ -->
+<div class="section-title" style="margin-top:16px">Arquitectura del Sistema — Clean Architecture</div>
+<div class="arch-layers">
+
+  <div class="arch-layer presentation">
+    <div class="arch-layer-label">
+      Presentation
+      <span class="layer-note">SwiftUI + ViewModels</span>
+    </div>
+    <div class="arch-layer-body">
+      <div class="arch-pill blue">SwiftUI Views<span>@State · @Binding · @Environment</span></div>
+      <div class="arch-arrow">↔</div>
+      <div class="arch-pill blue">ViewModels<span>@Observable · @MainActor</span></div>
+      <div class="arch-arrow">↔</div>
+      <div class="arch-pill blue">Design System<span>TSColors · TSTypography · TSShadows</span></div>
+      <div class="arch-arrow">↔</div>
+      <div class="arch-pill blue">AppRouter<span>NavigationStack · Sheets</span></div>
+      <div class="arch-arrow">↔</div>
+      <div class="arch-pill blue">TSNavBarFloating<span>FAB + 5 tabs + haptics</span></div>
+    </div>
+  </div>
+
+  <div class="arch-layer domain">
+    <div class="arch-layer-label">
+      Domain
+      <span class="layer-note">Reglas de negocio puras</span>
+    </div>
+    <div class="arch-layer-body">
+      <div class="arch-pill orange">UseCases<span>CreateTripUseCase · ExpenseUseCase · VotingUseCase · BrujulaAIService</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill orange">Entities<span>Trip · Expense · Message · Vote · ItineraryItem</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill orange">Repository Protocols<span>TripRepository · ExpenseRepository · ChatRepository · PhotoRepository</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill orange">Validators<span>TripValidator · ExpenseValidator · PollValidator · MessageValidator</span></div>
+    </div>
+  </div>
+
+  <div class="arch-layer data">
+    <div class="arch-layer-label">
+      Data
+      <span class="layer-note">Implementaciones + mappers</span>
+    </div>
+    <div class="arch-layer-body">
+      <div class="arch-pill green">Repository Impls<span>TripRepositoryImpl · ExpenseRepositoryImpl · ChatRepositoryImpl</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill green">Realtime Streams<span>RealtimeChatStream · RealtimeExpenseStream · RealtimeVoteStream</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill green">Supabase Client<span>SupabaseClient (xcconfig credentials)</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill green">ForexService actor<span>Frankfurter · cache 5min · retry 3x</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill green">WeatherService<span>Open-Meteo · async/await</span></div>
+    </div>
+  </div>
+
+  <div class="arch-layer infra">
+    <div class="arch-layer-label">
+      Infraestructura
+      <span class="layer-note">Supabase cloud</span>
+    </div>
+    <div class="arch-layer-body">
+      <div class="arch-pill purple">PostgreSQL<span>25 migrations · RLS en todas las tablas</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill purple">Supabase Auth<span>JWT · OAuth · session management</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill purple">Supabase Realtime<span>Chat ✅ · Expenses ✅ · Voting ✅</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill purple">Supabase Storage<span>Photos bucket · Attachments bucket</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill purple">Postgres RPCs<span>create_expense_with_shares() · my_trip_ids() SECURITY DEFINER</span></div>
+    </div>
+  </div>
+
+  <div class="arch-layer external">
+    <div class="arch-layer-label">
+      APIs Externas
+      <span class="layer-note">Servicios third-party</span>
+    </div>
+    <div class="arch-layer-body">
+      <div class="arch-pill amber">Anthropic Claude<span>Brújula IA · Messages API</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill amber">Frankfurter<span>Tipos de cambio · gratuito</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill amber">Open-Meteo<span>Clima · sin API key</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill amber">GetYourGuide<span>Experiencias en HubDiscovery</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill red">Apple StoreKit<span>⚫ Bloqueado — sin product IDs</span></div>
+    </div>
+  </div>
+
+  <div class="arch-layer cicd">
+    <div class="arch-layer-label">
+      CI / CD
+      <span class="layer-note">GitHub Actions</span>
+    </div>
+    <div class="arch-layer-body">
+      <div class="arch-pill cyan">ci.yml<span>build + test + SwiftLint en PR</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill cyan">security.yml<span>semgrep + gitleaks en push</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill cyan">Pre-commit hooks<span>4 gates locales antes de commit</span></div>
+      <div class="arch-arrow">·</div>
+      <div class="arch-pill cyan">DI Container<span>DIContainer.swift · environment injection</span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═════════════════════ DATA FLOWS ═══════════════ -->
+<div class="section-title">Flujos de Datos Principales</div>
+<div class="flow-chains">
+
+  <div class="flow-chain">
+    <div class="flow-chain-name">🔐 Autenticación</div>
+    <div class="fc-node blue">TripSquadApp</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">AuthGate</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">Supabase Auth</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node purple">JWT + RLS policies</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">AppRoot (5 tabs)</div>
+    <div class="fc-tag">cada request lleva JWT en Authorization header</div>
+  </div>
+
+  <div class="flow-chain">
+    <div class="flow-chain-name">✈️ Crear viaje</div>
+    <div class="fc-node blue">CreateTripView</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">CreateTripViewModel</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node orange">CreateTripUseCase</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">TripRepositoryImpl</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">Supabase INSERT trips</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">Trip entity devuelta</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">ConfettiView 🎉</div>
+  </div>
+
+  <div class="flow-chain">
+    <div class="flow-chain-name">💰 Añadir gasto</div>
+    <div class="fc-node blue">AddExpenseView</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node orange">ExpenseUseCase</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">ExpenseRepositoryImpl</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">RPC create_expense_with_shares()</div>
+    <div class="fc-tag">atómica</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">Realtime broadcast</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">ExpensesHubView actualiza</div>
+  </div>
+
+  <div class="flow-chain">
+    <div class="flow-chain-name">💬 Chat real-time</div>
+    <div class="fc-node blue">ChatInputBar</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node orange">ChatUseCase.sendMessage()</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">Supabase INSERT messages</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">Supabase Realtime broadcast</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">RealtimeChatStream</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">ChatViewModel.messages.append()</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">ChatView re-renderiza</div>
+    <div class="fc-tag">&lt;300ms</div>
+  </div>
+
+  <div class="flow-chain">
+    <div class="flow-chain-name">🧭 Brújula IA</div>
+    <div class="fc-node purple">BrujulaChatView</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node purple">BrujulaChatViewModel</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node purple">BrujulaAIServiceImpl</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node amber">Anthropic Messages API</div>
+    <div class="fc-tag">JSON structured response</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node purple">BrujulaSuggestionCards</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node purple">BrujulaThinkingBar → respuesta</div>
+  </div>
+
+  <div class="flow-chain">
+    <div class="flow-chain-name">💱 Tipo de cambio</div>
+    <div class="fc-node blue">AddExpenseView (moneda)</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">ForexService actor</div>
+    <div class="fc-tag">cache 5min</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node amber">Frankfurter API</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">FX rate devuelto</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">BigAmountDisplay (moneda base)</div>
+  </div>
+
+  <div class="flow-chain">
+    <div class="flow-chain-name">🗳 Votación real-time</div>
+    <div class="fc-node blue">VotingView · tap opción</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node orange">VotingUseCase.castVote()</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">Supabase UPSERT poll_votes</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node cyan">Realtime broadcast a squad</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node green">RealtimeVoteStream</div>
+    <div class="fc-arrow">→</div>
+    <div class="fc-node blue">PollCard porcentajes animados</div>
+  </div>
+
+</div>
+
+<!-- ═════════════════════ DATABASE SCHEMA ══════════ -->
+<div class="section-title">Schema de Base de Datos — Supabase PostgreSQL</div>
+<div class="db-grid">
+
+  <div class="db-card">
+    <div class="db-title">profiles</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field">full_name · avatar_url</div>
+    <div class="db-field">email · preferred_currency</div>
+    <div class="db-field">preferred_language</div>
+    <div class="db-field">created_at</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">trips</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">created_by uuid FK profiles</span></div>
+    <div class="db-field">destination · title</div>
+    <div class="db-field">start_date · end_date</div>
+    <div class="db-field">budget · style</div>
+    <div class="db-field">invite_code · modules jsonb</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">trip_members</div>
+    <div class="db-field"><span class="db-fk">trip_id uuid FK trips</span></div>
+    <div class="db-field"><span class="db-fk">user_id uuid FK profiles</span></div>
+    <div class="db-field">role (organizer | member)</div>
+    <div class="db-field">status (confirmed | pending)</div>
+    <div class="db-field">arrival_info</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">expenses</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">trip_id · paid_by FK</span></div>
+    <div class="db-field">title · amount · currency</div>
+    <div class="db-field">category · expense_type</div>
+    <div class="db-field">fx_snapshot · base_amount</div>
+    <div class="db-field">deleted_at (soft delete)</div>
+    <div class="db-rt">RT ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">expense_shares</div>
+    <div class="db-field"><span class="db-fk">expense_id FK expenses</span></div>
+    <div class="db-field"><span class="db-fk">user_id FK profiles</span></div>
+    <div class="db-field">amount · percentage</div>
+    <div class="db-field">split_type (equal|exact|pct)</div>
+    <div class="db-field">settled_at</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">messages</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">trip_id · sender_id FK</span></div>
+    <div class="db-field">content text</div>
+    <div class="db-field">message_type (text|poll|system)</div>
+    <div class="db-field">edited_at · deleted_at</div>
+    <div class="db-rt">RT ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">message_attachments</div>
+    <div class="db-field"><span class="db-fk">message_id FK messages</span></div>
+    <div class="db-field">storage_path · file_type</div>
+    <div class="db-field">file_size · thumbnail_path</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">itinerary_items</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">trip_id · proposed_by FK</span></div>
+    <div class="db-field">title · location · date</div>
+    <div class="db-field">start_time · duration_min</div>
+    <div class="db-field">category · price_per_person</div>
+    <div class="db-field">status (proposed|confirmed)</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">polls + poll_options</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">trip_id · created_by FK</span></div>
+    <div class="db-field">question · poll_type</div>
+    <div class="db-field">deadline · is_closed</div>
+    <div class="db-field">options: text, vote_count</div>
+    <div class="db-rt">RT ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">poll_votes</div>
+    <div class="db-field"><span class="db-fk">option_id FK poll_options</span></div>
+    <div class="db-field"><span class="db-fk">user_id FK profiles</span></div>
+    <div class="db-field">UNIQUE (option_id, user_id)</div>
+    <div class="db-field">voted_at</div>
+    <div class="db-rt">RT ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">photos</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">trip_id · uploaded_by FK</span></div>
+    <div class="db-field">storage_path · thumbnail_path</div>
+    <div class="db-field">taken_at · caption</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">checklist_items</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">trip_id FK trips</span></div>
+    <div class="db-field">title · status enum</div>
+    <div class="db-field">assigned_to · due_date</div>
+    <div class="db-field">contributions[]</div>
+    <div class="db-rt">RT ✓</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">destinations</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field">name · country · region</div>
+    <div class="db-field">image_url · description</div>
+    <div class="db-field">trending_score</div>
+    <div class="db-field">8 seed rows (read pública)</div>
+    <div class="db-rls">RLS public read</div>
+  </div>
+
+  <div class="db-card">
+    <div class="db-title">subscriptions</div>
+    <div class="db-field"><span class="db-pk">id uuid PK</span></div>
+    <div class="db-field"><span class="db-fk">user_id FK profiles</span></div>
+    <div class="db-field">plan (free | premium)</div>
+    <div class="db-field">expires_at</div>
+    <div class="db-field" style="color: var(--s-blocked)">⚫ StoreKit pendiente</div>
+    <div class="db-rls">RLS ✓</div>
+  </div>
+
+</div>
+
+<!-- ═════════════════════ EXTERNAL APIs ════════════ -->
+<div class="section-title">APIs Externas Integradas</div>
+<div class="api-grid-ext">
+
+  <div class="api-card-ext">
+    <div class="api-name" style="color:#c084fc">🧭 Anthropic Claude <span class="api-status-ok">activo</span></div>
+    <div class="api-url">api.anthropic.com/v1/messages</div>
+    <div class="api-desc">Brújula IA. Modelo claude-opus-4-5. Request: contexto del viaje + prompt de usuario. Response: JSON estructurado con sugerencias. Mock fallback si falla.</div>
+  </div>
+
+  <div class="api-card-ext">
+    <div class="api-name" style="color:#fbbf24">💱 Frankfurter <span class="api-status-ok">activo</span></div>
+    <div class="api-url">api.frankfurter.app/latest</div>
+    <div class="api-desc">Tipos de cambio en tiempo real. Gratuito, sin API key. ForexService actor: cache in-memory 5 min, retry exponential 3x. Wired en AddExpenseViewModel y HubForexWidget.</div>
+  </div>
+
+  <div class="api-card-ext">
+    <div class="api-name" style="color:#60a5fa">🌦 Open-Meteo <span class="api-status-ok">activo</span></div>
+    <div class="api-url">api.open-meteo.com/v1/forecast</div>
+    <div class="api-desc">Pronóstico del tiempo por coordenadas GPS. Gratuito, sin API key. Usado en HubWeatherWidget y en ItineraryView (weather por día). Parámetros: lat, lon, daily, timezone.</div>
+  </div>
+
+  <div class="api-card-ext">
+    <div class="api-name" style="color:#f87171">🎫 GetYourGuide <span class="api-status-ok">activo</span></div>
+    <div class="api-url">widget.getyourguide.com</div>
+    <div class="api-desc">Experiencias y tours en HubDiscoveryView. Integrado vía WebView / iframe embed. Bug conocido: thumbnails superponen TSNavBarFloating → tap en tab bar abre GYG en lugar de cambiar tab. Fix pendiente: padding bottom.</div>
+  </div>
+
+  <div class="api-card-ext">
+    <div class="api-name" style="color:#94a3b8">💳 Apple StoreKit <span class="api-status-block">bloqueado</span></div>
+    <div class="api-url">StoreKit 2 · App Store Connect</div>
+    <div class="api-desc">In-app subscriptions para Brújula Premium. BrujulaPaywallView tiene UI completa. SubscriptionUseCase y SubscriptionRepository implementados. Bloqueado: necesita product IDs de App Store Connect para activar.</div>
+  </div>
+
+  <div class="api-card-ext">
+    <div class="api-name" style="color:#4ade80">🗄 Supabase <span class="api-status-ok">activo</span></div>
+    <div class="api-url">*.supabase.co (xcconfig)</div>
+    <div class="api-desc">PostgreSQL + Auth + Realtime + Storage. 25 migrations aplicadas en remote. Credenciales en .xcconfig, nunca en código. Anon key en allowlist de gitleaks. RLS en todas las tablas. my_trip_ids() SECURITY DEFINER previene recursión.</div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════ SECURITY PIPELINE ══════════ -->
+<div class="section-title">Pipeline de Seguridad — 6 Gates de Commit</div>
+<div class="sec-pipeline">
+
+  <div class="sec-stage">
+    <div class="sec-stage-num">Gate 1</div>
+    <div class="sec-stage-name">Build</div>
+    <div class="sec-stage-tool">xcodebuild -scheme TripSquad</div>
+    <div class="sec-stage-tool">destination: iPhone 17 Pro sim</div>
+    <div class="sec-stage-result">BUILD SUCCEEDED</div>
+  </div>
+  <div class="sec-arrow-big">→</div>
+
+  <div class="sec-stage">
+    <div class="sec-stage-num">Gate 2</div>
+    <div class="sec-stage-name">SwiftLint</div>
+    <div class="sec-stage-tool">swiftlint --strict</div>
+    <div class="sec-stage-tool">solo archivos staged</div>
+    <div class="sec-stage-result">0 errors · 0 warnings</div>
+  </div>
+  <div class="sec-arrow-big">→</div>
+
+  <div class="sec-stage">
+    <div class="sec-stage-num">Gate 3</div>
+    <div class="sec-stage-name">Secrets</div>
+    <div class="sec-stage-tool">gitleaks git --pre-commit</div>
+    <div class="sec-stage-tool">--staged --verbose</div>
+    <div class="sec-stage-result">0 leaks detectados</div>
+  </div>
+  <div class="sec-arrow-big">→</div>
+
+  <div class="sec-stage">
+    <div class="sec-stage-num">Gate 4</div>
+    <div class="sec-stage-name">SAST</div>
+    <div class="sec-stage-tool">semgrep 20 reglas custom</div>
+    <div class="sec-stage-tool">.semgrep/travesia-security.yml</div>
+    <div class="sec-stage-result">0 nuevos findings</div>
+  </div>
+  <div class="sec-arrow-big">→</div>
+
+  <div class="sec-stage">
+    <div class="sec-stage-num">Gate 5</div>
+    <div class="sec-stage-name">Code Review</div>
+    <div class="sec-stage-tool">Agent: code-reviewer</div>
+    <div class="sec-stage-tool">skill tripsquad-swift-auditor</div>
+    <div class="sec-stage-result">PASS · 0 críticos</div>
+  </div>
+  <div class="sec-arrow-big">→</div>
+
+  <div class="sec-stage">
+    <div class="sec-stage-num">Gate 6</div>
+    <div class="sec-stage-name">SCA</div>
+    <div class="sec-stage-tool">trivy fs --scanners secret</div>
+    <div class="sec-stage-tool">--severity HIGH,CRITICAL</div>
+    <div class="sec-stage-result">git commit ✅</div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════ DEPLOYMENT ════════════════ -->
+<div class="section-title">Deployment</div>
+<div class="deploy-grid">
+
+  <div class="deploy-card">
+    <div class="deploy-title" style="color:#60a5fa">📱 iOS App</div>
+    <div class="deploy-step"><span class="deploy-step-num">1</span> Xcode → Archive (TripSquad scheme)</div>
+    <div class="deploy-step"><span class="deploy-step-num">2</span> Organizer → Distribute App</div>
+    <div class="deploy-step"><span class="deploy-step-num">3</span> App Store Connect upload</div>
+    <div class="deploy-step"><span class="deploy-step-num">4</span> TestFlight beta (internal)</div>
+    <div class="deploy-step"><span class="deploy-step-num">5</span> App Store review → release</div>
+    <div style="margin-top:8px; font-size:10px; color:var(--muted)">Bundle ID: com.avilastudio.travesia · iOS 17+</div>
+  </div>
+
+  <div class="deploy-card">
+    <div class="deploy-title" style="color:#4ade80">🗄 Supabase Backend</div>
+    <div class="deploy-step"><span class="deploy-step-num">1</span> supabase db diff → genera migration</div>
+    <div class="deploy-step"><span class="deploy-step-num">2</span> Revisar SQL antes de aplicar</div>
+    <div class="deploy-step"><span class="deploy-step-num">3</span> supabase db push → remote DB</div>
+    <div class="deploy-step"><span class="deploy-step-num">4</span> Verificar en Supabase Studio</div>
+    <div style="margin-top:8px; font-size:10px; color:var(--muted)">25 migrations aplicadas · linked via CLI</div>
+  </div>
+
+  <div class="deploy-card">
+    <div class="deploy-title" style="color:#22d3ee">⚙️ CI — GitHub Actions</div>
+    <div class="deploy-step"><span class="deploy-step-num">PR</span> ci.yml: xcodebuild + tests + SwiftLint</div>
+    <div class="deploy-step"><span class="deploy-step-num">PUSH</span> security.yml: semgrep + gitleaks</div>
+    <div class="deploy-step"><span class="deploy-step-num">LOCAL</span> pre-commit hooks: 4 gates antes de commit</div>
+    <div style="margin-top:8px; font-size:10px; color:var(--muted)">225 tests · 0 lint violations · BUILD SUCCEEDED</div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════ FOOTER ══════════════ -->
+<div style="text-align:center; color: var(--muted); font-size: 11px; padding-top: 12px; border-top: 1px solid var(--border);">
+  Travesía iOS · Diagrama generado 2026-05-24 · Swift 5.10 · SwiftUI · Supabase · Clean Architecture · 6 Security Gates
+</div>
+
+</body>
+</html>
