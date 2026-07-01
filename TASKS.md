@@ -29,6 +29,9 @@
 ## Aplazado (Fase E / post-usuarios) — no tocar ahora
 - n8n como sistema agéntico custom (premature; reabrir solo si el trabajo se divide en flujos
   paralelos). Posible encaje futuro: backend de la Brújula IA.
+- my-virtual-office (github.com/eliautobot/my-virtual-office): dashboard 2D para VER a los
+  agentes (soporta Claude/Codex/Hermes). Premio, no base: montar cuando haya agentes
+  trabajando de verdad en TripSquad (post-diseño/código). Hoy no hay nada que ver.
 - (Hermes YA NO está aplazado: instalado local vía Ollama — ver ADR-0002 y docs/setup/hermes.md.)
 - Bloqueadores de lanzamiento iOS: cuenta Apple Developer, política de privacidad, borrado de
   cuenta funcional, StoreKit product IDs (para premium).
