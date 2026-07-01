@@ -22,10 +22,14 @@
 - [ ] CI GitHub Actions.
 - [ ] Conventional Commits + changelog.
 
+## Aprobado, en cola
+- [ ] Protocolo de auditoría multi-modelo: `docs/AUDIT.md` + `scripts/audit.sh` (Codex + Gemini
+      en solo-lectura sobre cambios staged) + ADR. Aprobado 2026-06-30; pendiente de escribir.
+
 ## Aplazado (Fase E / post-usuarios) — no tocar ahora
-- n8n + Hermes como sistema agéntico custom (premature; reabrir solo si el trabajo se divide
-  en flujos paralelos o se necesita inferencia local a volumen). Posible encaje futuro:
-  backend de la Brújula IA.
+- n8n como sistema agéntico custom (premature; reabrir solo si el trabajo se divide en flujos
+  paralelos). Posible encaje futuro: backend de la Brújula IA.
+- (Hermes YA NO está aplazado: instalado local vía Ollama — ver ADR-0002 y docs/setup/hermes.md.)
 - Bloqueadores de lanzamiento iOS: cuenta Apple Developer, política de privacidad, borrado de
   cuenta funcional, StoreKit product IDs (para premium).
 
