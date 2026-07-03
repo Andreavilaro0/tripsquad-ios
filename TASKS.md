@@ -1,15 +1,16 @@
 # TASKS — TripSquad
 
 ## Ahora (siguiente sesión)
-- [ ] **Diseño visual** (retomar `/design-consultation`): ver "riesgos más salvajes" → elegir
-      UNA dirección → generar 3 mockups → escribir `DESIGN.md` → registrar **ADR-0002 (dirección
-      de diseño)**. Es el mayor dolor histórico; es la prioridad.
+- [ ] **Alcance MVP** (`/plan-ceo-review`): decidir qué entra en v1 (¿bento completo o subconjunto
+      para el primer viaje de prueba? ¿Brújula IA en v1 o aplazada?). El diseño ya está cerrado.
+
+## Diseño real (post-lock, no bloquea el arranque)
+- [ ] Fotografía curada/propia con dirección de arte consistente (lo #1 anti-slop, ver DESIGN.md).
+- [ ] Wordmark + iconografía bespoke (ahora simulados con Fraunces cursiva + iconos genéricos).
 
 ## Pronto
 - [ ] Re-marcar docs heredados: "Travesía" → "TripSquad" en `docs/travesia-*` (y renombrar archivos).
 - [ ] Consolidar `product-overview` + `navigation-map` en un spec vivo gobernante.
-- [ ] `/plan-ceo-review` → decidir alcance MVP v1 (¿bento completo o subconjunto para el primer
-      viaje de prueba? ¿Brújula IA en v1 o aplazada?).
 - [ ] Confirmar auth de auditores: `codex` y `gemini` logueados (CLIs ya instalados).
 
 ## Después del diseño
@@ -37,6 +38,9 @@
   cuenta funcional, StoreKit product IDs (para premium).
 
 ## Hecho
+- [x] 2026-07-03 **Dirección de diseño CERRADA**: `DESIGN.md` + ADR-0003 (editorial minimal cálido).
+      Incluye investigación anti-slop (clichés IA + reformulación) y minado de apps reales
+      (Retro valida la dirección). Previews en `~/.gstack/projects/TripSquad-iOS/designs/`.
 - [x] 2026-06-30 Sistema operativo del proyecto definido (office-hours, design doc aprobado).
 - [x] 2026-06-30 Marca decidida: TripSquad (ADR-0001).
 - [x] 2026-06-30 Base del repo: git init (main) + CLAUDE.md + constitution.md + CONTEXT.md +

@@ -39,9 +39,11 @@ Nada es "hecho" hasta: `xcodebuild` OK + SwiftLint + `gitleaks` (secretos) + `se
 + revisor de modelo distinto + aprobación de Andrea. Tools ya instalados en la máquina.
 
 ## Sistema de diseño
-Cuando exista `DESIGN.md`, léelo SIEMPRE antes de cualquier decisión visual. Hoy aún no está
-finalizado; el WIP vive en `docs/design/design-direction-WIP.md`. Norte memorable acordado:
-**"se siente premium, no una hoja de cálculo".**
+`DESIGN.md` (raíz) es la fuente de verdad — **léelo SIEMPRE antes de cualquier decisión visual o de
+UI.** Dirección v1 aprobada 2026-07-03 (ADR-0003): editorial minimal cálido (foto art-dirigida +
+serif Fraunces + aire; paleta papel/tinta/óxido; doble registro). Norte memorable:
+**"se siente premium, no una hoja de cálculo".** El WIP viejo (`docs/design/design-direction-WIP.md`)
+quedó superseded.
 
 ## Documentación
 Estructura Diátaxis (tutorial / how-to / reference / explanation). Docs en git, versionados
