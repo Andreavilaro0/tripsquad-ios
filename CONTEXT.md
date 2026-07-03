@@ -8,20 +8,19 @@ liquidación, votaciones, fotos, Brújula IA (premium). Valor = integración (el
 
 ## Fase actual
 **Pre-código, design-first.** Código anterior borrado a propósito (bucle de rediseñar en
-mitad de código). Orden de trabajo: sistema operativo (hecho) → diseño visual (✅ CERRADO,
-ver DESIGN.md + ADR-0003) → alcance MVP (SIGUIENTE) → arquitectura → código.
+mitad de código). Orden de trabajo: sistema operativo (hecho) → diseño visual (EN CURSO) →
+alcance MVP → arquitectura → código.
 
-## Dónde estamos (2026-07-03)
+## Dónde estamos (2026-06-30)
 - ✅ Sistema operativo del proyecto definido (método, arsenal, gobierno de agentes, memoria,
   decisiones-ADR, documentación). Design doc aprobado:
   `~/.gstack/projects/docs/andreaavila-no-git-design-20260630-153734.md`.
 - ✅ Marca decidida: **TripSquad** (ADR-0001).
 - ✅ Base del repo montada: git (main), CLAUDE.md, constitution.md, docs/decisions, etc.
-- ✅ **Diseño visual CERRADO (2026-07-03)** (`/design-consultation`). Dirección: **editorial
-  minimal cálido** (foto art-dirigida a sangre + serif Fraunces + aire; paleta papel/tinta/óxido;
-  doble registro social/dinero). Fuente de verdad: **`DESIGN.md`**. Decisión: **ADR-0003**. Validada
-  contra la app real Retro. Previews + investigación anti-slop en
-  `~/.gstack/projects/TripSquad-iOS/designs/design-system-20260702/`.
+- 🔄 **Diseño visual EN CURSO** (`/design-consultation`). Norte memorable: **"se siente premium,
+  no una hoja de cálculo"**. Sistema propuesto y tesis de doble registro en
+  `docs/design/design-direction-WIP.md`. Pendiente: ver "riesgos más salvajes" → elegir
+  dirección → generar 3 mockups → DESIGN.md + ADR-0002.
 
 ## Producto (spec heredado — re-marcar de "Travesía" a "TripSquad")
 - `docs/travesia-product-overview.md` — el qué/por qué de cada pantalla.

@@ -1,11 +1,7 @@
-# Diseño — dirección (WIP, SUPERSEDED)
+# Diseño — dirección (WIP, NO finalizado)
 
-> **SUPERSEDED 2026-07-03 por `DESIGN.md` + ADR-0003.** Queda como registro histórico del proceso.
-> La dirección final NO es la de este archivo (vidrio/aurora con gradientes): tras iterar y hacer
-> investigación anti-IA, Andrea eligió **editorial minimal cálido** (foto + serif + aire, sin
-> gradientes ni cajas iguales). Ver `DESIGN.md`.
-
-Estado: **superseded** (histórico).
+Estado: **en curso** (`/design-consultation`). Esto NO es el `DESIGN.md` final. Es el punto
+de partida para retomar. La dirección aún no está elegida (ADR-0002 pendiente).
 
 ## Norte memorable (decidido)
 **"Se siente premium, no una hoja de cálculo."** Cada decisión se pregunta: ¿se siente caro y
