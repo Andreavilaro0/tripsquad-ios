@@ -1,0 +1,1200 @@
+<title>TripSquad · La app</title>
+<style>
+  :root{
+    --page:#E9E3D7; --ink:#241F1A; --lo:#8C8375; --line:#241F1A14;
+    --crema:#F5F1E9; --blanco:#FFFFFF; --papel:#FBF7EF;
+    --acc:#9782B8;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);
+    line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  .grain{position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.5;mix-blend-mode:soft-light;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+  section{padding:72px 0;border-top:1px solid var(--line)}
+  section:first-of-type{border-top:0;padding-top:88px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--lo);margin:0 0 18px}
+  h1{font-weight:300;font-size:clamp(36px,6.5vw,62px);line-height:1.05;
+    letter-spacing:-.02em;text-wrap:balance;margin:0 0 20px;color:var(--ink)}
+  h1 span{color:var(--lo)}
+  .lead{font-size:clamp(16px,2.1vw,20px);color:var(--lo);max-width:48ch;margin:0;font-weight:400}
+  .muted{color:var(--lo)} p{max-width:62ch}
+  .flag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--lo);border:1px solid var(--line);
+    border-radius:999px;padding:5px 12px;margin-bottom:24px;background:rgba(255,255,255,.4)}
+  .flag i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);
+    margin-right:7px;vertical-align:1px;transition:background .35s}
+
+  /* ================= TELÉFONO ================= */
+  .stage{display:flex;gap:56px;align-items:flex-start;justify-content:center;flex-wrap:wrap;margin-top:40px}
+  .phone{width:390px;height:844px;border-radius:54px;padding:12px;flex:0 0 auto;
+    background:linear-gradient(#3a352e,#181512);position:sticky;top:24px;
+    box-shadow:0 60px 120px -40px rgba(40,32,22,.55),0 0 0 1px rgba(0,0,0,.2)}
+  .screen{position:relative;width:100%;height:100%;border-radius:42px;overflow:hidden;background:var(--crema)}
+
+  .hero{position:absolute;top:0;left:0;right:0;height:52%;
+    background:url("data:image/jpeg;base64,__FOTO__") center 22%/cover no-repeat;
+    filter:saturate(.82)}
+  .hero::after{content:"";position:absolute;inset:0;background:
+    linear-gradient(rgba(25,18,12,.34),rgba(25,18,12,0) 30%),
+    linear-gradient(transparent 46%,rgba(245,241,233,.55) 74%,#F5F1E9 96%)}
+
+  .status{position:absolute;top:16px;left:0;right:0;display:flex;justify-content:space-between;
+    align-items:center;padding:0 24px;z-index:5}
+  .status .t{font-size:14px;font-weight:600;color:#fff;opacity:.95}
+
+  .avatars{position:absolute;top:46px;right:20px;display:flex;z-index:5}
+  .avatars i{width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(255,255,255,.75);
+    margin-left:-7px;background:var(--av)}
+
+  .head{position:absolute;left:22px;right:22px;top:322px;z-index:4}
+  .chips{display:flex;gap:8px;margin-bottom:12px}
+  .chipd{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;
+    font-size:12px;font-weight:500;color:var(--ink);
+    background:rgba(255,255,255,.34);backdrop-filter:blur(16px) saturate(170%);
+    -webkit-backdrop-filter:blur(16px) saturate(170%);
+    border:1px solid rgba(255,255,255,.62);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 4px 14px -8px rgba(36,28,18,.3)}
+  .chipd b{width:6px;height:6px;border-radius:50%;background:var(--acc);transition:background .35s}
+  .city{font-size:44px;font-weight:350;color:var(--ink);line-height:1.08;letter-spacing:-.015em;margin:0}
+  .city2{font-size:30px;font-weight:350;color:var(--lo);line-height:1.15;margin:0;letter-spacing:-.01em}
+  .cd{display:flex;margin-top:14px;border-radius:16px;overflow:hidden;width:fit-content;
+    background:rgba(255,255,255,.36);backdrop-filter:blur(18px) saturate(170%);
+    -webkit-backdrop-filter:blur(18px) saturate(170%);
+    border:1px solid rgba(255,255,255,.62);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 8px 24px -14px rgba(36,28,18,.35)}
+  .cd div{padding:9px 18px;text-align:center}
+  .cd div+div{border-left:1px solid rgba(255,255,255,.55)}
+  .cd b{display:block;font-family:var(--mono);font-size:19px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+  .cd span{font-family:var(--mono);font-size:8.5px;letter-spacing:.22em;color:var(--lo);text-transform:uppercase}
+
+  /* ================= LISTA / SHEET ================= */
+  .sheet{position:absolute;left:0;right:0;bottom:0;top:64.5%;z-index:8;
+    background:linear-gradient(170deg,rgba(255,250,242,.55),rgba(240,222,204,.42));
+    backdrop-filter:blur(24px) saturate(165%);
+    -webkit-backdrop-filter:blur(24px) saturate(165%);
+    border-top:1px solid rgba(255,255,255,.65);border-radius:26px 26px 0 0;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 -12px 40px -24px rgba(36,28,18,.3);
+    transition:top .45s cubic-bezier(.32,.72,.25,1);display:flex;flex-direction:column;overflow:hidden}
+  .sheet.up{top:12%}
+  .handle{padding:9px 0 4px;display:flex;justify-content:center;cursor:grab;flex:0 0 auto}
+  .handle i{width:34px;height:4px;border-radius:3px;background:rgba(36,31,26,.2);transition:background .2s}
+  .handle:hover i{background:rgba(36,31,26,.4)}
+  .sheet-scroll{overflow:hidden auto;padding:2px 14px 96px;flex:1}
+  .dayrow{display:flex;align-items:baseline;margin:6px 6px 10px}
+  .dayrow .d{font-size:14px;font-weight:600;color:var(--ink)}
+  .dayrow .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+    color:var(--lo);text-transform:uppercase}
+
+  .item{display:flex;align-items:center;gap:12px;padding:10px;border-radius:16px;margin-bottom:8px;
+    background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.7);
+    box-shadow:0 1px 3px rgba(36,28,18,.05);
+    cursor:pointer;transition:transform .15s,box-shadow .2s}
+  .item:active{transform:scale(.985);box-shadow:0 1px 2px rgba(36,28,18,.08)}
+  .thumb{width:44px;height:44px;border-radius:10px;flex:0 0 auto;
+    background:url("data:image/jpeg;base64,__FOTO__") center/cover;filter:saturate(.85)}
+  .thumb.icon{display:flex;align-items:center;justify-content:center;font-size:17px;
+    background:var(--crema);border:1px solid var(--line);filter:none}
+  .item h5{margin:0;font-size:14.5px;font-weight:600;color:var(--ink)}
+  .item p{margin:1px 0 0;font-size:12.5px;color:var(--lo)}
+  .state{margin-left:auto;flex:0 0 auto;display:flex;align-items:center;gap:8px}
+  .tagchip{font-size:11px;font-weight:500;padding:5px 10px;border-radius:999px;color:var(--lo);
+    background:rgba(36,31,26,.045);border:1px solid rgba(36,31,26,.06);
+    transition:color .3s,border-color .3s}
+  .radio{width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(36,31,26,.25);
+    display:flex;align-items:center;justify-content:center;font-size:11px;color:transparent;
+    transition:all .25s}
+  .item.done .radio{background:var(--acc);border-color:var(--acc);color:#fff}
+  .item.done .tagchip{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 40%,transparent)}
+  .item.done h5{color:var(--lo);text-decoration:line-through;text-decoration-color:rgba(36,31,26,.3)}
+  .next .thumb{width:52px;height:52px}
+  .next .arrow{width:28px;height:28px;border-radius:50%;
+    background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.7);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+    display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:13px}
+
+  /* dinero en calma: recibo */
+  .money{background:var(--papel);color:var(--ink);border-radius:14px;padding:14px;margin:6px 0 8px;
+    border:1px solid rgba(36,31,26,.07);cursor:pointer;transition:transform .15s}
+  .money:active{transform:scale(.985)}
+  .money .top{display:flex;align-items:baseline;justify-content:space-between}
+  .money .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#9a8f7c}
+  .money .tot{font-family:var(--mono);font-size:21px;font-weight:600;letter-spacing:-.02em}
+  .money .deb{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--acc);
+    filter:brightness(.8) saturate(1.3);transition:color .35s}
+  .money .bar{height:4px;border-radius:3px;background:#e8dfcd;margin-top:10px;overflow:hidden}
+  .money .bar i{display:block;height:100%;width:64%;background:#c9bda5;border-radius:3px}
+  .money .det{max-height:0;overflow:hidden;transition:max-height .4s ease;font-family:var(--mono);font-size:12px}
+  .money.open .det{max-height:120px}
+  .money .det div{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #ddd2ba}
+  .money .det div:first-child{margin-top:12px}
+
+  /* ================= TAB BAR ================= */
+  .tabbar{position:absolute;left:50%;transform:translateX(-50%);bottom:16px;z-index:20;
+    display:flex;gap:2px;padding:6px;border-radius:999px;
+    background:linear-gradient(160deg,rgba(255,250,243,.5),rgba(240,220,200,.38));
+    backdrop-filter:blur(22px) saturate(185%);
+    -webkit-backdrop-filter:blur(22px) saturate(185%);border:1px solid rgba(255,255,255,.68);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.78),inset 0 -1px 0 rgba(36,31,26,.04),
+      0 12px 32px -14px rgba(36,28,18,.35)}
+  .tab{width:58px;padding:9px 0 7px;border-radius:999px;display:flex;flex-direction:column;align-items:center;
+    gap:3px;cursor:pointer;user-select:none;color:rgba(36,31,26,.4);position:relative;
+    transition:color .25s,transform .15s}
+  .tab:active{transform:scale(.92)}
+  .tab svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .tab span{font-size:9px;font-weight:600;letter-spacing:.04em}
+  .tab.on{color:var(--ink);background:rgba(255,255,255,.55);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.8),0 2px 8px -4px rgba(36,28,18,.25)}
+  .tab.on::after{content:"";position:absolute;bottom:2px;width:4px;height:4px;border-radius:50%;
+    background:var(--acc);transition:background .35s}
+
+
+  /* ================= VISTAS (tabs) ================= */
+  .view{position:absolute;inset:0;z-index:6;display:none;flex-direction:column;background:var(--crema)}
+  .view.on{display:flex}
+  .vhead{padding:58px 20px 8px;flex:0 0 auto}
+  .vtitle{font-size:30px;font-weight:350;color:var(--ink);margin:0;letter-spacing:-.015em}
+  .vsub{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--lo);margin:4px 0 0}
+  .vscroll{flex:1;overflow:hidden auto;padding:8px 14px 120px}
+  .altview .hero,.altview .head,.altview .sheet,.altview .avatars{display:none}
+  .altview .status .t{color:var(--ink)}
+
+  /* chat */
+  .chatcol{display:flex;flex-direction:column}
+  .bwrap{display:flex;flex-direction:column;margin-bottom:10px}
+  .bmeta{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--lo);margin:0 6px 3px}
+  .bub{max-width:74%;padding:9px 13px;border-radius:16px;font-size:13.5px;line-height:1.42}
+  .bwrap.in{align-items:flex-start}
+  .bwrap.out{align-items:flex-end}
+  .in .bub{background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.7);
+    border-bottom-left-radius:6px;color:var(--ink)}
+  .out .bub{background:var(--ink);color:#F2ECE4;border-bottom-right-radius:6px}
+  .daychip{align-self:center;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--lo);margin:8px 0 12px}
+  .chatinput{position:absolute;left:14px;right:14px;bottom:82px;z-index:22;display:flex;gap:8px;
+    align-items:center;padding:6px 6px 6px 16px;border-radius:999px;
+    background:rgba(255,255,255,.4);backdrop-filter:blur(20px) saturate(170%);
+    -webkit-backdrop-filter:blur(20px) saturate(170%);border:1px solid rgba(255,255,255,.65);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 10px 28px -14px rgba(36,28,18,.35)}
+  .chatinput span{flex:1;font-size:13.5px;color:var(--lo)}
+  .chatinput .send{width:34px;height:34px;border-radius:50%;background:var(--ink);color:#F2ECE4;
+    display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;
+    transition:transform .15s}
+  .chatinput .send:active{transform:scale(.9)}
+
+  /* planes */
+  .days{display:flex;gap:8px;margin:4px 0 14px;overflow-x:auto;padding-bottom:2px}
+  .dayc{flex:0 0 auto;padding:7px 14px;border-radius:999px;font-size:12px;font-weight:600;color:var(--lo);
+    background:rgba(255,255,255,.34);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.6);cursor:pointer;transition:all .2s}
+  .dayc.on{color:var(--ink);background:rgba(255,255,255,.7);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}
+  .stops{position:relative;padding-left:56px}
+  .stops::before{content:"";position:absolute;left:44px;top:8px;bottom:8px;width:1px;
+    background:rgba(36,31,26,.12)}
+  .stop{position:relative;margin-bottom:12px}
+  .stop .tt{position:absolute;left:-56px;top:12px;width:38px;text-align:right;
+    font-family:var(--mono);font-size:10px;color:var(--lo)}
+  .stop::before{content:"";position:absolute;left:-14.5px;top:16px;width:6px;height:6px;
+    border-radius:50%;background:rgba(36,31,26,.25)}
+  .stop.now::before{background:var(--acc)}
+  .stop .item{margin-bottom:0}
+
+  /* gastos */
+  .gtotal{display:flex;align-items:center;gap:18px;padding:16px;border-radius:16px;margin-bottom:10px;
+    background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.7);
+    box-shadow:0 1px 3px rgba(36,28,18,.05)}
+  .donut{width:88px;height:88px;border-radius:50%;flex:0 0 auto;position:relative;
+    background:conic-gradient(var(--lav) 0 43%, var(--ter) 43% 73%, var(--sal) 73% 90%, var(--amb) 90% 100%)}
+  .donut::after{content:"";position:absolute;inset:14px;border-radius:50%;background:var(--crema)}
+  .gtotal .tot{font-family:var(--mono);font-size:24px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+  .gtotal .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--lo)}
+  .leg{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+  .leg span{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--lo)}
+  .leg i{width:8px;height:8px;border-radius:3px;flex:0 0 auto}
+  .balance{background:var(--papel);border:1px solid rgba(36,31,26,.07);border-radius:14px;
+    padding:14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+  .balance .b1{font-size:12.5px;color:var(--lo);max-width:11ch}
+  .balance .b2{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--acc);white-space:nowrap;
+    filter:brightness(.8) saturate(1.3)}
+  .prow{display:flex;align-items:center;gap:12px;padding:11px 10px;border-radius:14px;margin-bottom:6px;
+    background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.7)}
+  .prow .av{width:32px;height:32px;border-radius:50%;flex:0 0 auto;background:var(--av)}
+  .prow h6{margin:0;font-size:13.5px;font-weight:600;color:var(--ink)}
+  .prow p{margin:1px 0 0;font-size:11.5px;color:var(--lo)}
+  .prow .amt{margin-left:auto;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink)}
+  .prow .amt.neg{color:var(--acc);filter:brightness(.8) saturate(1.3)}
+
+  /* fotos */
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .fph{aspect-ratio:1;border-radius:12px;background-image:url("data:image/jpeg;base64,__FOTO__");
+    background-size:340%;filter:saturate(.85);cursor:pointer;transition:transform .15s}
+  .fph:active{transform:scale(.96)}
+  .fadd{aspect-ratio:1;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    font-size:22px;color:var(--lo);background:rgba(255,255,255,.4);
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border:1px dashed rgba(36,31,26,.2);cursor:pointer}
+
+
+  /* paleta funcional apagada (categorías/días) */
+  :root{--lav:#9782B8;--sal:#7FA08C;--ter:#C98A6B;--amb:#D8B24A;--agua:#9FB6BF}
+
+  /* mapa con pines */
+  .mapcard{position:relative;height:200px;border-radius:16px;overflow:hidden;margin-bottom:14px;
+    border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 10px -6px rgba(36,28,18,.2);
+    background:#EFE8DA}
+  .mapcard svg{position:absolute;inset:0;width:100%;height:100%}
+  .pin{position:absolute;width:36px;height:36px;border-radius:50%;
+    background-image:url("data:image/jpeg;base64,__FOTO__");background-size:300%;
+    border:2.5px solid var(--pc);box-shadow:0 5px 12px -4px rgba(36,28,18,.45);
+    cursor:pointer;transition:transform .2s}
+  .pin:active{transform:scale(1.18)}
+  .pin::after{content:"";position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);
+    border:5px solid transparent;border-top:7px solid var(--pc)}
+  .pin b{position:absolute;top:-6px;right:-6px;width:15px;height:15px;border-radius:50%;
+    background:var(--pc);color:#fff;font-size:9px;font-weight:700;display:flex;
+    align-items:center;justify-content:center;font-family:var(--mono)}
+  .mapchip{position:absolute;left:10px;bottom:10px;font-family:var(--mono);font-size:9px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--ink);padding:5px 10px;border-radius:999px;
+    background:rgba(255,255,255,.55);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.7)}
+
+  /* timeline con color por tipo */
+  .stop.c-ter::before{background:var(--ter)}
+  .stop.c-sal::before{background:var(--sal)}
+  .stop.c-amb::before{background:var(--amb)}
+  .stop.c-lav::before{background:var(--lav)}
+
+  /* gastos con color funcional */
+  .cats{display:flex;gap:8px;margin-bottom:10px}
+  .cat{flex:1;border-radius:14px;padding:10px 12px;border:1px solid rgba(255,255,255,.7);
+    background:color-mix(in srgb,var(--cc) 14%,#fff)}
+  .cat i{display:block;margin-bottom:5px;font-style:normal}.cat i .sic{opacity:.85}
+  .cat b{display:block;font-family:var(--mono);font-size:13px;color:var(--ink)}
+  .cat span{font-size:10px;color:var(--lo)}
+  .balance{position:relative}
+  .balance::after{content:"";position:absolute;left:0;right:0;bottom:-6px;height:7px;
+    background:linear-gradient(-45deg,transparent 33.33%,var(--papel) 33.33%,var(--papel) 66.66%,transparent 66.66%),
+      linear-gradient(45deg,transparent 33.33%,var(--papel) 33.33%,var(--papel) 66.66%,transparent 66.66%);
+    background-size:12px 14px;background-position:0 -7px}
+  .amt.pos{color:var(--sal)}
+  .prow .amt.neg{color:var(--ter);filter:none}
+  .settle{display:inline-flex;align-items:center;gap:6px;margin-left:10px;font-size:11px;
+    font-weight:700;color:#fff;background:var(--ink);border-radius:999px;padding:6px 12px;cursor:pointer;
+    transition:transform .15s}
+  .settle:active{transform:scale(.94)}
+
+  /* fotos creativas */
+  .fgrid{grid-auto-flow:dense}
+  .fph{position:relative}
+  .glowwrap{grid-column:span 2;grid-row:span 2;border-radius:17px;padding:2.5px;position:relative;
+    background:linear-gradient(120deg,#E8A9C4,#D8B24A 45%,#9782B8)}
+  .glowwrap::before{content:"";position:absolute;inset:-6px;border-radius:21px;z-index:-1;
+    background:linear-gradient(120deg,#E8A9C4,#D8B24A 45%,#9782B8);filter:blur(12px);opacity:.4}
+  .glowwrap .fph{width:100%;height:100%;border-radius:14.5px;display:block}
+  .fph.t1{transform:rotate(-1.4deg)}
+  .fph.t2{transform:rotate(1.1deg)}
+  .flab{position:absolute;left:6px;bottom:6px;display:inline-flex;align-items:center;gap:5px;
+    font-family:var(--mono);font-size:8px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink);padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.7);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .flab i{width:5px;height:5px;border-radius:50%;background:var(--dc)}
+  .reacts{display:flex;gap:6px;margin:10px 2px 12px}
+  .react{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink);
+    padding:6px 11px;border-radius:999px;background:rgba(255,255,255,.6);
+    border:1px solid rgba(255,255,255,.7);cursor:pointer;transition:transform .15s,background .2s}
+  .react:active{transform:scale(1.12)}
+  .react b{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--lo)}
+  .fadd{background:rgba(255,255,255,.4);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border:1px dashed rgba(36,31,26,.22);color:var(--ink)}
+  .miniseal{position:absolute;top:52px;right:18px;width:58px;height:58px;border-radius:50%;z-index:3;
+    display:flex;align-items:center;justify-content:center;transform:rotate(8deg);
+    background:radial-gradient(circle at 38% 32%,#DBBE8A,#C9A876 55%,#A9885B);
+    box-shadow:inset 0 1px 3px rgba(255,255,255,.55),inset 0 -2px 4px rgba(90,60,20,.35),0 5px 12px -6px rgba(90,60,20,.5)}
+  .miniseal::after{content:"";position:absolute;inset:5px;border-radius:50%;border:1px dashed rgba(93,69,32,.55)}
+  .miniseal svg{color:#5d4520}
+
+
+  /* mapa a pantalla completa */
+  .mapcard{cursor:pointer}
+  .mapcard::after{content:"⤢";position:absolute;right:10px;top:10px;width:26px;height:26px;
+    border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;
+    color:var(--ink);background:rgba(255,255,255,.6);backdrop-filter:blur(8px);
+    -webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.7)}
+  .mapfull{position:absolute;inset:0;z-index:30;background:#EFE8DA;opacity:0;pointer-events:none;
+    transform:scale(1.04);transition:opacity .3s ease,transform .35s cubic-bezier(.32,.72,.25,1)}
+  .mapfull.on{opacity:1;pointer-events:auto;transform:none}
+  .mapfull svg{position:absolute;inset:0;width:100%;height:100%}
+  .mclose{position:absolute;top:54px;right:16px;z-index:5;width:36px;height:36px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink);
+    background:rgba(255,255,255,.5);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.7);box-shadow:inset 0 1px 0 rgba(255,255,255,.8);cursor:pointer;
+    transition:transform .15s}
+  .mclose:active{transform:scale(.9)}
+  .mtitle{position:absolute;top:56px;left:16px;z-index:5;display:inline-flex;align-items:center;gap:7px;
+    padding:8px 14px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--ink);
+    background:rgba(255,255,255,.5);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.7);box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}
+  .mtitle b{width:6px;height:6px;border-radius:50%;background:var(--acc)}
+  .mpin{width:46px;height:46px}
+  .mpin b{width:17px;height:17px;font-size:10px}
+  .mstops{position:absolute;left:0;right:0;bottom:18px;z-index:5;display:flex;gap:10px;
+    overflow-x:auto;padding:4px 16px}
+  .mstop{flex:0 0 auto;width:198px;display:flex;align-items:center;gap:10px;padding:9px;
+    border-radius:14px;background:rgba(255,255,255,.62);backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.75);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.8),0 8px 20px -12px rgba(36,28,18,.3)}
+  .mstop .thumb{width:38px;height:38px;border-radius:9px}
+  .mstop h6{margin:0;font-size:12.5px;font-weight:600;color:var(--ink)}
+  .mstop p{margin:1px 0 0;font-family:var(--mono);font-size:9.5px;color:var(--lo)}
+  .mstop i{width:6px;height:6px;border-radius:50%;flex:0 0 auto;font-style:normal;background:var(--pc)}
+
+
+  /* ================= NIVEL INICIO ================= */
+  .home{position:absolute;inset:0;z-index:12;display:none;flex-direction:column;background:var(--crema)}
+  .screen.athome .home{display:flex}
+  .screen.athome .hero,.screen.athome .head,.screen.athome .sheet,.screen.athome .avatars,
+  .screen.athome .tabbar{display:none}
+  .screen.athome .status .t{color:var(--ink)}
+  .hscroll{flex:1;overflow:hidden auto;padding:58px 16px 40px}
+  .hgreet{font-size:32px;font-weight:350;color:var(--ink);margin:6px 4px 2px;letter-spacing:-.018em}
+  .hsub{font-size:13px;color:var(--lo);margin:0 4px 16px}
+  .sect{display:flex;align-items:baseline;margin:18px 6px 10px}
+  .sect h4{margin:0;font-size:15px;font-weight:600;color:var(--ink)}
+  .sect span{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--lo)}
+
+  .tripcard{position:relative;height:200px;border-radius:18px;overflow:hidden;cursor:pointer;
+    border:1px solid rgba(255,255,255,.75);box-shadow:0 10px 30px -16px rgba(36,28,18,.4);
+    transition:transform .15s}
+  .tripcard:active{transform:scale(.985)}
+  .tripcard .bg2{position:absolute;inset:0;background-image:url("data:image/jpeg;base64,__FOTO__");
+    background-size:cover;background-position:center 30%;filter:saturate(.85)}
+  .tripcard .sc{position:absolute;inset:0;background:linear-gradient(rgba(20,14,10,.05),rgba(20,14,10,.62))}
+  .tripcard .tc{position:absolute;left:14px;right:14px;bottom:12px;color:#fff}
+  .tripcard .tc h5{margin:0;font-size:22px;font-weight:400}
+  .tripcard .tc p{margin:2px 0 0;font-size:12px;opacity:.85}
+  .tripcard .cdm{position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:6px;
+    padding:6px 11px;border-radius:999px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+    color:#fff;background:rgba(20,15,10,.4);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,.35)}
+  .tripcard .cdm b{width:5px;height:5px;border-radius:50%;background:var(--acc)}
+  .tripcard .avs{position:absolute;top:12px;left:12px;display:flex}
+  .tripcard .avs i{width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,.8);
+    margin-left:-6px;background:var(--av)}
+
+  .triprow{display:flex;align-items:center;gap:12px;padding:10px;border-radius:16px;margin-bottom:8px;
+    background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.7);cursor:pointer;
+    box-shadow:0 1px 3px rgba(36,28,18,.05);transition:transform .15s}
+  .triprow:active{transform:scale(.985)}
+  .triprow .thumb{width:46px;height:46px;border-radius:11px}
+  .triprow h5{margin:0;font-size:14px;font-weight:600;color:var(--ink)}
+  .triprow p{margin:1px 0 0;font-size:12px;color:var(--lo)}
+  .triprow .st{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--lo)}
+
+  .popular{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 6px;margin:0 2px}
+  .pop{flex:0 0 132px;border-radius:14px;overflow:hidden;position:relative;height:170px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.7);transition:transform .15s}
+  .pop:active{transform:scale(.96)}
+  .pop .pbg{position:absolute;inset:0;background-image:url("data:image/jpeg;base64,__FOTO__");
+    background-size:400%;filter:saturate(.9)}
+  .pop .psc{position:absolute;inset:0;background:linear-gradient(transparent 40%,rgba(20,14,10,.66))}
+  .pop .pt{position:absolute;left:10px;right:10px;bottom:8px;color:#fff}
+  .pop .pt h6{margin:0;font-size:13.5px;font-weight:600}
+  .pop .pt p{margin:1px 0 0;font-family:var(--mono);font-size:9px;letter-spacing:.1em;opacity:.85}
+
+  .newtrip{position:absolute;right:16px;bottom:20px;z-index:14;display:flex;align-items:center;gap:8px;
+    padding:13px 20px;border-radius:999px;background:var(--ink);color:#F2ECE4;font-size:14px;
+    font-weight:650;cursor:pointer;box-shadow:0 14px 30px -12px rgba(36,28,18,.5);transition:transform .15s}
+  .newtrip:active{transform:scale(.94)}
+
+  .bruj{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:16px;margin-bottom:4px;
+    cursor:pointer;transition:transform .15s;
+    background:rgba(255,255,255,.42);backdrop-filter:blur(16px) saturate(160%);
+    -webkit-backdrop-filter:blur(16px) saturate(160%);border:1px solid rgba(255,255,255,.7);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 6px 18px -12px rgba(36,28,18,.3)}
+  .bruj:active{transform:scale(.985)}
+  .bruj .bic{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.75);
+    display:flex;align-items:center;justify-content:center;font-size:17px;flex:0 0 auto;
+    box-shadow:inset 0 1px 0 #fff}
+  .bruj h5{margin:0;font-size:14px;font-weight:650;color:var(--ink)}
+  .bruj p{margin:1px 0 0;font-size:11.5px;color:var(--lo)}
+  .badge{margin-left:auto;flex:0 0 auto;font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;padding:5px 9px;border-radius:999px;font-weight:700}
+  .badge.free{color:var(--acc);background:rgba(255,255,255,.6);border:1px solid color-mix(in srgb,var(--acc) 55%,transparent);filter:brightness(.85) saturate(1.2)}
+  .badge.lock{color:var(--ink);background:rgba(255,255,255,.7);border:1px solid rgba(36,31,26,.15)}
+
+  /* empty state */
+  .empty{text-align:center;padding:26px 20px 10px}
+  .empty .orb{width:72px;height:72px;margin:6px auto 14px;border-radius:50%;
+    background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8);
+    box-shadow:inset 0 1px 0 #fff,0 8px 22px -12px rgba(36,28,18,.3);
+    display:flex;align-items:center;justify-content:center}
+  .empty .orb::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--acc)}
+  .empty h4{margin:0;font-size:21px;font-weight:400;color:var(--ink)}
+  .empty p{margin:6px auto 0;font-size:13px;color:var(--lo);max-width:26ch}
+
+  /* ================= CREAR VIAJE ================= */
+  .modal{position:absolute;inset:0;z-index:40;display:none;align-items:flex-end;
+    background:rgba(20,15,10,.35);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+  .modal.on{display:flex}
+  .msheet{width:100%;border-radius:26px 26px 0 0;padding:14px 16px 26px;
+    background:rgba(248,244,236,.92);backdrop-filter:blur(24px) saturate(150%);
+    -webkit-backdrop-filter:blur(24px) saturate(150%);border-top:1px solid rgba(255,255,255,.7);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+  .msheet .mh{width:34px;height:4px;border-radius:3px;background:rgba(36,31,26,.2);margin:0 auto 14px}
+  .msheet h4{margin:0 4px 12px;font-size:19px;font-weight:400;color:var(--ink)}
+  .path2{display:flex;flex-direction:column;gap:10px}
+  .opt{display:flex;align-items:center;gap:12px;padding:14px;border-radius:16px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.75);transition:transform .15s;background:rgba(255,255,255,.8)}
+  .opt:active{transform:scale(.985)}
+  .opt.ia{border-left:3px solid var(--acc)}
+  .opt .oic{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    font-size:18px;background:rgba(255,255,255,.8);box-shadow:inset 0 1px 0 #fff;flex:0 0 auto}
+  .opt h5{margin:0;font-size:14.5px;font-weight:650;color:var(--ink)}
+  .opt p{margin:2px 0 0;font-size:12px;color:var(--lo)}
+
+  /* ================= BRÚJULA ================= */
+  .bview{position:absolute;inset:0;z-index:16;display:none;flex-direction:column;background:var(--crema)}
+  .bview.on{display:flex}
+  .bhead{padding:56px 18px 8px;display:flex;align-items:center;gap:10px}
+  .bhead .back{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.6);
+    border:1px solid rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;
+    font-size:14px;color:var(--ink);cursor:pointer}
+  .bhead h3{margin:0;font-size:22px;font-weight:400;color:var(--ink)}
+  .bhead .badge{margin-left:auto}
+  .bchips{display:flex;gap:8px;padding:6px 18px 10px}
+  .bchip{padding:8px 14px;border-radius:999px;font-size:12px;font-weight:600;color:var(--ink);
+    background:rgba(255,255,255,.5);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,.7);cursor:pointer;transition:transform .15s}
+  .bchip:active{transform:scale(.94)}
+  .bscroll{flex:1;overflow:hidden auto;padding:4px 16px 120px;display:flex;flex-direction:column}
+  .rescard{border-radius:16px;padding:13px 14px;margin:8px 0 0;background:rgba(255,255,255,.85);
+    border:1px solid rgba(255,255,255,.75);box-shadow:0 1px 3px rgba(36,28,18,.06)}
+  .rescard .rk{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--lo);display:flex;align-items:center;gap:6px}
+  .rescard .rk i{width:5px;height:5px;border-radius:50%;background:var(--acc);font-style:normal}
+  .rescard .rmain{display:flex;align-items:center;gap:12px;margin-top:8px}
+  .rescard h5{margin:0;font-size:14.5px;font-weight:650;color:var(--ink)}
+  .rescard p{margin:2px 0 0;font-size:12px;color:var(--lo)}
+  .rescard .price{margin-left:auto;font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink)}
+  .bcta{margin:14px 0 0;padding:14px;border-radius:999px;background:var(--ink);color:#F2ECE4;
+    text-align:center;font-size:14px;font-weight:650;cursor:pointer;transition:transform .15s}
+  .bcta:active{transform:scale(.97)}
+
+  /* brújula bloqueada */
+  .bview.locked .bscroll{filter:blur(7px);pointer-events:none;user-select:none}
+  .lockveil{position:absolute;left:0;right:0;top:40%;z-index:6;display:none;text-align:center;padding:0 30px}
+  .bview.locked .lockveil{display:block}
+  .lockveil .lk{width:52px;height:52px;margin:0 auto 12px;border-radius:50%;
+    background:rgba(255,255,255,.75);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;font-size:22px;
+    box-shadow:0 10px 30px -12px rgba(36,28,18,.4)}
+  .lockveil h5{margin:0;font-size:17px;font-weight:650;color:var(--ink)}
+  .lockveil p{margin:5px 0 12px;font-size:12.5px;color:var(--lo)}
+  .lockveil .unlock{display:inline-block;padding:12px 22px;border-radius:999px;background:var(--ink);
+    color:#F2ECE4;font-size:13.5px;font-weight:650;cursor:pointer}
+
+  /* paywall */
+  .paysheet h4{text-align:center}
+  .plans{display:flex;flex-direction:column;gap:10px}
+  .plan{display:flex;align-items:center;gap:12px;padding:15px;border-radius:16px;cursor:pointer;
+    background:rgba(255,255,255,.85);border:1.5px solid rgba(36,31,26,.08);transition:all .2s}
+  .plan.sel{border-color:var(--acc)}
+  .plan h5{margin:0;font-size:14.5px;font-weight:650;color:var(--ink)}
+  .plan p{margin:2px 0 0;font-size:11.5px;color:var(--lo)}
+  .plan .pp{margin-left:auto;font-family:var(--mono);font-size:16px;font-weight:700;color:var(--ink)}
+  .plan .tag2{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:#DBBE8A;background:var(--ink);border:1px solid #C9A876;
+    padding:3px 8px;border-radius:999px;margin-left:8px}
+  .paybtn{margin-top:14px;padding:15px;border-radius:999px;background:#6E1423;color:#F5EDE4;
+    text-align:center;font-size:14.5px;font-weight:650;cursor:pointer;position:relative;overflow:hidden;
+    box-shadow:0 10px 24px -12px rgba(110,20,35,.55);transition:transform .15s}
+  .paybtn:active{transform:scale(.97)}
+  .plan.sel{border-color:#6E1423}
+  .plan .pp small{display:block;font-size:9.5px;font-weight:500;color:var(--lo);letter-spacing:.02em}
+  .paynote{margin:10px 0 0;text-align:center;font-size:11px;color:var(--lo)}
+
+
+  .sic{display:block;color:var(--ink);opacity:.75}
+
+
+  /* tab bar con centro elevado (patrón CYL) */
+  .tabc{width:56px;height:56px;border-radius:50%;margin:-26px 4px 0;flex:0 0 auto;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;position:relative;
+    background:linear-gradient(160deg,rgba(255,251,244,.68),rgba(242,222,202,.5));
+    backdrop-filter:blur(22px) saturate(190%);
+    -webkit-backdrop-filter:blur(22px) saturate(190%);
+    border:1px solid rgba(255,255,255,.82);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 14px 28px -12px rgba(36,28,18,.45);
+    transition:transform .15s}
+  .tabc:active{transform:scale(.92)}
+  .tabc .sic{width:24px;height:24px;opacity:.95}
+  .tabc::after{content:"";position:absolute;bottom:7px;width:4px;height:4px;border-radius:50%;
+    background:var(--acc);transition:background .35s}
+  .tab{position:relative}
+  .bdg{position:absolute;top:3px;right:9px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;
+    background:var(--ter);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;
+    justify-content:center;font-family:var(--mono)}
+
+  /* ================= PANEL LATERAL ================= */
+  .side{width:340px;flex:0 0 auto;padding-top:8px}
+  .side .blk{border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px;
+    background:rgba(255,255,255,.45)}
+  .side .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--lo);display:block;margin-bottom:12px}
+  .sw{display:flex;gap:9px;flex-wrap:wrap}
+  .chip{display:flex;align-items:center;gap:8px;padding:8px 13px;border-radius:999px;cursor:pointer;
+    border:1px solid var(--line);font-size:12.5px;font-weight:500;color:var(--lo);background:rgba(255,255,255,.5);
+    transition:border-color .25s,color .25s,transform .15s;user-select:none}
+  .chip:active{transform:scale(.94)}
+  .chip i{width:13px;height:13px;border-radius:50%;background:var(--c)}
+  .chip.on{border-color:var(--c);color:var(--ink)}
+  .ix{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .ix li{display:flex;gap:10px;font-size:13px;color:var(--lo);line-height:1.45}
+  .ix .n{font-family:var(--mono);font-size:11px;color:var(--lo);flex:0 0 auto}
+  .ix b{color:var(--ink);font-weight:600}
+
+  footer{padding:36px 0 64px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--lo);border-top:1px solid var(--line)}
+  @media (max-width:820px){.phone{position:static}.side{width:100%;max-width:390px}}
+  @media (prefers-reduced-motion:no-preference){
+    .tab.on svg{animation:tbounce .35s cubic-bezier(.34,1.56,.64,1)}
+    @keyframes tbounce{0%{transform:scale(.7)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
+  }
+  @media (prefers-reduced-motion:reduce){.sheet{transition:none}.money .det{transition:none}}
+</style>
+
+<div class="grain"></div>
+<div class="wrap">
+
+  <section>
+    <span class="flag"><i></i>la app · v6 claro · sobrio · prototipo tocable</span>
+    <p class="eyebrow">TripSquad · sobriedad blanca</p>
+    <h1>Papel, bruma <span>y el color en gotas.</span></h1>
+    <p class="lead">Sobriedad blanca + Liquid Glass: chips, countdown, sheet y tab bar son vidrio real (blur + borde especular); el contenido queda como tinte sólido, regla de Apple. El acento sigue en micro-dosis. <b style="color:var(--ink)">Tócalo.</b></p>
+
+    <div class="stage">
+
+      <div class="phone"><div class="screen">
+        <div class="hero"></div>
+
+        <div class="status"><span class="t">9:41</span></div>
+
+        <div class="avatars">
+          <i style="--av:#b9ac9a"></i><i style="--av:#93999c"></i><i style="--av:#c4b6a3"></i>
+          <i style="--av:#a09788"></i>
+        </div>
+
+        <div class="head">
+          <div class="chips">
+            <span class="chipd">12 — 17 mayo</span>
+            <span class="chipd"><b></b>6 personas</span>
+          </div>
+          <h2 class="city">Lisboa</h2>
+          <p class="city2">Viaje con el squad</p>
+          <div class="cd">
+            <div><b>12</b><span>días</span></div>
+            <div><b>09</b><span>hrs</span></div>
+            <div><b>32</b><span>min</span></div>
+          </div>
+        </div>
+
+        <div class="sheet" id="sheet">
+          <div class="handle" id="handle"><i></i></div>
+          <div class="sheet-scroll">
+            <div class="dayrow"><span class="d">A continuación</span><span class="n">Jueves · día 3 de 5</span></div>
+
+            <div class="item next">
+              <span class="thumb"></span>
+              <div><h5>Atardecer en el mirador</h5><p>19:00 · van 6 de 6</p></div>
+              <span class="state"><span class="arrow">→</span></span>
+            </div>
+
+            <div class="dayrow" style="margin-top:14px"><span class="d">Hoy</span></div>
+
+            <div class="item" id="vote">
+              <span class="thumb"></span>
+              <div><h5>Cena en Alfama</h5><p>Sitio de fado · propone Ana</p></div>
+              <span class="state"><span class="tagchip">votando…</span><span class="radio">✓</span></span>
+            </div>
+
+            <div class="item">
+              <span class="thumb icon"><svg class="sic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg></span>
+              <div><h5>Ana</h5><p>¡Ya reservé el mirador para mañana!</p></div>
+              <span class="state"><span class="tagchip">14:02</span></span>
+            </div>
+
+            <div class="money" id="money">
+              <div class="top"><span class="lbl">Bote común</span><span class="deb">debes €80</span></div>
+              <div class="top" style="margin-top:6px"><span class="tot">€1.240</span><span class="lbl">6 personas</span></div>
+              <div class="bar"><i></i></div>
+              <div class="det">
+                <div><span>Cena martes</span><span>€38,50</span></div>
+                <div><span>Tranvía + entradas</span><span>€24,00</span></div>
+                <div><span>Airbnb (tu parte)</span><span>€17,50</span></div>
+              </div>
+            </div>
+
+            <div class="item">
+              <span class="thumb icon"><svg class="sic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 1 2-5z"/></svg></span>
+              <div><h5>Brújula</h5><p>El tranvía 28 antes de las 10 — evitáis 40 min de cola.</p></div>
+              <span class="state"><span class="tagchip">ahora</span></span>
+            </div>
+
+            <div class="item">
+              <span class="thumb"></span>
+              <div><h5>Fotos de ayer</h5><p>Marco subió 23 · faltan las tuyas</p></div>
+              <span class="state"><span class="tagchip">ayer</span></span>
+            </div>
+          </div>
+        </div>
+
+
+        <div class="view" id="v-chat">
+          <div class="vhead"><h3 class="vtitle">Chat</h3><p class="vsub">Squad · 6 personas</p></div>
+          <div class="vscroll chatcol">
+            <span class="daychip">Hoy</span>
+            <div class="bwrap in"><p class="bmeta">Ana · 13:58</p><span class="bub">¿Reservo el mirador para mañana al atardecer?</span></div>
+            <div class="bwrap out"><span class="bub">Sí porfa, a las 19:00 👌</span></div>
+            <div class="bwrap in"><p class="bmeta">Ana · 14:02</p><span class="bub">¡Ya reservé el mirador para mañana!</span></div>
+            <div class="bwrap in"><p class="bmeta">Marco · 14:05</p><span class="bub">Subí las fotos de ayer, faltan las vuestras</span></div>
+            <div class="bwrap out"><span class="bub">Esta noche las paso. ¿Votasteis lo de la cena?</span></div>
+            <div class="bwrap in"><p class="bmeta">Lu · 14:11</p><span class="bub">Votado ✓ el fado me puede</span></div>
+          </div>
+          <div class="chatinput"><span>Escribe al squad…</span><span class="send">↑</span></div>
+        </div>
+
+        <div class="view" id="v-planes">
+          <div class="vhead"><h3 class="vtitle">Planes</h3><p class="vsub">Lisboa · día 3 de 5</p></div>
+          <div class="vscroll">
+            <div class="days">
+              <span class="dayc">Día 1</span><span class="dayc">Día 2</span>
+              <span class="dayc on">Día 3</span><span class="dayc">Día 4</span><span class="dayc">Día 5</span>
+            </div>
+            <div class="mapcard" id="mapcard">
+              <svg viewBox="0 0 360 200" preserveAspectRatio="xMidYMid slice">
+                <path d="M-10 150 C 60 120, 120 180, 200 160 S 340 190, 380 150 L 380 210 L -10 210 Z" fill="#C9D6DA"/>
+                <path d="M-10 40 C 60 60, 110 20, 180 38" stroke="#fff" stroke-width="7" fill="none" opacity=".8"/>
+                <path d="M40 -10 C 60 60, 40 120, 90 170" stroke="#fff" stroke-width="5" fill="none" opacity=".7"/>
+                <path d="M120 -10 C 150 60, 130 110, 190 150" stroke="#fff" stroke-width="5" fill="none" opacity=".7"/>
+                <path d="M230 -10 C 240 50, 300 90, 350 95" stroke="#fff" stroke-width="6" fill="none" opacity=".8"/>
+                <ellipse cx="300" cy="42" rx="46" ry="26" fill="#CBD4BC" opacity=".9"/>
+                <ellipse cx="82" cy="108" rx="30" ry="18" fill="#CBD4BC" opacity=".7"/>
+                <path d="M56 128 C 110 100, 160 70, 208 62 S 300 80, 316 128" stroke="#9782B8"
+                  stroke-width="2.5" stroke-dasharray="1 7" stroke-linecap="round" fill="none"/>
+              </svg>
+              <span class="pin" style="left:38px;top:106px;--pc:#C98A6B;background-position:10% 20%"><b>1</b></span>
+              <span class="pin" style="left:150px;top:44px;--pc:#D8B24A;background-position:55% 40%"><b>2</b></span>
+              <span class="pin" style="left:236px;top:38px;--pc:#7FA08C;background-position:80% 15%"><b>3</b></span>
+              <span class="pin" style="left:292px;top:100px;--pc:#9782B8;background-position:35% 70%"><b>4</b></span>
+              <span class="mapchip">alfama · 4 paradas hoy</span>
+            </div>
+            <div class="stops">
+              <div class="stop c-ter"><span class="tt">09:30</span>
+                <div class="item"><span class="thumb"></span>
+                  <div><h5>Tranvía 28</h5><p>Martim Moniz · antes de las 10</p></div>
+                  <span class="state"><span class="tagchip">hecho</span></span></div></div>
+              <div class="stop now c-amb"><span class="tt">13:00</span>
+                <div class="item"><span class="thumb"></span>
+                  <div><h5>Almuerzo en Time Out</h5><p>Mercado da Ribeira</p></div>
+                  <span class="state"><span class="tagchip">ahora</span></span></div></div>
+              <div class="stop c-sal"><span class="tt">17:30</span>
+                <div class="item"><span class="thumb"></span>
+                  <div><h5>Miradouro da Graça</h5><p>Atardecer · van 6 de 6</p></div>
+                  <span class="state"><span class="arrow">→</span></span></div></div>
+              <div class="stop c-lav"><span class="tt">21:30</span>
+                <div class="item"><span class="thumb"></span>
+                  <div><h5>Cena en Alfama</h5><p>Fado · propone Ana</p></div>
+                  <span class="state"><span class="tagchip">votando…</span></span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="view" id="v-gastos">
+          <div class="vhead"><h3 class="vtitle">Gastos</h3><p class="vsub">Bote común · 6 personas</p></div>
+          <div class="vscroll">
+            <div class="gtotal">
+              <div class="donut"></div>
+              <div>
+                <span class="lbl">Total del viaje</span>
+                <div class="tot">€1.240</div>
+                <div class="leg">
+                  <span><i style="background:var(--lav)"></i>Alojamiento · 43%</span>
+                  <span><i style="background:var(--ter)"></i>Comida · 30%</span>
+                  <span><i style="background:var(--sal)"></i>Transporte · 17%</span>
+                  <span><i style="background:var(--amb)"></i>Ocio · 10%</span>
+                </div>
+              </div>
+            </div>
+            <div class="cats">
+              <div class="cat" style="--cc:var(--lav)"><i><svg class="sic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg></i><b>€533</b><span>Alojamiento</span></div>
+              <div class="cat" style="--cc:var(--ter)"><i><svg class="sic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3"/><path d="M16 3c-1.5 1-2.5 3-2.5 5.5 0 2 1 3 2.5 3V21"/></svg></i><b>€372</b><span>Comida</span></div>
+              <div class="cat" style="--cc:var(--sal)"><i><svg class="sic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="13" rx="2"/><path d="M5 11h14M9 21l1.5-4M15 21l-1.5-4"/><circle cx="9" cy="14" r=".8"/><circle cx="15" cy="14" r=".8"/></svg></i><b>€211</b><span>Transporte</span></div>
+              <div class="cat" style="--cc:var(--amb)"><i><svg class="sic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 0 0 8v3h16v-3a2 2 0 0 1 0-8V5H4z"/><path d="M12 5v14" stroke-dasharray="2 3"/></svg></i><b>€124</b><span>Ocio</span></div>
+            </div>
+            <div class="balance"><span class="b1">Tu balance tras liquidar</span>
+              <span style="display:flex;align-items:center"><span class="b2">debes €80</span><span class="settle">liquidar →</span></span></div>
+            <div class="prow"><span class="av" style="--av:#b9ac9a"></span>
+              <div><h6>Ana</h6><p>pagó la cena del martes</p></div><span class="amt pos">+€78,20</span></div>
+            <div class="prow"><span class="av" style="--av:#93999c"></span>
+              <div><h6>Marco</h6><p>le debes el tranvía</p></div><span class="amt neg">−€24,00</span></div>
+            <div class="prow"><span class="av" style="--av:#c4b6a3"></span>
+              <div><h6>Lu</h6><p>le debes tu parte del Airbnb</p></div><span class="amt neg">−€56,00</span></div>
+            <div class="prow"><span class="av" style="--av:#a09788"></span>
+              <div><h6>Tú</h6><p>liquidado tras pagar</p></div><span class="amt">€0,00</span></div>
+          </div>
+        </div>
+
+        <div class="view" id="v-fotos">
+          <span class="miniseal"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 1 2-5z"/></svg></span>
+          <div class="vhead"><h3 class="vtitle">Fotos</h3><p class="vsub">Ayer · 23 de Marco · faltan las tuyas</p></div>
+          <div class="vscroll">
+            <div class="reacts">
+              <span class="react">❤️ <b>14</b></span>
+              <span class="react">😂 <b>6</b></span>
+              <span class="react">✨ <b>9</b></span>
+              <span class="react" style="color:var(--lo)">+ añadir</span>
+            </div>
+            <div class="fgrid">
+              <span class="glowwrap"><span class="fph" style="background-position:50% 30%;aspect-ratio:auto"><span class="flab"><i style="--dc:var(--amb)"></i>día 2 · mirador</span></span></span>
+              <span class="fph t1" style="background-position:8% 12%"></span>
+              <span class="fph" style="background-position:88% 18%"></span>
+              <span class="fph" style="background-position:20% 62%"><span class="flab"><i style="--dc:var(--ter)"></i>tranvía</span></span>
+              <span class="fph t2" style="background-position:64% 55%"></span>
+              <span class="fph" style="background-position:35% 85%"></span>
+              <span class="fph t1" style="background-position:78% 78%"></span>
+              <span class="fadd">＋</span>
+            </div>
+          </div>
+        </div>
+
+
+        <div class="mapfull" id="mapfull">
+          <svg viewBox="0 0 390 820" preserveAspectRatio="xMidYMid slice">
+            <path d="M-10 640 C 90 590, 170 700, 260 660 S 380 700, 400 640 L 400 830 L -10 830 Z" fill="#C9D6DA"/>
+            <path d="M-10 120 C 80 160, 150 90, 250 130 S 360 110, 400 140" stroke="#fff" stroke-width="9" fill="none" opacity=".8"/>
+            <path d="M60 -10 C 90 160, 60 340, 120 520 S 140 640, 120 700" stroke="#fff" stroke-width="6" fill="none" opacity=".7"/>
+            <path d="M180 -10 C 210 140, 180 300, 230 440 S 260 600, 240 660" stroke="#fff" stroke-width="6" fill="none" opacity=".7"/>
+            <path d="M300 -10 C 320 120, 280 260, 330 400 S 350 560, 330 640" stroke="#fff" stroke-width="7" fill="none" opacity=".8"/>
+            <path d="M-10 300 C 100 320, 220 280, 400 320" stroke="#fff" stroke-width="5" fill="none" opacity=".6"/>
+            <path d="M-10 470 C 120 490, 260 450, 400 480" stroke="#fff" stroke-width="5" fill="none" opacity=".6"/>
+            <ellipse cx="310" cy="200" rx="58" ry="34" fill="#CBD4BC" opacity=".9"/>
+            <ellipse cx="80" cy="390" rx="44" ry="26" fill="#CBD4BC" opacity=".8"/>
+            <ellipse cx="230" cy="560" rx="36" ry="22" fill="#CBD4BC" opacity=".7"/>
+            <path d="M70 560 C 120 470, 100 360, 160 300 S 240 220, 300 240 S 340 380, 300 470"
+              stroke="#9782B8" stroke-width="3" stroke-dasharray="1 9" stroke-linecap="round" fill="none"/>
+          </svg>
+          <span class="mtitle"><b></b>Día 3 · Alfama</span>
+          <span class="mclose" id="mclose">✕</span>
+          <span class="pin mpin" style="left:52px;top:530px;--pc:#C98A6B;background-position:10% 20%"><b>1</b></span>
+          <span class="pin mpin" style="left:138px;top:272px;--pc:#D8B24A;background-position:55% 40%"><b>2</b></span>
+          <span class="pin mpin" style="left:276px;top:212px;--pc:#7FA08C;background-position:80% 15%"><b>3</b></span>
+          <span class="pin mpin" style="left:274px;top:440px;--pc:#9782B8;background-position:35% 70%"><b>4</b></span>
+          <div class="mstops">
+            <div class="mstop"><i style="--pc:#C98A6B"></i><span class="thumb"></span><div><h6>Tranvía 28</h6><p>09:30 · HECHO</p></div></div>
+            <div class="mstop"><i style="--pc:#D8B24A"></i><span class="thumb"></span><div><h6>Time Out Market</h6><p>13:00 · AHORA</p></div></div>
+            <div class="mstop"><i style="--pc:#7FA08C"></i><span class="thumb"></span><div><h6>Miradouro da Graça</h6><p>17:30 · VAN 6</p></div></div>
+            <div class="mstop"><i style="--pc:#9782B8"></i><span class="thumb"></span><div><h6>Cena en Alfama</h6><p>21:30 · VOTANDO</p></div></div>
+          </div>
+        </div>
+
+
+        <div class="home" id="home">
+          <div class="hscroll">
+            <h2 class="hgreet">Tus viajes</h2>
+            <p class="hsub" id="hsub">Hola, Andrea — tu squad tiene planes.</p>
+
+            <div id="h-bruj" class="bruj">
+              <span class="bic"><svg class="sic" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 1 2-5z"/></svg></span>
+              <div><h5>Brújula</h5><p id="brujsub">Cuéntale tu viaje: vuelos, sitios, plan entero.</p></div>
+              <span class="badge free" id="brujbadge">1er viaje gratis</span>
+            </div>
+
+            <div id="h-next">
+              <div class="sect"><h4>Próximo viaje</h4><span>quedan 12 días</span></div>
+              <div class="tripcard" id="opentrip">
+                <div class="bg2"></div><div class="sc"></div>
+                <div class="avs"><i style="--av:#b9ac9a"></i><i style="--av:#93999c"></i><i style="--av:#c4b6a3"></i></div>
+                <span class="cdm"><b></b>12 días</span>
+                <div class="tc"><h5>Lisboa</h5><p>12 — 17 mayo · 6 personas · 34% planeado</p></div>
+              </div>
+            </div>
+
+            <div id="h-more">
+              <div class="sect"><h4>También en marcha</h4><span>1</span></div>
+              <div class="triprow">
+                <span class="thumb" style="background-position:80% 20%"></span>
+                <div><h5>Japón con el squad</h5><p>Sin fechas · 4 personas</p></div>
+                <span class="st">borrador</span>
+              </div>
+            </div>
+
+            <div id="h-empty" class="empty" style="display:none">
+              <div class="orb"></div>
+              <h4>Tu primer viaje empieza aquí</h4>
+              <p>Créalo a mano, o cuéntaselo a Brújula — el primero va con la IA incluida.</p>
+            </div>
+
+            <div class="sect"><h4>Populares ahora</h4><span>squads reales</span></div>
+            <div class="popular">
+              <div class="pop"><div class="pbg" style="background-position:15% 25%"></div><div class="psc"></div>
+                <div class="pt"><h6>Lisboa</h6><p>4–6 DÍAS · DESDE 320 €</p></div></div>
+              <div class="pop"><div class="pbg" style="background-position:60% 15%"></div><div class="psc"></div>
+                <div class="pt"><h6>Alpes</h6><p>FIN DE SEMANA · CABAÑA</p></div></div>
+              <div class="pop"><div class="pbg" style="background-position:85% 60%"></div><div class="psc"></div>
+                <div class="pt"><h6>Marrakech</h6><p>5 DÍAS · RIAD + DESIERTO</p></div></div>
+              <div class="pop"><div class="pbg" style="background-position:30% 75%"></div><div class="psc"></div>
+                <div class="pt"><h6>Islandia</h6><p>ROADTRIP · 8 DÍAS</p></div></div>
+            </div>
+          </div>
+          <span class="newtrip" id="newtrip">＋ Nuevo viaje</span>
+        </div>
+
+        <div class="bview" id="bview">
+          <div class="bhead">
+            <span class="back" id="bback">←</span>
+            <h3>Brújula</h3>
+            <span class="badge free" id="bstate">1er viaje gratis</span>
+          </div>
+          <div class="bchips">
+            <span class="bchip">Vuelos</span><span class="bchip">Alojamiento</span><span class="bchip">Qué hacer</span>
+          </div>
+          <div class="bscroll">
+            <div class="bwrap out"><span class="bub">Queremos 5 días en Lisboa en mayo, somos 6, presupuesto medio ✨</span></div>
+            <div class="bwrap in"><p class="bmeta">Brújula</p><span class="bub">Buen plan. Os armé la base — mirad y me decís:</span></div>
+            <div class="rescard">
+              <span class="rk"><i></i>Vuelos · MAD → LIS · ida y vuelta</span>
+              <div class="rmain"><span class="thumb icon"><svg class="sic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 13.5 3 11l1-2 6.5 1L15 4.5 17 5l-2 6 5.5 3-1.5 1.5-6-1.5-2.5 3.5H9z"/></svg></span>
+                <div><h5>Vie 12 may · 09:40</h5><p>Directo · 1h20 · vuelta dom 17</p></div>
+                <span class="price">89 €</span></div>
+            </div>
+            <div class="rescard">
+              <span class="rk"><i></i>Alojamiento · Alfama</span>
+              <div class="rmain"><span class="thumb" style="background-position:20% 60%"></span>
+                <div><h5>Apartamento para 6</h5><p>3 hab · terraza · centro</p></div>
+                <span class="price">41 €<span style="font-size:9px;color:var(--lo)">/noche</span></span></div>
+            </div>
+            <div class="rescard">
+              <span class="rk"><i></i>Qué hacer · 3 imprescindibles</span>
+              <div class="rmain"><span class="thumb" style="background-position:70% 30%"></span>
+                <div><h5>Tranvía 28 · Fado · Miradouros</h5><p>Los meto en Planes con horarios</p></div></div>
+            </div>
+            <div class="bcta" id="bcreate">Crear este viaje con el squad</div>
+          </div>
+          <div class="lockveil">
+            <div class="lk"><svg class="sic" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+            <h5>Tu viaje gratis ya voló</h5>
+            <p>La Brújula usó su viaje incluido. Desbloquéala para este viaje o pásate a Pro.</p>
+            <span class="unlock" id="unlock">Desbloquear Brújula</span>
+          </div>
+        </div>
+
+        <div class="modal" id="createmodal">
+          <div class="msheet">
+            <div class="mh"></div>
+            <h4>Nuevo viaje</h4>
+            <div class="path2">
+              <div class="opt ia" id="optia">
+                <span class="oic"><svg class="sic" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 1 2-5z"/></svg></span>
+                <div><h5>Cuéntaselo a Brújula</h5><p>«5 días en Lisboa, 6 amigos, presupuesto medio» — y te lo arma.</p></div>
+                <span class="badge free" id="createbadge">gratis</span>
+              </div>
+              <div class="opt" id="optmanual">
+                <span class="oic"><svg class="sic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M14 7l3 3"/></svg></span>
+                <div><h5>Crear a mano</h5><p>Destino, fechas y tu squad. Gratis siempre.</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal" id="paywall">
+          <div class="msheet paysheet">
+            <div class="mh"></div>
+            <h4>Desbloquea la Brújula</h4>
+            <div class="plans">
+              <div class="plan sel" id="plan1">
+                <div><h5>Este viaje</h5><p>Brújula ilimitada en Lisboa</p></div>
+                <span class="pp">4,99 €<small>pago único</small></span>
+              </div>
+              <div class="plan" id="plan2">
+                <div><h5>Pro anual<span class="tag2">mejor precio</span></h5><p>Todos tus viajes del año, ilimitado</p></div>
+                <span class="pp">2,50 €<small>/mes · 29,99 €/año</small></span>
+              </div>
+            </div>
+            <div class="paybtn" id="paybtn">Continuar</div>
+            <p class="paynote">Organizar viajes es gratis para siempre. Solo la IA se paga — nos cuesta de verdad ✨</p>
+          </div>
+        </div>
+
+        <div class="tabbar" id="tabs">
+          <div class="tab on" data-t="hub">
+            <svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
+            <span>Viaje</span>
+          </div>
+          <div class="tab" data-t="planes">
+            <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 11h16"/></svg>
+            <span>Planes</span>
+          </div>
+          <div class="tabc" id="tabc" title="Brújula">
+            <svg class="sic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 1 2-5z"/></svg>
+          </div>
+          <div class="tab" data-t="chat">
+            <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg>
+            <span>Chat</span><span class="bdg" id="chatbdg">2</span>
+          </div>
+          <div class="tab" data-t="gastos">
+            <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
+            <span>Gastos</span>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="side">
+        <div class="blk">
+          <span class="k">Nivel y estados — conmuta en vivo</span>
+          <div class="sw" id="lvl">
+            <span class="chip on" data-l="home">Inicio</span>
+            <span class="chip" data-l="trip">En el viaje</span>
+          </div>
+          <div class="sw" id="hstate" style="margin-top:10px">
+            <span class="chip on" data-h="many">Varios viajes</span>
+            <span class="chip" data-h="one">Un viaje</span>
+            <span class="chip" data-h="none">Sin viajes</span>
+          </div>
+          <div class="sw" id="bmode" style="margin-top:10px">
+            <span class="chip on" data-b="free">Brújula: 1er viaje gratis</span>
+            <span class="chip" data-b="locked">Brújula: de pago</span>
+          </div>
+          <p class="muted" style="font-size:12.5px;margin:14px 0 0;line-height:1.5">Recorre: Inicio → «＋ Nuevo viaje» → Brújula (o toca la tarjeta de Lisboa para entrar al Hub). Con «de pago», la Brújula se vela y sale el paywall híbrido: este viaje 4,99 € / Pro anual.</p>
+        </div>
+
+        <div class="blk">
+          <span class="k">El acento — micro-dosis, tócalo</span>
+          <div class="sw" id="acc">
+            <span class="chip on" data-c="#9782B8" style="--c:#9782B8"><i></i>Lavanda</span>
+            <span class="chip" data-c="#D8B24A" style="--c:#D8B24A"><i></i>Micro-ámbar</span>
+            <span class="chip" data-c="#C2603C" style="--c:#C2603C"><i></i>Terracota</span>
+            <span class="chip" data-c="#5C7C99" style="--c:#5C7C99"><i></i>Zafiro</span>
+            <span class="chip" data-c="#3E8E6E" style="--c:#3E8E6E"><i></i>Salvia</span>
+            <span class="chip" data-c="#D9705E" style="--c:#D9705E"><i></i>Coral</span>
+            <span class="chip" data-c="#C67A6E" style="--c:#C67A6E"><i></i>Rosa polvo</span>
+            <span class="chip" data-c="#46807B" style="--c:#46807B"><i></i>Teal</span>
+            <span class="chip" data-c="#A34E55" style="--c:#A34E55"><i></i>Burdeos</span>
+          </div>
+          <p class="muted" style="font-size:12.5px;margin:14px 0 0;line-height:1.5">El acento micro sigue conmutable. Aparte, del Kit del Look: <b style="color:var(--ink)">burdeos reservado al momento de compra</b> (paywall), oro solo sobre tinta (badge), vidrio con tinte cálido, borde-glow en la foto destacada, sello de viaje en Fotos, y confetti SOLO al pagar. Pruébalo: Brújula de pago → desbloquear → paga.</p>
+        </div>
+
+        <div class="blk">
+          <span class="k">Interacciones</span>
+          <ul class="ix">
+            <li><span class="n">01</span><span><b>Sheet</b> — tira del asa: sube y revela el día.</span></li>
+            <li><span class="n">02</span><span><b>Votar</b> — toca la cena de Alfama: check discreto.</span></li>
+            <li><span class="n">03</span><span><b>Bote común</b> — toca el recibo: despliega el desglose.</span></li>
+            <li><span class="n">04</span><span><b>Tabs</b> — conmutan de verdad: Chat, Planes, Gastos y Fotos.</span></li>
+            <li><span class="n">05</span><span><b>Mapa</b> — tócalo en Planes: se abre a pantalla completa con la ruta y las paradas en carrusel.</span></li>
+          </ul>
+        </div>
+
+        <div class="blk">
+          <span class="k">Claro vs. oscuro</span>
+          <ul class="ix">
+            <li><span class="n">◆</span><span>La foto se <b>funde en bruma</b> hacia el papel (tu ref de Onda), no en negro.</span></li>
+            <li><span class="n">◆</span><span>Vidrio SOLO en controles (chips, countdown, sheet, tab bar); las filas van en tinte sólido — nunca vidrio sobre vidrio.</span></li>
+            <li><span class="n">◆</span><span>El oscuro cinemático (v4) queda en el historial del artifact — pueden convivir: claro de día, oscuro de noche.</span></li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Lo que falta que firmes</p>
+    <div style="max-width:720px">
+      <ul class="ix" style="gap:16px">
+        <li><span class="n">01</span><span><b>¿Claro, oscuro, o ambos?</b> — compara con la v4 en el historial de versiones.</span></li>
+        <li><span class="n">02</span><span><b>El acento micro</b> — lavanda por defecto; los otros 8 en vivo.</span></li>
+        <li><span class="n">03</span><span><b>Siguiente</b> — firmado esto, ruedo Chat, Planes, Gastos y Fotos.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>TripSquad · la app v6 claro sobrio · prototipo interactivo · 2026-07-09 · borrador vivo</footer>
+</div>
+
+<script>
+(function(){
+  var sheet=document.getElementById('sheet');
+  document.getElementById('handle').addEventListener('click',function(){sheet.classList.toggle('up')});
+  var startY=null;
+  sheet.addEventListener('touchstart',function(e){startY=e.touches[0].clientY},{passive:true});
+  sheet.addEventListener('touchend',function(e){
+    if(startY===null)return;
+    var dy=e.changedTouches[0].clientY-startY;
+    if(dy<-40)sheet.classList.add('up');
+    if(dy>40)sheet.classList.remove('up');
+    startY=null;
+  },{passive:true});
+
+  var vote=document.getElementById('vote');
+  vote.addEventListener('click',function(){
+    var d=vote.classList.toggle('done');
+    vote.querySelector('.tagchip').textContent=d?'votado':'votando…';
+  });
+
+  document.getElementById('money').addEventListener('click',function(){this.classList.toggle('open')});
+
+  var screen=document.querySelector('.screen');
+  document.getElementById('tabs').addEventListener('click',function(e){
+    var t=e.target.closest('.tab'); if(!t)return;
+    this.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});
+    t.classList.add('on');
+    document.querySelectorAll('.view').forEach(function(v){v.classList.remove('on')});
+    var id=t.dataset.t;
+    if(id==='hub'){screen.classList.remove('altview')}
+    else{screen.classList.add('altview');
+      var map={chat:'v-chat',planes:'v-planes',fotos:'v-fotos',gastos:'v-gastos'};
+      var v=document.getElementById(map[id]); if(v)v.classList.add('on');}
+  });
+  document.getElementById('mapcard').addEventListener('click',function(){
+    document.getElementById('mapfull').classList.add('on');
+  });
+  document.getElementById('mclose').addEventListener('click',function(e){
+    e.stopPropagation();
+    document.getElementById('mapfull').classList.remove('on');
+  });
+  document.querySelectorAll('.days .dayc').forEach(function(d){
+    d.addEventListener('click',function(){
+      document.querySelectorAll('.days .dayc').forEach(function(x){x.classList.remove('on')});
+      d.classList.add('on');
+    });
+  });
+
+  document.getElementById('acc').addEventListener('click',function(e){
+    var c=e.target.closest('.chip'); if(!c)return;
+    this.querySelectorAll('.chip').forEach(function(x){x.classList.remove('on')});
+    c.classList.add('on');
+    document.documentElement.style.setProperty('--acc',c.dataset.c);
+  });
+
+  var scr=document.querySelector('.screen');
+  scr.classList.add('athome');
+  function setHome(state){
+    document.getElementById('h-next').style.display=(state==='none')?'none':'block';
+    document.getElementById('h-more').style.display=(state==='many')?'block':'none';
+    document.getElementById('h-empty').style.display=(state==='none')?'block':'none';
+    document.getElementById('hsub').textContent=
+      state==='none'?'Hola, Andrea — aún sin viajes, eso se arregla rápido.':
+      state==='one'?'Hola, Andrea — tu squad tiene un plan en marcha.':'Hola, Andrea — tu squad tiene planes.';
+  }
+  var bLocked=false;
+  function setBruj(mode){
+    bLocked=(mode==='locked');
+    var bv=document.getElementById('bview');
+    bv.classList.toggle('locked',bLocked);
+    document.getElementById('bstate').textContent=bLocked?'de pago':'1er viaje gratis';
+    document.getElementById('bstate').className='badge '+(bLocked?'lock':'free');
+    document.getElementById('brujbadge').textContent=bLocked?'desbloquear':'1er viaje gratis';
+    document.getElementById('brujbadge').className='badge '+(bLocked?'lock':'free');
+    document.getElementById('createbadge').textContent=bLocked?'4,99 €':'gratis';
+    document.getElementById('createbadge').className='badge '+(bLocked?'lock':'free');
+    document.getElementById('brujsub').textContent=bLocked?
+      'Tu viaje gratis ya voló — desbloquéala cuando quieras.':
+      'Cuéntale tu viaje: vuelos, sitios, plan entero.';
+  }
+  document.getElementById('lvl').addEventListener('click',function(e){
+    var c=e.target.closest('.chip'); if(!c)return;
+    this.querySelectorAll('.chip').forEach(function(x){x.classList.remove('on')});
+    c.classList.add('on');
+    scr.classList.toggle('athome',c.dataset.l==='home');
+    scr.classList.remove('altview');
+    document.querySelectorAll('.view,.bview').forEach(function(v){v.classList.remove('on')});
+    if(c.dataset.l==='trip'){document.querySelectorAll('#tabs .tab').forEach(function(x){x.classList.remove('on')});
+      document.querySelector('#tabs .tab[data-t=hub]').classList.add('on');}
+  });
+  document.getElementById('hstate').addEventListener('click',function(e){
+    var c=e.target.closest('.chip'); if(!c)return;
+    this.querySelectorAll('.chip').forEach(function(x){x.classList.remove('on')});
+    c.classList.add('on'); setHome(c.dataset.h);
+  });
+  document.getElementById('bmode').addEventListener('click',function(e){
+    var c=e.target.closest('.chip'); if(!c)return;
+    this.querySelectorAll('.chip').forEach(function(x){x.classList.remove('on')});
+    c.classList.add('on'); setBruj(c.dataset.b);
+  });
+  document.getElementById('opentrip').addEventListener('click',function(){
+    scr.classList.remove('athome');
+    document.querySelector('#lvl .chip[data-l=trip]').click();
+  });
+  document.getElementById('newtrip').addEventListener('click',function(){
+    document.getElementById('createmodal').classList.add('on');
+  });
+  document.getElementById('h-bruj').addEventListener('click',function(){
+    document.getElementById('bview').classList.add('on');
+  });
+  document.getElementById('optia').addEventListener('click',function(){
+    document.getElementById('createmodal').classList.remove('on');
+    if(bLocked){document.getElementById('paywall').classList.add('on');}
+    else{document.getElementById('bview').classList.add('on');}
+  });
+  document.getElementById('optmanual').addEventListener('click',function(){
+    document.getElementById('createmodal').classList.remove('on');
+  });
+  document.getElementById('bback').addEventListener('click',function(){
+    document.getElementById('bview').classList.remove('on');
+  });
+  document.getElementById('unlock').addEventListener('click',function(){
+    document.getElementById('paywall').classList.add('on');
+  });
+  document.querySelectorAll('.modal').forEach(function(m){
+    m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('on')});
+  });
+  document.getElementById('plan1').addEventListener('click',function(){
+    this.classList.add('sel');document.getElementById('plan2').classList.remove('sel');
+    document.getElementById('paybtn').textContent='Desbloquear este viaje · 4,99 €';
+  });
+  document.getElementById('plan2').addEventListener('click',function(){
+    this.classList.add('sel');document.getElementById('plan1').classList.remove('sel');
+    document.getElementById('paybtn').textContent='Hazte Pro · 2,50 €/mes';
+  });
+  document.getElementById('paybtn').addEventListener('click',function(){
+    var sheet=this.closest('.msheet');
+    var cols=['#E8A9C4','#D8B24A','#9782B8','#C9A876'];
+    for(var i=0;i<16;i++){
+      var c=document.createElement('i');
+      c.style.cssText='position:absolute;width:7px;height:10px;border-radius:2px;left:'+(30+Math.random()*40)+'%;top:20%;z-index:9;pointer-events:none;background:'+cols[i%4]+
+        ';transform:rotate('+(Math.random()*360)+'deg);transition:all .'+(5+Math.floor(Math.random()*4))+'s cubic-bezier(.2,.6,.4,1);opacity:1';
+      sheet.appendChild(c);
+      (function(el){setTimeout(function(){
+        el.style.top=(60+Math.random()*35)+'%';
+        el.style.left=(parseFloat(el.style.left)+(Math.random()*40-20))+'%';
+        el.style.transform='rotate('+(Math.random()*720)+'deg)';
+        el.style.opacity='0';
+        setTimeout(function(){el.remove()},900);
+      },20)})(c);
+    }
+    var pw=document.getElementById('paywall'), bm=document.querySelector('#bmode .chip[data-b=free]'), bv=document.getElementById('bview');
+    setTimeout(function(){pw.classList.remove('on');bm.click();bv.classList.add('on');},700);
+  });
+
+  document.getElementById('tabc').addEventListener('click',function(){
+    document.getElementById('bview').classList.add('on');
+  });
+  var fotosrow=document.querySelectorAll('.sheet .item');
+  fotosrow[fotosrow.length-1].addEventListener('click',function(){
+    scr.classList.add('altview');
+    document.querySelectorAll('.view').forEach(function(v){v.classList.remove('on')});
+    document.getElementById('v-fotos').classList.add('on');
+    document.querySelectorAll('#tabs .tab').forEach(function(x){x.classList.remove('on')});
+  });
+  document.querySelector('#tabs .tab[data-t=chat]').addEventListener('click',function(){
+    var b=document.getElementById('chatbdg'); if(b)b.style.display='none';
+  });
+})();
+</script>

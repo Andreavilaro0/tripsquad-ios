@@ -1,0 +1,252 @@
+<title>TripSquad · Bienvenida</title>
+<style>
+  :root{
+    --noche:#14101f; --noche2:#1d1730;
+    --lila:#8E9BD1; --peri:#A7B0DE;
+    --ambar:#F5B63A; --crema:#EFE7D8; --humo:#B8B2C8;
+    --linea:rgba(184,178,200,.16);
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--noche);color:var(--crema);font-family:var(--sans);
+    line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  .grain{position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.45;mix-blend-mode:soft-light;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+  section{padding:86px 0;border-top:1px solid var(--linea)}
+  section:first-of-type{border-top:0}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--peri);margin:0 0 18px}
+  h1{font-family:var(--serif);font-weight:400;font-style:italic;font-size:clamp(40px,8vw,78px);
+    line-height:1.02;letter-spacing:-.01em;text-wrap:balance;margin:0 0 22px}
+  h2{font-family:var(--serif);font-weight:400;font-size:clamp(26px,4vw,40px);line-height:1.1;
+    letter-spacing:-.01em;text-wrap:balance;margin:0 0 10px}
+  h1 em,h2 em{font-style:italic;color:var(--peri)}
+  .lead{font-size:clamp(18px,2.4vw,22px);color:var(--humo);max-width:42ch;margin:0}
+  p{max-width:62ch} .muted{color:var(--humo)}
+  .flag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ambar);border:1px solid rgba(245,182,58,.4);
+    border-radius:999px;padding:5px 12px;margin-bottom:26px}
+  .hero{padding-top:96px}
+
+  /* ---- teléfono ---- */
+  .phone{border-radius:44px;padding:10px;background:linear-gradient(#2a2440,#15111f);
+    box-shadow:0 44px 100px -34px rgba(0,0,0,.85),0 0 0 1px rgba(255,255,255,.05);
+    flex:0 0 auto;width:272px;height:566px}
+  .screen{position:relative;width:100%;height:100%;border-radius:34px;overflow:hidden;
+    display:flex;flex-direction:column;background:#1a1430}
+  .screen>*{position:relative;z-index:3}
+  /* capa fondo (animable) */
+  .screen .bg{position:absolute;inset:-6%;z-index:0;background-size:cover;
+    background-position:center bottom;transform-origin:50% 80%}
+  .bg-s1 .bg{background-image:url("data:image/jpeg;base64,__S1__")}
+  .bg-s2 .bg{background-image:url("data:image/jpeg;base64,__S2__")}
+  .bg-s3 .bg{background-image:url("data:image/jpeg;base64,__S3__")}
+  .bg-s4 .bg{background-image:url("data:image/jpeg;base64,__S4__")}
+  .bg-s5 .bg{background-image:url("data:image/jpeg;base64,__S5__")}
+  .screen .bgvid{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover}
+  /* capa bloom: el glow respira */
+  .screen .bloom{position:absolute;inset:0;z-index:1;pointer-events:none;mix-blend-mode:screen;
+    background:radial-gradient(58% 34% at 50% 76%,rgba(255,178,102,.42),rgba(240,96,62,.14) 55%,transparent 75%)}
+  /* motas de luz */
+  .screen .specks{position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden}
+  .specks i{position:absolute;bottom:-4%;width:4px;height:4px;border-radius:50%;
+    background:#ffd9a0;box-shadow:0 0 8px 2px rgba(255,205,140,.75);opacity:0}
+  .specks i:nth-child(1){left:22%}
+  .specks i:nth-child(2){left:45%;width:3px;height:3px}
+  .specks i:nth-child(3){left:66%}
+  .specks i:nth-child(4){left:82%;width:2.5px;height:2.5px}
+  .top{position:absolute;top:20px;left:0;right:0;text-align:center;font-family:var(--mono);
+    font-size:9.5px;letter-spacing:.34em;text-transform:uppercase;color:rgba(255,255,255,.9)}
+  .head{padding:64px 24px 0}
+  .screen h3{font-family:var(--serif);font-style:italic;font-weight:400;color:#fff;
+    font-size:27px;line-height:1.1;margin:0;text-shadow:0 2px 34px rgba(0,0,0,.45);text-wrap:balance}
+  .foot{margin-top:auto;padding:20px 20px 22px;
+    background:linear-gradient(transparent,rgba(20,12,30,.62))}
+  .sub{font-size:11.5px;color:rgba(255,255,255,.92);margin:0 0 14px;text-align:center;line-height:1.45}
+  .cta{display:block;text-align:center;background:#fff;color:#14101f;font-weight:600;
+    font-size:12px;padding:10.5px;border-radius:999px}
+  .cta.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);margin-top:8px}
+  .foot{text-align:center}
+  .cta.next{display:inline-block;padding:9.5px 38px;margin:0 auto}
+  .cta .lg{font-size:13px;margin-right:7px;vertical-align:-1px}
+  .loginlink{display:block;margin-top:12px;font-size:11px;color:rgba(255,255,255,.75)}
+  .loginlink b{color:#fff;font-weight:600}
+  .dots{display:flex;gap:6px;justify-content:center;align-items:center;margin:0 0 12px}
+  .dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.35)}
+  .dots i.on{background:#fff;width:16px;border-radius:3px}
+  .scr{display:block;margin:8px auto 0;opacity:.9}
+
+  /* variantes tipográficas */
+  .t-center .head{text-align:center}
+  .t-center .top{letter-spacing:.3em}
+  .h-serifreg h3{font-style:normal}
+  .h-round h3{font-family:ui-rounded,-apple-system,system-ui,sans-serif;font-style:normal;
+    font-weight:700;letter-spacing:-.015em}
+  .h-sans h3{font-family:var(--sans);font-style:normal;font-weight:650;letter-spacing:-.02em}
+  .cta.big{padding:14px 44px}
+  /* ---- rejilla ---- */
+  .grid{display:flex;flex-wrap:wrap;gap:48px 40px;justify-content:center;margin-top:52px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:15px}
+  .tag{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--peri);margin:0}
+  .tag b{color:var(--crema);font-weight:600}
+  .note{font-size:13px;color:var(--humo);max-width:28ch;text-align:center;margin:0;line-height:1.5}
+
+  /* estructura */
+  .paths{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:44px}
+  @media (max-width:860px){.paths{grid-template-columns:1fr}}
+  .path{border:1px solid var(--linea);border-radius:14px;padding:26px 24px}
+  .path h4{font-family:var(--serif);font-weight:400;font-size:22px;margin:0 0 8px}
+  .path p{font-size:13.5px;color:var(--humo);margin:0;line-height:1.55}
+  .path .k{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--peri);
+    text-transform:uppercase;display:block;margin-bottom:12px}
+  .path.rec{border-color:rgba(245,182,58,.45)}
+  .path.rec .k{color:var(--ambar)}
+
+  .open ul{list-style:none;margin:26px 0 0;padding:0;display:grid;gap:18px;max-width:720px}
+  .open li{display:flex;gap:18px;align-items:baseline;border-top:1px solid var(--linea);padding-top:18px}
+  .open .n{font-family:var(--mono);font-size:12px;color:var(--peri);flex:0 0 auto}
+  .open b{color:var(--crema)}
+  .open span:last-child{color:var(--humo)}
+
+  footer{padding:40px 0 70px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--humo);border-top:1px solid var(--linea)}
+
+  @media (prefers-reduced-motion:no-preference){
+    .cell{animation:up .6s ease both}
+    .cell:nth-child(2){animation-delay:.07s}.cell:nth-child(3){animation-delay:.14s}
+    .cell:nth-child(4){animation-delay:.21s}.cell:nth-child(5){animation-delay:.28s}
+    @keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+    /* vida ambiente: ken burns + glow que respira + motas */
+    .screen .bg{animation:kb 16s ease-in-out infinite alternate}
+    .cell:nth-child(2n) .screen .bg{animation-duration:19s}
+    .cell:nth-child(3n) .screen .bg{animation-duration:22s}
+    @keyframes kb{from{transform:scale(1)}to{transform:scale(1.055) translateY(-6px)}}
+    .screen .bloom{animation:breathe 4.6s ease-in-out infinite}
+    .cell:nth-child(2n) .screen .bloom{animation-duration:5.4s;animation-delay:1.2s}
+    .cell:nth-child(3n) .screen .bloom{animation-duration:6.1s;animation-delay:2s}
+    @keyframes breathe{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:.95;transform:scale(1.05)}}
+    .specks i{animation:rise 9s linear infinite}
+    .specks i:nth-child(1){animation-delay:0s}
+    .specks i:nth-child(2){animation-delay:2.6s;animation-duration:11s}
+    .specks i:nth-child(3){animation-delay:5s;animation-duration:8s}
+    .specks i:nth-child(4){animation-delay:7s;animation-duration:12s}
+    @keyframes rise{0%{transform:translateY(0) translateX(0);opacity:0}
+      12%{opacity:.9}55%{opacity:.55;transform:translateY(-46vh) translateX(6px)}
+      100%{transform:translateY(-78vh) translateX(-4px);opacity:0}}
+    .scr path{stroke-dasharray:130;stroke-dashoffset:130;animation:draw 1.1s .5s ease forwards}
+    @keyframes draw{to{stroke-dashoffset:0}}
+    .dots i.on{animation:dotstretch 3.2s ease-in-out infinite}
+    @keyframes dotstretch{0%,100%{width:16px}50%{width:24px}}
+  }
+</style>
+
+<div class="grain"></div>
+<div class="wrap">
+
+  <section class="hero">
+    <span class="flag">◆ bienvenida v2 · escenas que explican · sin firmar</span>
+    <p class="eyebrow">TripSquad · identidad → primera pantalla</p>
+    <h1>Ahora la pantalla <em>trabaja.</em></h1>
+    <p class="lead">Tu brief: imagen y frase deben decir <b style="color:var(--crema)">qué hace la app y qué te ahorra</b>, y las criaturas deben ayudar a contarlo — cada una con su rol, no clones. Cinco escenas nuevas: en cada una el squad <b style="color:var(--crema)">hace</b> algo que la app hace.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">01 · Las escenas — el squad haciendo lo que la app hace</p>
+    <h2>Cada pantalla, un <em>beneficio</em> — y todas vivas.</h2>
+    <p class="muted">Las 5 en loop 2.5D real (DepthFlow). Flujo firmado: B — carrusel. Pantallas 1–4 solo «Siguiente»; el registro aparece solo al final: Apple e Google en un tap + enlace de sesión. Botones compactos en todas.</p>
+
+    <div class="grid">
+
+      <div class="cell">
+        <div class="phone"><div class="screen bg-s1 t-center h-round"><img class="bgvid" alt="" src="data:image/webp;base64,__S1VID__"><div class="bloom"></div><div class="specks"><i></i><i></i><i></i><i></i></div>
+          <div class="top">TripSquad</div>
+          <div class="head"><h3>Planead juntos.</h3><svg class="scr" viewBox="0 0 120 12" width="112" height="11" aria-hidden="true"><path d="M4 8 C 30 3, 62 11, 116 5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/></svg></div>
+          <div class="foot"><div class="dots"><i class="on"></i><i></i><i></i><i></i><i></i></div><span class="cta next big">Siguiente</span></div>
+        </div></div>
+        <p class="tag"><b>S1</b> · planear juntos</p>
+        <p class="note">La mesa con el mapa: la que organiza señala, otro alumbra. El hub en una imagen.</p>
+      </div>
+
+      <div class="cell">
+        <div class="phone"><div class="screen bg-s2 t-center h-round"><img class="bgvid" alt="" src="data:image/webp;base64,__S2VID__"><div class="bloom"></div><div class="specks"><i></i><i></i><i></i><i></i></div>
+          <div class="top">TripSquad</div>
+          <div class="head"><h3>Gastos sin líos.</h3><svg class="scr" viewBox="0 0 120 12" width="112" height="11" aria-hidden="true"><path d="M4 8 C 30 3, 62 11, 116 5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/></svg></div>
+          <div class="foot"><div class="dots"><i></i><i class="on"></i><i></i><i></i><i></i></div><span class="cta next big">Siguiente</span></div>
+        </div></div>
+        <p class="tag"><b>S2</b> · gastos</p>
+        <p class="note">Se reparten la luz en partes iguales. Liquidación sin momento incómodo.</p>
+      </div>
+
+      <div class="cell">
+        <div class="phone"><div class="screen bg-s3 t-center h-round"><img class="bgvid" alt="" src="data:image/webp;base64,__S3VID__"><div class="bloom"></div><div class="specks"><i></i><i></i><i></i><i></i></div>
+          <div class="top">TripSquad</div>
+          <div class="head"><h3>Votad y listo.</h3><svg class="scr" viewBox="0 0 120 12" width="112" height="11" aria-hidden="true"><path d="M4 8 C 30 3, 62 11, 116 5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/></svg></div>
+          <div class="foot"><div class="dots"><i></i><i></i><i class="on"></i><i></i><i></i></div><span class="cta next big">Siguiente</span></div>
+        </div></div>
+        <p class="tag"><b>S3</b> · votaciones</p>
+        <p class="note">Dos opciones flotando, manitas arriba, uno que duda. Democracia de grupo.</p>
+      </div>
+
+      <div class="cell">
+        <div class="phone"><div class="screen bg-s4 t-center h-round"><img class="bgvid" alt="" src="data:image/webp;base64,__S4VID__"><div class="bloom"></div><div class="specks"><i></i><i></i><i></i><i></i></div>
+          <div class="top">TripSquad</div>
+          <div class="head"><h3>Nadie se pierde.</h3><svg class="scr" viewBox="0 0 120 12" width="112" height="11" aria-hidden="true"><path d="M4 8 C 30 3, 62 11, 116 5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/></svg></div>
+          <div class="foot"><div class="dots"><i></i><i></i><i></i><i class="on"></i><i></i></div><span class="cta next big">Siguiente</span></div>
+        </div></div>
+        <p class="tag"><b>S4</b> · itinerario + brújula</p>
+        <p class="note">En fila por la ruta que brilla; la primera lleva la brújula, el pequeñín corre detrás.</p>
+      </div>
+
+      <div class="cell">
+        <div class="phone"><div class="screen bg-s5 t-center h-round"><img class="bgvid" alt="" src="data:image/webp;base64,__S5VID__"><div class="bloom"></div><div class="specks"><i></i><i></i><i></i><i></i></div>
+          <div class="top">TripSquad</div>
+          <div class="head"><h3>Las fotos, juntas.</h3><svg class="scr" viewBox="0 0 120 12" width="112" height="11" aria-hidden="true"><path d="M4 8 C 30 3, 62 11, 116 5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/></svg></div>
+          <div class="foot"><div class="dots"><i></i><i></i><i></i><i></i><i class="on"></i></div><p class="sub">Chat, planes, gastos, votos y fotos — todo el viaje en un sitio.</p><span class="cta"><span class="lg"></span>Continuar con Apple</span><span class="cta ghost"><span class="lg">G</span>Continuar con Google</span><span class="loginlink">¿Ya tienes cuenta? <b>Inicia sesión</b></span></div>
+        </div></div>
+        <p class="tag"><b>S5</b> · fotos</p>
+        <p class="note">Los recuerdos flotan como luciérnagas; el azul abraza el suyo. El carrete compartido.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">02 · La estructura — cómo se usan las escenas</p>
+    <h2>Tres formas de <em>contarlo.</em></h2>
+    <div class="paths">
+      <div class="path">
+        <span class="k">A · Solo el hero</span>
+        <h4>Una pantalla</h4>
+        <p>Eliges UNA escena (p. ej. S1) como única bienvenida. Mínimo, directo, pero solo enseña un beneficio.</p>
+      </div>
+      <div class="path rec">
+        <span class="k">B · Hero + carrusel ◆ recomendada</span>
+        <h4>Un beneficio por swipe</h4>
+        <p>S1 recibe; S2–S5 se deslizan detrás (los puntitos de página). Patrón probado de onboarding: 3–5 pantallas, un valor por pantalla, &lt;60s. Las criaturas ganan roles de verdad.</p>
+      </div>
+      <div class="path">
+        <span class="k">C · Collage</span>
+        <h4>Todo en un frame</h4>
+        <p>Una sola imagen donde cada criatura hace una cosa distinta a la vez. Todo el valor junto, pero con riesgo de ruido y menos aire para el titular.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">03 · Lo que falta que firmes</p>
+    <div class="open">
+      <ul>
+        <li><span class="n">01</span><span><b>Firmado hasta ahora:</b> escenas ✓ · frases simples ✓ · carrusel B ✓ · Siguiente/Apple/Google ✓ · loops DepthFlow ✓ · tipografía redonda centrada ✓.</span></li>
+        <li><span class="n">02</span><span><b>Última mirada</b> — recorre las 5 con la voz nueva: ¿algún detalle de colocación o tamaño?</span></li>
+        <li><span class="n">03</span><span><b>Con tu OK</b> → ADR-0004 + DESIGN.md y la bienvenida queda cerrada.</span></li>
+      </ul>
+    </div>
+    <p class="muted" style="margin-top:24px">Plan completo (investigación + prompts) en el design doc de gstack. Con tu firma → <b style="color:var(--crema)">ADR-0004 + DESIGN.md</b>.</p>
+  </section>
+
+  <footer>TripSquad · bienvenida v2 escenas funcionales · Gemini 3 Pro · 2026-07-08 · borrador vivo</footer>
+</div>

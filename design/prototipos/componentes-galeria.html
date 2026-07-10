@@ -1,0 +1,793 @@
+<title>TripSquad · Componentes en vivo</title>
+<style>
+  :root{--crema:#F5F1E9;--page:#E9E3D7;--papel:#FBF7EF;--ink:#241F1A;--lo:#8C8375;
+    --lav:#9782B8;--sal:#7FA08C;--ter:#C98A6B;--amb:#D8B24A;--agua:#9FB6BF;--bur:#6E1423;--bronce:#C9A876;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  .grain{position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.45;mix-blend-mode:soft-light;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 24px 70px}
+  header{padding:64px 0 8px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--lo);margin:0 0 12px}
+  h1{font-weight:300;font-size:clamp(32px,5.5vw,52px);line-height:1.06;letter-spacing:-.02em;margin:0 0 10px}
+  h1 span{color:var(--lo)}
+  .lead{font-size:16px;color:var(--lo);max-width:52ch;margin:0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-top:34px}
+
+  .d{border-radius:20px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.75);
+    box-shadow:0 1px 2px rgba(36,28,18,.05),0 14px 30px -22px rgba(36,28,18,.3);overflow:hidden;
+    display:flex;flex-direction:column}
+  .stage{height:250px;background:var(--papel);position:relative;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;
+    border-bottom:1px solid rgba(36,31,26,.07)}
+  .meta{padding:13px 17px 15px}
+  .meta h5{margin:0 0 3px;font-size:15px;font-weight:650;display:flex;align-items:center;gap:8px}
+  .meta p{margin:0;font-size:12.5px;color:var(--lo)}
+  .chip{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;background:rgba(36,31,26,.06);color:var(--lo);flex:0 0 auto}
+  .chip.mod{background:color-mix(in srgb,var(--mc,var(--lav)) 16%,transparent);color:var(--ink)}
+  .hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;font-family:var(--mono);
+    font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--lo);pointer-events:none}
+
+  /* 00 mapa espina-dorsal */
+  .d.wide{grid-column:1/-1}
+  @media(min-width:900px){.d.wide{grid-column:span 2}}
+  .mapc{position:relative;width:340px;height:200px;border-radius:16px;overflow:hidden;
+    border:1px solid rgba(36,31,26,.08);box-shadow:0 10px 24px -16px rgba(36,28,18,.4)}
+  .mapc svg{position:absolute;inset:0}
+  #ruta{fill:none;stroke:var(--lav);stroke-width:3.5;stroke-linecap:round;
+    transition:stroke-dashoffset 1.1s cubic-bezier(.4,0,.2,1)}
+  .pin{position:absolute;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;
+    background:#fff;border:3px solid var(--pc);display:flex;align-items:center;justify-content:center;
+    font-size:16px;cursor:pointer;box-shadow:0 3px 8px rgba(36,28,18,.25);
+    transition:transform .35s cubic-bezier(.3,1.8,.5,1),opacity .3s;z-index:2}
+  .pin.dim{opacity:.3;transform:scale(.78)}
+  .pin.pop{animation:pinin .55s cubic-bezier(.3,1.6,.5,1)}
+  @keyframes pinin{0%{transform:translateY(-34px) scale(.4);opacity:0}
+    70%{transform:translateY(3px) scale(1.08)}100%{transform:none;opacity:1}}
+  .pin.sel{transform:scale(1.25)}
+  .dchips{position:absolute;top:10px;left:10px;display:flex;gap:6px;z-index:3}
+  .dch{cursor:pointer;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+    padding:6px 11px;border-radius:999px;background:rgba(255,255,255,.75);backdrop-filter:blur(6px);
+    color:var(--lo);border:1px solid rgba(255,255,255,.85)}
+  .dch.on{background:var(--ink);color:var(--crema);border-color:var(--ink)}
+  .mcard{position:absolute;left:10px;right:10px;bottom:10px;z-index:3;border-radius:12px;
+    background:rgba(255,255,255,.82);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.9);
+    padding:9px 13px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;
+    transform:translateY(64px);transition:transform .45s cubic-bezier(.3,1.4,.5,1)}
+  .mcard.show{transform:none}
+  .mcard b{font-size:13px}
+  .mcard span{font-family:var(--mono);font-size:9.5px;color:var(--lo);letter-spacing:.08em;text-transform:uppercase}
+
+  /* 01 sello holográfico */
+  #sealwrap{cursor:pointer;perspective:600px}
+  #seal{width:158px;height:158px;border-radius:50%;position:relative;transition:transform .25s ease;
+    transform-style:preserve-3d;
+    background:radial-gradient(circle at 34% 30%,#E2C696,#C9A876 52%,#9E7E4E 100%);
+    box-shadow:0 2px 4px rgba(36,28,18,.18),0 16px 30px -14px rgba(110,80,30,.55),
+      inset 0 1px 0 rgba(255,255,255,.55),inset 0 -8px 16px rgba(90,60,20,.28)}
+  #seal::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
+    background:conic-gradient(from 0deg at var(--fx,30%) var(--fy,30%),
+      rgba(255,120,180,.0),rgba(255,190,120,.55),rgba(160,255,200,.45),rgba(140,180,255,.55),
+      rgba(255,160,220,.5),rgba(255,120,180,.0));
+    mix-blend-mode:color-dodge;opacity:.5;animation:foil 7s linear infinite}
+  @keyframes foil{to{filter:hue-rotate(360deg)}}
+  #seal svg{position:absolute;inset:10px;fill:#4A3517}
+  #seal .mid{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:34px;color:#4A3517;text-shadow:0 1px 0 rgba(255,255,255,.35)}
+
+  /* 02 split-flap */
+  .flap{display:flex;gap:6px;align-items:center}
+  .fl{width:46px;height:62px;border-radius:9px;background:var(--ink);color:var(--crema);
+    display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:28px;
+    font-weight:600;position:relative;overflow:hidden}
+  .fl::after{content:"";position:absolute;left:0;right:0;top:50%;height:1.5px;background:rgba(245,241,233,.25)}
+  .fl.an b{animation:flip .45s cubic-bezier(.4,0,.2,1);display:block}
+  @keyframes flip{0%{transform:rotateX(90deg)}100%{transform:rotateX(0)}}
+  .fll{font-family:var(--mono);font-size:12px;letter-spacing:.3em;color:var(--lo);margin-left:8px}
+
+  /* 03 dynamic island */
+  #isla{background:#0B0A09;color:#F4EFE6;border-radius:24px;width:128px;height:37px;cursor:pointer;
+    transition:all .55s cubic-bezier(.34,1.35,.5,1);overflow:hidden;position:relative;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 10px 26px -10px rgba(0,0,0,.5)}
+  #isla.open{width:300px;height:96px;border-radius:30px}
+  #isla .mini{font-family:var(--mono);font-size:11px;letter-spacing:.06em;display:flex;gap:8px;transition:opacity .2s}
+  #isla.open .mini{opacity:0;position:absolute}
+  #isla .full{opacity:0;position:absolute;inset:0;padding:15px 20px;transition:opacity .3s .18s;
+    display:flex;justify-content:space-between;align-items:center}
+  #isla.open .full{opacity:1}
+  #isla .full b{display:block;font-size:15px;font-weight:650}
+  #isla .full small{font-size:10.5px;color:#B7AD9E;text-transform:uppercase;letter-spacing:.1em;font-family:var(--mono)}
+  #isla .full .cd{font-family:var(--mono);font-size:21px;color:#E8C98F}
+
+  /* 04 tab bar squash */
+  .tbar{position:relative;display:flex;width:284px;height:58px;border-radius:999px;
+    background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.8);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 8px 22px -12px rgba(36,28,18,.35);
+    backdrop-filter:blur(10px)}
+  .tbar button{flex:1;background:none;border:0;font-size:19px;cursor:pointer;z-index:1;color:var(--lo)}
+  .tbar button.on{color:var(--ink)}
+  #tpill{position:absolute;top:6px;left:6px;width:calc(25% - 6px);height:46px;border-radius:999px;
+    background:rgba(255,255,255,.85);box-shadow:0 3px 10px -3px rgba(36,28,18,.28);
+    transition:left .4s cubic-bezier(.3,1.4,.45,1)}
+
+  /* 05 donut */
+  #donut{cursor:pointer}
+  #donut circle.seg{fill:none;stroke-width:22;transition:stroke-width .3s cubic-bezier(.3,1.5,.5,1);
+    transform-origin:70px 70px}
+  #donut circle.seg.on{stroke-width:32}
+  .dctr{position:absolute;text-align:center;pointer-events:none}
+  .dctr b{display:block;font-size:22px;font-weight:650;letter-spacing:-.01em}
+  .dctr span{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--lo)}
+
+  /* 06 compare */
+  .cmp{width:270px;height:150px;border-radius:14px;position:relative;overflow:hidden;
+    background:#EFE9DC;border:1px solid rgba(36,31,26,.08)}
+  .lay{position:absolute;inset:0;display:flex;align-items:flex-end;gap:10px;padding:16px 18px 26px}
+  .lay i{flex:1;border-radius:6px 6px 2px 2px}
+  .layA i{background:var(--ter)}
+  .layB{background:var(--papel)}
+  .layB i{background:rgba(36,31,26,.16)}
+  .cline{position:absolute;top:0;bottom:0;width:2.5px;background:var(--ink);left:50%}
+  .cline::after{content:"⇔";position:absolute;top:8px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:var(--crema);border-radius:999px;width:24px;height:24px;
+    display:flex;align-items:center;justify-content:center;font-size:12px}
+  .cmp input{position:absolute;inset:0;width:100%;opacity:0;cursor:ew-resize;margin:0}
+  .ctag{position:absolute;bottom:7px;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--lo)}
+
+  /* 07 swipe votos */
+  .deck{position:relative;width:190px;height:172px}
+  .vc{position:absolute;inset:0;border-radius:18px;background:#fff;border:1px solid rgba(36,31,26,.08);
+    box-shadow:0 2px 4px rgba(36,28,18,.06),0 14px 26px -16px rgba(36,28,18,.35);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    touch-action:none;user-select:none;-webkit-user-select:none}
+  .vc .em{font-size:42px}
+  .vc h6{margin:0;font-size:14.5px;font-weight:650}
+  .vc small{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--lo)}
+  #vunder{transform:scale(.93) translateY(9px);opacity:.7}
+  #vtop{cursor:grab}
+  .stamp{position:absolute;top:12px;font-family:var(--mono);font-size:13px;font-weight:700;
+    letter-spacing:.14em;padding:3px 10px;border-radius:6px;border:2.5px solid;opacity:0;transform:rotate(-12deg)}
+  .stamp.si{left:12px;color:var(--sal);border-color:var(--sal)}
+  .stamp.no{right:12px;color:var(--bur);border-color:var(--bur);transform:rotate(12deg)}
+
+  /* 08 confetti */
+  .btn{border:0;cursor:pointer;border-radius:999px;padding:15px 30px;font-size:15px;font-weight:600;
+    background:var(--ink);color:var(--crema);font-family:inherit;
+    transition:transform .35s cubic-bezier(.34,1.8,.4,1)}
+  .btn:active{transform:scale(.93,.88)}
+  .cf{position:absolute;width:8px;height:12px;border-radius:2px;pointer-events:none;z-index:5}
+  #liqmsg{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--sal);opacity:0;transition:opacity .3s;text-transform:uppercase}
+
+  /* 09 blast */
+  .avs{display:flex;gap:16px}
+  .av{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:650;color:#fff;position:relative;transition:transform .3s cubic-bezier(.3,1.6,.5,1)}
+  .av i{position:absolute;bottom:-3px;right:-3px;width:17px;height:17px;border-radius:50%;background:var(--sal);
+    color:#fff;font-style:normal;font-size:10px;display:flex;align-items:center;justify-content:center;
+    transform:scale(0);transition:transform .3s cubic-bezier(.3,1.8,.5,1)}
+  .av.got{transform:scale(1.12)}
+  .av.got i{transform:scale(1)}
+  .dot{position:absolute;width:11px;height:11px;border-radius:50%;background:var(--ink);z-index:5;pointer-events:none}
+
+  /* 10 explode */
+  #bub{background:var(--ink);color:var(--crema);border-radius:18px 18px 18px 5px;padding:13px 18px;
+    font-size:14.5px;cursor:pointer;max-width:230px;position:relative}
+  #bub span{display:inline-block;white-space:pre}
+
+  /* 11 ripple */
+  #ripzone{position:absolute;inset:0;cursor:pointer;
+    background:radial-gradient(circle at 50% 42%,rgba(151,130,184,.13),transparent 62%)}
+  .ring{position:absolute;border:1.5px solid var(--lav);border-radius:50%;width:22px;height:22px;
+    pointer-events:none;animation:ringx 1s ease-out forwards}
+  @keyframes ringx{from{transform:scale(.4);opacity:.85}to{transform:scale(9);opacity:0}}
+  .brj{position:relative;z-index:1;background:rgba(255,255,255,.62);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.8);border-radius:999px;padding:13px 22px;font-size:14px;
+    color:var(--lo);box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 8px 20px -12px rgba(36,28,18,.3);
+    pointer-events:none}
+
+  /* 12 shimmer */
+  .skel{width:250px;display:grid;gap:11px}
+  .sk{border-radius:10px;background:rgba(36,31,26,.07);position:relative;overflow:hidden}
+  .sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);
+    animation:shim 1.6s infinite}
+  @keyframes shim{to{transform:translateX(100%)}}
+
+  /* 13 recap */
+  .stack{position:relative;width:150px;height:170px;cursor:pointer}
+  .pc{position:absolute;inset:0;background:#fff;border-radius:8px;padding:9px 9px 26px;
+    box-shadow:0 2px 4px rgba(36,28,18,.08),0 12px 24px -14px rgba(36,28,18,.4);
+    transition:transform .5s cubic-bezier(.3,1.4,.45,1);
+    display:flex;align-items:center;justify-content:center;font-size:44px}
+  .pc::after{content:attr(data-c);position:absolute;bottom:6px;left:0;right:0;text-align:center;
+    font-family:var(--mono);font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--lo)}
+  .pc:nth-child(1){transform:rotate(-6deg)}
+  .pc:nth-child(2){transform:rotate(3deg)}
+  .pc:nth-child(3){transform:rotate(-1deg)}
+  .stack.fan .pc:nth-child(1){transform:rotate(-14deg) translate(-74px,6px)}
+  .stack.fan .pc:nth-child(2){transform:rotate(13deg) translate(74px,6px)}
+  .stack.fan .pc:nth-child(3){transform:rotate(0) translateY(-14px)}
+
+  /* 14 gooey */
+  .goo{position:relative}
+  .goo input{border:0;outline:0;background:rgba(255,255,255,.7);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.85);border-radius:999px;padding:15px 24px;width:262px;
+    font-size:14px;font-family:inherit;color:var(--ink);position:relative;z-index:1;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.8),0 8px 22px -14px rgba(36,28,18,.35);
+    transition:transform .4s cubic-bezier(.3,1.5,.5,1)}
+  .goo input:focus{transform:scale(1.045)}
+  .goo::before{content:"";position:absolute;inset:-9px;z-index:0;filter:blur(14px);opacity:.45;
+    background:linear-gradient(115deg,var(--lav),var(--ter),var(--amb));
+    border-radius:60% 40% 55% 45%/50% 60% 40% 50%;animation:blob 9s ease-in-out infinite;
+    transition:opacity .4s}
+  .goo:focus-within::before{opacity:.9}
+  @keyframes blob{0%,100%{border-radius:60% 40% 55% 45%/50% 60% 40% 50%;transform:rotate(0)}
+    50%{border-radius:45% 55% 40% 60%/60% 45% 55% 40%;transform:rotate(4deg) scale(1.03)}}
+
+  /* 15 squishy */
+  .sqrow{display:flex;gap:12px}
+  .sq{border:0;cursor:pointer;border-radius:16px;padding:16px 20px;font-size:22px;background:#fff;
+    border:1px solid rgba(36,31,26,.08);box-shadow:0 2px 4px rgba(36,28,18,.06),0 10px 20px -14px rgba(36,28,18,.35);
+    transition:transform .38s cubic-bezier(.34,1.9,.4,1)}
+  .sq:active{transform:scale(.85,.78)}
+
+  /* mapas: zenly squad */
+  .mmap{position:relative;width:300px;height:180px;border-radius:16px;overflow:hidden;
+    background:#EDE6D6;border:1px solid rgba(36,31,26,.08)}
+  .sqav{position:absolute;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:650;color:#fff;
+    border:2.5px solid #fff;box-shadow:0 3px 8px rgba(36,28,18,.3);z-index:2;
+    transition:left 1.1s cubic-bezier(.4,0,.2,1),top 1.1s cubic-bezier(.4,0,.2,1)}
+  .halo{position:absolute;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;z-index:1;
+    background:radial-gradient(circle,rgba(216,178,74,.55),transparent 68%);opacity:0;transition:opacity .6s .6s}
+  .mbadge{position:absolute;z-index:3;background:rgba(255,255,255,.88);backdrop-filter:blur(6px);
+    border:1px solid rgba(255,255,255,.95);border-radius:999px;padding:5px 12px;font-size:11px;font-weight:600;
+    opacity:0;transform:translateY(8px);transition:all .5s .9s;white-space:nowrap}
+  .mmap.meet .halo{opacity:1}
+  .mmap.meet .mbadge{opacity:1;transform:none}
+  .meetbtn{cursor:pointer;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+    padding:7px 14px;border-radius:999px;background:var(--ink);color:var(--crema);border:0;text-transform:uppercase}
+
+  /* mapas: arcos */
+  .arc{fill:none;stroke-width:2;stroke-dasharray:5 7;animation:aflow 1s linear infinite;opacity:.8}
+  @keyframes aflow{to{stroke-dashoffset:-12}}
+  .mlbl{font-family:var(--mono);font-size:8px;letter-spacing:.12em;fill:#8C8375}
+
+  /* mapas: fly-to */
+  .flyc{position:relative;width:340px;height:200px;border-radius:16px;overflow:hidden;
+    border:1px solid rgba(36,31,26,.08);box-shadow:0 10px 24px -16px rgba(36,28,18,.4)}
+  .flyw{position:absolute;width:680px;height:400px;transform-origin:0 0;transform:scale(.5);
+    transition:transform 1.25s cubic-bezier(.55,0,.15,1)}
+  .fchips{position:absolute;top:10px;left:10px;display:flex;gap:6px;z-index:3;flex-wrap:wrap;max-width:230px}
+
+  /* mapas: sonar */
+  .sonar{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:var(--ter);z-index:2}
+  .sonar::before,.sonar::after{content:"";position:absolute;inset:-2px;border-radius:50%;
+    border:2px solid var(--ter);animation:son 2.4s ease-out infinite}
+  .sonar::after{animation-delay:1.2s}
+  @keyframes son{from{transform:scale(1);opacity:.75}to{transform:scale(4.6);opacity:0}}
+  .mtoast{position:absolute;z-index:3;background:rgba(255,255,255,.85);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.92);border-radius:12px;padding:8px 13px;font-size:12px;
+    box-shadow:0 8px 20px -12px rgba(36,28,18,.35);white-space:nowrap}
+  .mtoast small{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--lo)}
+
+  /* mapas: scrub */
+  .stip{position:absolute;z-index:3;background:rgba(255,255,255,.88);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.95);border-radius:11px;padding:6px 11px;pointer-events:none;
+    box-shadow:0 8px 18px -12px rgba(36,28,18,.35);transform:translate(-50%,-125%)}
+  .stip b{display:block;font-size:14px}
+  .stip span{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--lo)}
+
+  /* shortlist final */
+  .picks{margin-top:52px;padding-top:36px;border-top:1px solid rgba(36,31,26,.1)}
+  .pk{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:20px}
+  .p{border-radius:15px;background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.78);padding:14px 16px}
+  .p b{display:flex;gap:8px;font-size:14px;margin-bottom:3px}
+  .p b i{font-style:normal;font-family:var(--mono);color:var(--bur)}
+  .p p{margin:0;font-size:12px;color:var(--lo)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<div class="grain"></div>
+<div class="wrap">
+<header>
+  <p class="eyebrow">TripSquad · componentes candidatos · recreados en vivo</p>
+  <h1>Tócalo todo. <span>Así se sentiría.</span></h1>
+  <p class="lead">Cada tarjeta es un componente de la investigación, funcionando con nuestros colores. Toca, arrastra, pulsa — y dime cuáles quieres para TripSquad.</p>
+</header>
+
+<div class="grid">
+
+  <div class="d"><div class="stage" id="sealwrap">
+    <div id="seal">
+      <svg viewBox="0 0 140 140"><defs><path id="cp" d="M70,70 m-49,0 a49,49 0 1,1 98,0 a49,49 0 1,1 -98,0"/></defs>
+      <text font-size="10.5" letter-spacing="3.5" font-family="ui-monospace,monospace" font-weight="600">
+      <textPath href="#cp">LISBOA · JUN 2026 · TRIPSQUAD ·</textPath></text></svg>
+      <div class="mid">✦</div>
+    </div>
+    <div class="hint">mueve el cursor encima — en iOS gira con el móvil</div>
+  </div><div class="meta"><h5>Sello holográfico de viaje <span class="chip mod" style="--mc:var(--bronce)">Fotos · marca</span></h5>
+  <p>El lacre bronce con foil de carta coleccionable (shader Metal de «Sticker»). Un sello por viaje completado.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="flap" id="flap"><span class="fl an"><b>1</b></span><span class="fl an"><b>2</b></span><span class="fll">DÍAS</span></div>
+    <div class="hint">voltea solo, como el panel de un aeropuerto</div>
+  </div><div class="meta"><h5>Countdown split-flap <span class="chip mod" style="--mc:var(--amb)">Inicio</span></h5>
+  <p>«Faltan 12 días» con la mecánica del tablero de salidas. Lento y en tinta = sobrio pero vivo.</p></div></div>
+
+  <div class="d"><div class="stage" style="background:#EFE9DC">
+    <div id="isla"><div class="mini">✈ <b>2:10</b></div>
+      <div class="full"><div><small>Hoy · 18:30</small><b>Cena en el Bairro</b><small style="letter-spacing:.04em">Nadie se pierde · 6 van</small></div><div class="cd" id="islacd">2:10</div></div>
+    </div>
+    <div class="hint">toca la isla</div>
+  </div><div class="meta"><h5>Live Activity «día de viaje» <span class="chip mod" style="--mc:var(--agua)">Sistema iOS</span></h5>
+  <p>El patrón de Flighty: la próxima actividad del squad vive en la Dynamic Island, sin abrir la app.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="tbar" id="tbar"><div id="tpill"></div>
+      <button class="on">⌂</button><button>◴</button><button>◉</button><button>▤</button></div>
+    <div class="hint">cambia de pestaña</div>
+  </div><div class="meta"><h5>Tab bar squash &amp; stretch <span class="chip mod" style="--mc:var(--lav)">Hub</span></h5>
+  <p>La pastilla de vidrio se estira y rebota al viajar (awesome-liquid-glass). Física = se siente caro.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div style="position:relative;display:flex;align-items:center;justify-content:center">
+      <svg id="donut" width="172" height="172" viewBox="0 0 140 140">
+        <circle class="seg" data-l="Comida" data-v="€412" cx="70" cy="70" r="46" stroke="#C98A6B" stroke-dasharray="115.6 289" stroke-dashoffset="0"/>
+        <circle class="seg" data-l="Alojamiento" data-v="€260" cx="70" cy="70" r="46" stroke="#9782B8" stroke-dasharray="72.2 289" stroke-dashoffset="-115.6"/>
+        <circle class="seg" data-l="Transporte" data-v="€185" cx="70" cy="70" r="46" stroke="#7FA08C" stroke-dasharray="57.8 289" stroke-dashoffset="-187.8"/>
+        <circle class="seg" data-l="Planes" data-v="€128" cx="70" cy="70" r="46" stroke="#D8B24A" stroke-dasharray="43.4 289" stroke-dashoffset="-245.6"/>
+      </svg>
+      <div class="dctr"><b id="dv">€985</b><span id="dl">total squad</span></div>
+    </div>
+    <div class="hint">toca una cuña</div>
+  </div><div class="meta"><h5>Donut de gastos tocable <span class="chip mod" style="--mc:var(--ter)">Gastos</span></h5>
+  <p>SwiftUICharts lo trae hecho: la cuña crece al tocarla y el centro cuenta la categoría.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="cmp" id="cmp">
+      <div class="lay layB" id="cmpB"><i style="height:78%"></i><i style="height:52%"></i><i style="height:64%"></i><i style="height:40%"></i><i style="height:70%"></i></div>
+      <div class="lay layA" id="cmpA"><i style="height:64%"></i><i style="height:58%"></i><i style="height:38%"></i><i style="height:44%"></i><i style="height:30%"></i></div>
+      <div class="cline" id="cline"></div>
+      <span class="ctag" style="left:14px;color:var(--ter)">GASTADO</span>
+      <span class="ctag" style="right:14px">PRESUPUESTO</span>
+      <input type="range" id="cmpR" min="4" max="96" value="50">
+    </div>
+    <div class="hint">arrastra la línea</div>
+  </div><div class="meta"><h5>Slider gastado / presupuesto <span class="chip mod" style="--mc:var(--ter)">Gastos</span></h5>
+  <p>El patrón «antes/después» aplicado al dinero: arrastras y una capa revela la otra.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="deck">
+      <div class="vc" id="vunder"><span class="em">🍽</span><h6>Cena en el mirador</h6><small>propone Marta</small></div>
+      <div class="vc" id="vtop"><span class="stamp si">SÍ</span><span class="stamp no">NO</span>
+        <span class="em">🏄</span><h6>Surf en Caparica</h6><small>propone Leo</small></div>
+    </div>
+    <div class="hint">arrastra la carta a un lado</div>
+  </div><div class="meta"><h5>Votaciones con mazo swipe <span class="chip mod" style="--mc:var(--lav)">Votos</span></h5>
+  <p>Los planes propuestos como cartas: derecha sí, izquierda no. Votar deja de ser una lista.</p></div></div>
+
+  <div class="d"><div class="stage" id="liqstage">
+    <button class="btn" id="liq">Liquidar el bote · €985</button>
+    <span id="liqmsg">✓ cuentas en paz</span>
+    <div class="hint">púlsalo</div>
+  </div><div class="meta"><h5>Confetti solo en hitos <span class="chip mod" style="--mc:var(--ter)">Gastos</span></h5>
+  <p>ConfettiSwiftUI, con nuestra regla: ráfaga corta y SOLO al liquidar o cerrar viaje. La escasez lo hace premium.</p></div></div>
+
+  <div class="d"><div class="stage" id="blaststage" style="gap:26px">
+    <div class="avs">
+      <span class="av" style="background:var(--lav)">MA<i>✓</i></span>
+      <span class="av" style="background:var(--sal)">LE<i>✓</i></span>
+      <span class="av" style="background:var(--ter)">SO<i>✓</i></span>
+      <span class="av" style="background:var(--agua)">DA<i>✓</i></span>
+    </div>
+    <button class="btn" id="blast" style="font-size:13.5px;padding:12px 24px">📣 Avisar a todos · «El bus sale 9:00»</button>
+    <div class="hint">envía el aviso</div>
+  </div><div class="meta"><h5>Text Blast del organizador <span class="chip mod" style="--mc:var(--agua)">Chat</span></h5>
+  <p>Lo de Partiful: un aviso llega a todo el squad de golpe, sin ensuciar el chat.</p></div></div>
+
+  <div class="d"><div class="stage" style="align-items:flex-start;justify-content:flex-start;padding:34px 26px">
+    <div id="bub">¿Quién trae el altavoz? 🔊</div>
+    <div class="hint">toca el mensaje</div>
+  </div><div class="meta"><h5>Text explode <span class="chip mod" style="--mc:var(--agua)">Chat</span></h5>
+  <p>El mensaje se desintegra en partículas al borrarlo (efecto iMessage). Partículas en tinta, no confetti.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div id="ripzone"></div>
+    <div class="brj">Pregúntale a Brújula…</div>
+    <div class="hint">toca el fondo</div>
+  </div><div class="meta"><h5>Ripple al preguntar <span class="chip mod" style="--mc:var(--lav)">Brújula</span></h5>
+  <p>El fondo responde con una onda concéntrica antes de que la IA conteste. Sutil, casi imperceptible.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="skel">
+      <div class="sk" style="height:52px"></div>
+      <div style="display:flex;gap:11px"><div class="sk" style="width:52px;height:52px;border-radius:50%"></div>
+        <div style="flex:1;display:grid;gap:8px"><div class="sk" style="height:14px;width:75%"></div><div class="sk" style="height:14px;width:50%"></div></div></div>
+      <div class="sk" style="height:14px;width:88%"></div>
+      <div class="sk" style="height:14px;width:62%"></div>
+    </div>
+  </div><div class="meta"><h5>Shimmer mientras piensa <span class="chip mod" style="--mc:var(--lav)">Brújula</span></h5>
+  <p>SwiftUI-Shimmer + redacted: el «buscando vuelos…» con clase, sin spinner.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="stack" id="stack">
+      <div class="pc" data-c="día 3 · miradouro">🌅</div>
+      <div class="pc" data-c="€985 · 5 amigos">🧾</div>
+      <div class="pc" data-c="lisboa · jun 2026">📍</div>
+    </div>
+    <div class="hint">toca para abrir el recap</div>
+  </div><div class="meta"><h5>Recap compartible <span class="chip mod" style="--mc:var(--bronce)">Cierre de viaje</span></h5>
+  <p>Lo de Retro: al cerrar el viaje, un collage auto (fotos + gastos + sello) listo para Instagram. Producto y marketing.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="goo"><input placeholder="Quiero 4 días de playa en junio…"></div>
+    <div class="hint">toca el campo</div>
+  </div><div class="meta"><h5>Prompt gooey <span class="chip mod" style="--mc:var(--lav)">Brújula</span></h5>
+  <p>El campo «respira» líquido al enfocar — refuerza el liquid glass justo donde vive la IA.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="sqrow"><button class="sq">✓</button><button class="sq">❤️</button><button class="sq">✈️</button></div>
+    <div class="hint">mantén pulsado y suelta</div>
+  </div><div class="meta"><h5>Botones squishy <span class="chip mod" style="--mc:var(--sal)">Todo</span></h5>
+  <p>El spring 0.2/0.4 firmado, aplicado: checks del itinerario y reacciones que se aplastan y rebotan.</p></div></div>
+
+</div>
+
+<p class="eyebrow" style="margin-top:58px;padding-top:38px;border-top:1px solid rgba(36,31,26,.1)">mapas — botín de 3 cazadores (repos swiftui · apps señature · demos web)</p>
+
+<div class="grid" style="margin-top:20px">
+
+  <div class="d wide"><div class="stage">
+    <div class="flyc">
+      <div class="flyw" id="flyw">
+        <svg width="680" height="400" viewBox="0 0 680 400">
+          <rect width="680" height="400" fill="#EDE6D6"/>
+          <path d="M-20,336 C120,300 180,370 320,344 C480,316 520,380 700,350" fill="none" stroke="#BFD2D8" stroke-width="34" opacity=".8"/>
+          <ellipse cx="160" cy="104" rx="92" ry="52" fill="#7FA08C" opacity=".2"/>
+          <ellipse cx="536" cy="300" rx="80" ry="44" fill="#7FA08C" opacity=".16"/>
+          <g stroke="#FBF7EF" stroke-width="5" opacity=".9" fill="none">
+            <path d="M0,220 L680,184"/><path d="M120,0 L176,400"/>
+            <path d="M360,0 L332,400"/><path d="M524,0 L572,400"/>
+          </g>
+        </svg>
+        <span class="pin" data-k="0" style="left:180px;top:150px;--pc:#C98A6B">🏰</span>
+        <span class="pin" data-k="1" style="left:420px;top:260px;--pc:#9782B8">🍮</span>
+        <span class="pin" data-k="2" style="left:560px;top:110px;--pc:#7FA08C">🎡</span>
+      </div>
+      <div class="fchips">
+        <button class="dch on" data-k="-1">LISBOA</button>
+        <button class="dch" data-k="0">ALFAMA</button>
+        <button class="dch" data-k="1">BELÉM</button>
+        <button class="dch" data-k="2">PARQUE</button>
+      </div>
+      <div class="mcard" id="fcard"><div><b id="fct">Alfama a pie</b><br><span id="fch">Día 1 · 10:00</span></div><span>ver →</span></div>
+    </div>
+    <div class="hint">toca una parada — la cámara vuela (fly-to) y el pin abre su tarjeta</div>
+  </div><div class="meta"><h5>Vuelo de cámara + pin→tarjeta <span class="chip mod" style="--mc:var(--sal)">Planes · mapa fullscreen</span></h5>
+  <p>Los dos ganadores de la investigación juntos: el fly-to de Mapbox/Zenly (en iOS es solo animar MapCameraPosition con pitch — el «wow» más barato, esfuerzo S) + el pin que se levanta a tarjeta de Airbnb (Annotation 100% SwiftUI + matchedGeometryEffect).</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="mmap" id="mmap">
+      <svg class="bg" width="300" height="180" viewBox="0 0 300 180" style="position:absolute;inset:0">
+        <rect width="300" height="180" fill="#EDE6D6"/>
+        <path d="M-10,148 C60,132 90,162 160,150 C230,138 250,166 310,152" fill="none" stroke="#BFD2D8" stroke-width="15" opacity=".8"/>
+        <ellipse cx="70" cy="46" rx="42" ry="24" fill="#7FA08C" opacity=".2"/>
+        <g stroke="#FBF7EF" stroke-width="2.5" opacity=".9" fill="none">
+          <path d="M0,96 L300,82"/><path d="M52,0 L76,180"/><path d="M206,0 L192,180"/>
+        </g>
+      </svg>
+      <span class="halo" style="left:118px;top:74px"></span>
+      <span class="sqav" style="left:110px;top:70px;background:var(--lav)">MA</span>
+      <span class="sqav" id="avLE" style="left:224px;top:130px;background:var(--sal)">LE</span>
+      <span class="sqav" style="left:56px;top:140px;background:var(--ter)">SO</span>
+      <span class="mbadge" style="left:76px;top:22px">✨ juntas en el mirador</span>
+    </div>
+    <button class="meetbtn" id="meetbtn">▶ se encuentran</button>
+  </div><div class="meta"><h5>Squad en el mapa, estilo Zenly <span class="chip mod" style="--mc:var(--amb)">Durante el viaje</span></h5>
+  <p>El estándar de oro de los mapas sociales (†2023; herederos: Bump, Jagat): avatares reales, nunca pines genéricos, y un glow cálido cuando dos del squad coinciden. Opt-in por viaje, lenguaje visual de Find My.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <svg width="300" height="180" viewBox="0 0 300 180" style="border-radius:16px">
+      <rect width="300" height="180" rx="16" fill="#EDE6D6"/>
+      <path class="arc" d="M34,146 Q130,16 248,92" stroke="#9782B8"/>
+      <path class="arc" d="M52,52 Q150,-4 250,86" stroke="#7FA08C"/>
+      <path class="arc" d="M104,26 Q186,8 252,82" stroke="#C98A6B"/>
+      <circle r="4" fill="#9782B8"><animateMotion dur="2.6s" repeatCount="indefinite" path="M34,146 Q130,16 248,92"/></circle>
+      <circle r="4" fill="#7FA08C"><animateMotion dur="3.1s" repeatCount="indefinite" path="M52,52 Q150,-4 250,86"/></circle>
+      <circle r="4" fill="#C98A6B"><animateMotion dur="2.2s" repeatCount="indefinite" path="M104,26 Q186,8 252,82"/></circle>
+      <circle cx="34" cy="146" r="5" fill="#9782B8"/><text class="mlbl" x="22" y="164">MAD · MA</text>
+      <circle cx="52" cy="52" r="5" fill="#7FA08C"/><text class="mlbl" x="36" y="42">PAR · LE</text>
+      <circle cx="104" cy="26" r="5" fill="#C98A6B"/><text class="mlbl" x="118" y="30">MIL · SO</text>
+      <circle cx="252" cy="88" r="9" fill="#241F1A"/><circle cx="252" cy="88" r="3.5" fill="#F5F1E9"/>
+      <text class="mlbl" x="224" y="112" style="font-weight:700;fill:#241F1A">LISBOA ✦</text>
+    </svg>
+  </div><div class="meta"><h5>Arcos del squad convergiendo <span class="chip mod" style="--mc:var(--lav)">Countdown · hype</span></h5>
+  <p>Flighty + deck.gl ArcLayer: cada amigo es un arco volando hacia el destino. En iOS: MKGeodesicPolyline (nativo, las curvas ya vienen gratis) + trim animado. Para el póster pre-viaje.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <div class="mmap">
+      <svg width="300" height="180" viewBox="0 0 300 180" style="position:absolute;inset:0">
+        <rect width="300" height="180" fill="#EDE6D6"/>
+        <path d="M-10,140 C70,124 110,156 180,142 C240,130 260,158 310,146" fill="none" stroke="#BFD2D8" stroke-width="13" opacity=".8"/>
+        <g stroke="#FBF7EF" stroke-width="2.5" opacity=".9" fill="none">
+          <path d="M0,80 L300,68"/><path d="M92,0 L112,180"/><path d="M218,0 L204,180"/>
+        </g>
+      </svg>
+      <span class="sonar" style="left:150px;top:86px"></span>
+      <div class="mtoast" style="left:64px;top:104px"><small>ahora mismo</small>☕ María añadió €12</div>
+    </div>
+  </div><div class="meta"><h5>Pin sonar — algo nuevo aquí <span class="chip mod" style="--mc:var(--ter)">Gastos · Fotos</span></h5>
+  <p>Anillos concéntricos escalonados (patrón clásico de CodePen): el pin late cuando alguien añade un gasto o sube una foto en ese lugar. Puro CSS/Canvas — baratísimo en batería.</p></div></div>
+
+  <div class="d"><div class="stage">
+    <canvas id="globe" width="200" height="200" style="width:200px;height:200px"></canvas>
+  </div><div class="meta"><h5>Globo de puntos con arco <span class="chip mod" style="--mc:var(--bronce)">Crear viaje · bienvenida</span></h5>
+  <p>El patrón de cobe (el globo de Vercel, 5KB): esfera de puntos en tinta girando, con el arco de tu ciudad al destino. En iOS: SceneKit, o la versión 2D como fallback ligero.</p></div></div>
+
+  <div class="d"><div class="stage" id="scrstage" style="cursor:ew-resize">
+    <svg id="scr" width="300" height="150" viewBox="0 0 300 150">
+      <defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#C98A6B"/><stop offset=".55" stop-color="#D8B24A"/><stop offset="1" stop-color="#7FA08C"/>
+      </linearGradient></defs>
+      <path id="sp" d="M18,118 C70,40 120,140 170,80 C210,32 250,90 284,44" fill="none" stroke="url(#sg)" stroke-width="4.5" stroke-linecap="round"/>
+      <circle id="sd" r="7.5" fill="#241F1A" stroke="#fff" stroke-width="2.5"/>
+    </svg>
+    <div class="stip" id="stip"><b id="stv">€256</b><span id="sth">día 2 de 3</span></div>
+    <div class="hint">desliza el dedo por la ruta</div>
+  </div><div class="meta"><h5>Scrubbing de ruta con datos <span class="chip mod" style="--mc:var(--ter)">Gastos · recap</span></h5>
+  <p>El patrón bike-route de Mapbox: la ruta lleva un gradiente de datos (aquí, gasto acumulado) y arrastras un punto que la recorre con tarjeta glass. En iOS: getPointAtLength ≈ trim + interpolación.</p></div></div>
+
+  <div class="d wide"><div class="stage">
+    <div class="mapc" id="mapc">
+      <svg width="340" height="200" viewBox="0 0 340 200">
+        <rect width="340" height="200" fill="#EDE6D6"/>
+        <path d="M-10,168 C60,150 90,185 160,172 C240,158 260,190 350,175" fill="none" stroke="#BFD2D8" stroke-width="17" opacity=".8"/>
+        <ellipse cx="80" cy="52" rx="46" ry="26" fill="#7FA08C" opacity=".2"/>
+        <ellipse cx="268" cy="150" rx="40" ry="22" fill="#7FA08C" opacity=".16"/>
+        <g stroke="#FBF7EF" stroke-width="2.5" opacity=".9" fill="none">
+          <path d="M0,110 L340,92"/><path d="M60,0 L88,200"/>
+          <path d="M180,0 L166,200"/><path d="M262,0 L286,200"/>
+        </g>
+        <path id="ruta" d="M45,155 C70,118 92,84 120,70 C158,51 188,96 215,120 C244,146 270,92 295,55"/>
+      </svg>
+      <div class="dchips">
+        <button class="dch on" data-d="0">DÍA 1</button>
+        <button class="dch" data-d="1">DÍA 2</button>
+        <button class="dch" data-d="2">DÍA 3</button>
+      </div>
+      <span class="pin" style="left:45px;top:155px;--pc:#C98A6B" data-t="Alfama a pie" data-h="Día 1 · 10:00">🏰</span>
+      <span class="pin" style="left:120px;top:70px;--pc:#9782B8" data-t="Mirador da Graça" data-h="Día 1 · 19:30">🌅</span>
+      <span class="pin" style="left:215px;top:120px;--pc:#7FA08C" data-t="Playa de Caparica" data-h="Día 2 · 11:00">⛱</span>
+      <span class="pin" style="left:295px;top:55px;--pc:#D8B24A" data-t="Cena en el Bairro" data-h="Día 3 · 21:00">🍽</span>
+      <div class="mcard" id="mcard"><div><b id="mct">Alfama a pie</b><br><span id="mch">Día 1 · 10:00</span></div><span>ver →</span></div>
+    </div>
+    <div class="hint">cambia de día — la ruta se dibuja sola · toca un pin</div>
+  </div><div class="meta"><h5>Itinerario espina-dorsal <span class="chip mod" style="--mc:var(--sal)">Planes</span></h5>
+  <p>La sincronía lista⇄mapa de Wanderlog + la técnica de ruta-que-se-dibuja de Codrops (stroke-dashoffset ≈ trim en SwiftUI). Lección de Polarsteps que la investigación confirmó: rutas REALES (MKDirections), nunca líneas rectas — su «telaraña» es su queja nº1.</p></div></div>
+
+</div>
+
+<div class="pk" style="margin-top:18px">
+  <div class="p"><b><i>◆</i>Nativo vs. mapa propio</b><p>MapKit nativo cubre TODO lo de arriba gratis (pines SwiftUI, MKGeodesicPolyline, fly-to de cámara, MKMapSnapshotter para tarjetas). Lo ÚNICO que no da: pintar el mapa base en crema/tinta → eso pide MapLibre (gratis + hosting de tiles) o Mapbox (25k usuarios/mes gratis, luego de pago). Decisión tuya, no urge.</p></div>
+  <div class="p"><b><i>✓</i>Repos con veredicto</b><p>ClusterMap (MIT, activo) para agrupar pines cuando haya muchos; el resto sale del SDK de Apple sin dependencias. Citymapper confirma: los mapas de terceros se sienten menos fluidos que MapKit — no cambiar de motor solo por estilo.</p></div>
+  <div class="p"><b><i>★</i>El wow más rentable</b><p>El vuelo de cámara 3D entre paradas es esfuerzo S (solo animar MapCameraPosition con pitch, cero geometría custom) y es lo primero que la gente enseña. Después: pin→tarjeta (M) y avatares squad (M).</p></div>
+</div>
+
+<div class="picks">
+  <p class="eyebrow">con qué seguimos — 4 paquetes posibles (elige los que quieras)</p>
+  <div class="pk">
+    <div class="p"><b><i>A</i>Efectos-firma</b><p>Sello holográfico + split-flap. Identidad que nadie más tiene, esfuerzo pequeño.</p></div>
+    <div class="p"><b><i>B</i>Gastos deliciosos</b><p>Donut tocable + slider + confetti al liquidar + simplificar deudas (Splitwise).</p></div>
+    <div class="p"><b><i>C</i>Superpoderes iOS</b><p>Live Activity + recap compartible + widget. La app vive fuera de la app.</p></div>
+    <div class="p"><b><i>D</i>Social con física</b><p>Votos swipe + text blast + Brújula con ripple, gooey y shimmer.</p></div>
+  </div>
+</div>
+</div>
+
+<script>
+// fly-to + pin→tarjeta
+(function(){var w=document.getElementById('flyw'),card=document.getElementById('fcard'),
+ct=document.getElementById('fct'),ch=document.getElementById('fch'),
+spots=[{x:180,y:150,t:'Alfama a pie',h:'Día 1 · 10:00'},
+{x:420,y:260,t:'Belém y pasteles',h:'Día 2 · 12:00'},
+{x:560,y:110,t:'Parque das Nações',h:'Día 3 · 17:00'}],
+chips=Array.prototype.slice.call(document.querySelectorAll('.fchips .dch'));
+function fly(k){chips.forEach(function(c){c.classList.toggle('on',+c.dataset.k===k);});
+if(k<0){w.style.transform='scale(.5)';card.classList.remove('show');return;}
+var s=spots[k];
+w.style.transform='translate('+(170-1.6*s.x)+'px,'+(84-1.6*s.y)+'px) scale(1.6)';
+ct.textContent=s.t;ch.textContent=s.h;card.classList.add('show');}
+chips.forEach(function(c){c.addEventListener('click',function(){fly(+c.dataset.k);});});
+w.querySelectorAll('.pin').forEach(function(p){p.addEventListener('click',function(){fly(+p.dataset.k);});});})();
+
+// squad zenly: se encuentran
+(function(){var mm=document.getElementById('mmap'),le=document.getElementById('avLE'),
+btn=document.getElementById('meetbtn');
+btn.addEventListener('click',function(){var m=mm.classList.toggle('meet');
+if(m){le.style.left='128px';le.style.top='86px';btn.textContent='separar';}
+else{le.style.left='224px';le.style.top='130px';btn.textContent='▶ se encuentran';}});})();
+
+// globo de puntos con arco
+(function(){var cv=document.getElementById('globe'),ctx=cv.getContext('2d'),
+R=76,N=850,pts=[],i;
+for(i=0;i<N;i++){var y=1-2*(i+0.5)/N,r=Math.sqrt(1-y*y),phi=i*2.399963;
+pts.push([Math.cos(phi)*r,y,Math.sin(phi)*r]);}
+function ll(lat,lon){lat*=Math.PI/180;lon*=Math.PI/180;
+return[Math.cos(lat)*Math.cos(lon),Math.sin(lat),Math.cos(lat)*Math.sin(lon)];}
+var A=ll(19.4,-99.1),B=ll(38.7,-9.1),
+dotAB=A[0]*B[0]+A[1]*B[1]+A[2]*B[2],w0=Math.acos(Math.min(1,dotAB));
+function slerp(t){var s1=Math.sin((1-t)*w0)/Math.sin(w0),s2=Math.sin(t*w0)/Math.sin(w0),
+lift=1+0.28*Math.sin(Math.PI*t);
+return[(A[0]*s1+B[0]*s2)*lift,(A[1]*s1+B[1]*s2)*lift,(A[2]*s1+B[2]*s2)*lift];}
+var a=2.2;
+function frame(){a+=0.0045;var ca=Math.cos(a),sa=Math.sin(a);
+function proj(p){return[100+R*(p[0]*ca+p[2]*sa),100-R*p[1],-p[0]*sa+p[2]*ca];}
+ctx.clearRect(0,0,200,200);
+ctx.beginPath();ctx.arc(100,100,R+1,0,7);ctx.fillStyle='rgba(36,31,26,.045)';ctx.fill();
+for(var k=0;k<N;k++){var q=proj(pts[k]);
+if(q[2]>0){ctx.fillStyle='rgba(36,31,26,'+(0.14+0.42*q[2])+')';ctx.fillRect(q[0],q[1],1.7,1.7);}}
+var t,q2,head=(a*0.55)%1;
+for(t=0;t<=1;t+=0.02){q2=proj(slerp(t));if(q2[2]>-0.15){
+ctx.fillStyle='rgba(201,138,107,.3)';ctx.fillRect(q2[0]-.8,q2[1]-.8,1.6,1.6);}}
+for(t=Math.max(0,head-0.22);t<=head;t+=0.012){q2=proj(slerp(t));if(q2[2]>-0.15){
+var al=1-(head-t)/0.22;ctx.fillStyle='rgba(201,138,107,'+al+')';
+ctx.beginPath();ctx.arc(q2[0],q2[1],1.9,0,7);ctx.fill();}}
+[[A,'#C98A6B'],[B,'#D8B24A']].forEach(function(m){var q3=proj(m[0]);
+if(q3[2]>0){ctx.fillStyle=m[1];ctx.beginPath();ctx.arc(q3[0],q3[1],4,0,7);ctx.fill();
+ctx.strokeStyle='#FBF7EF';ctx.lineWidth=1.5;ctx.stroke();}});
+requestAnimationFrame(frame);}
+frame();})();
+
+// scrubbing de ruta
+(function(){var st=document.getElementById('scrstage'),sp=document.getElementById('sp'),
+sd=document.getElementById('sd'),tip=document.getElementById('stip'),
+tv=document.getElementById('stv'),th=document.getElementById('sth'),
+svg=document.getElementById('scr'),L=sp.getTotalLength();
+function setF(f){f=Math.max(0,Math.min(1,f));var p=sp.getPointAtLength(f*L);
+sd.setAttribute('cx',p.x);sd.setAttribute('cy',p.y);
+var sr=svg.getBoundingClientRect(),str=st.getBoundingClientRect();
+tip.style.left=(sr.left-str.left+p.x)+'px';tip.style.top=(sr.top-str.top+p.y-6)+'px';
+tv.textContent='€'+Math.round(f*640);th.textContent='día '+(1+Math.floor(f*2.99))+' de 3';}
+st.addEventListener('pointermove',function(e){var sr=svg.getBoundingClientRect();
+setF((e.clientX-sr.left-18)/(sr.width-36));});
+setTimeout(function(){setF(0.4);},400);})();
+
+// mapa espina-dorsal
+(function(){var ruta=document.getElementById('ruta'),L=ruta.getTotalLength();
+ruta.style.strokeDasharray=L+' '+L;ruta.style.strokeDashoffset=L;
+var ends=[0.38,0.72,1],dayOf=[0,0,1,2],
+pins=Array.prototype.slice.call(document.querySelectorAll('#mapc .pin')),
+chips=document.querySelectorAll('.dch'),card=document.getElementById('mcard'),
+ct=document.getElementById('mct'),ch=document.getElementById('mch');
+function setDay(k){chips.forEach(function(c,i){c.classList.toggle('on',i===k);});
+ruta.style.strokeDashoffset=L*(1-ends[k]);
+pins.forEach(function(p,i){var act=dayOf[i]<=k;p.classList.toggle('dim',!act);
+if(dayOf[i]===k){p.classList.remove('pop');void p.offsetWidth;p.classList.add('pop');}});
+card.classList.remove('show');pins.forEach(function(x){x.classList.remove('sel');});}
+chips.forEach(function(c){c.addEventListener('click',function(){setDay(+c.dataset.d);});});
+pins.forEach(function(p){p.addEventListener('click',function(){
+pins.forEach(function(x){x.classList.remove('sel');});p.classList.add('sel');
+ct.textContent=p.dataset.t;ch.textContent=p.dataset.h;card.classList.add('show');});});
+setTimeout(function(){setDay(0);},350);})();
+
+// split-flap
+(function(){var fs=document.querySelectorAll('#flap .fl'),days=12;
+setInterval(function(){days=days>5?days-1:12;var s=String(days).padStart(2,'0');
+fs.forEach(function(c,i){c.querySelector('b').textContent=s[i];
+c.classList.remove('an');void c.offsetWidth;c.classList.add('an');});},2400);})();
+
+// sello foil tilt
+(function(){var w=document.getElementById('sealwrap'),s=document.getElementById('seal');
+w.addEventListener('pointermove',function(e){var r=w.getBoundingClientRect(),
+x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
+s.style.transform='rotateY('+(x*30)+'deg) rotateX('+(-y*30)+'deg)';
+s.style.setProperty('--fx',(x*120+50)+'%');s.style.setProperty('--fy',(y*120+50)+'%');});
+w.addEventListener('pointerleave',function(){s.style.transform='';});})();
+
+// isla
+(function(){var i=document.getElementById('isla');
+i.addEventListener('click',function(){i.classList.toggle('open');});
+var cd=document.getElementById('islacd'),t=130;
+setInterval(function(){t=t>1?t-1:130;cd.textContent=Math.floor(t/60)+':'+String(t%60).padStart(2,'0');},1000);})();
+
+// tab bar
+(function(){var bar=document.getElementById('tbar'),pill=document.getElementById('tpill'),
+btns=bar.querySelectorAll('button');
+btns.forEach(function(b,i){b.addEventListener('click',function(){
+btns.forEach(function(x){x.classList.remove('on');});b.classList.add('on');
+pill.style.left='calc('+(i*25)+'% + 6px)';
+pill.animate([{transform:'scaleX(1)'},{transform:'scaleX(1.3) scaleY(.85)',offset:.4},{transform:'scaleX(1)'}],
+{duration:420,easing:'ease-out'});});});})();
+
+// donut
+(function(){var segs=document.querySelectorAll('#donut .seg'),
+dv=document.getElementById('dv'),dl=document.getElementById('dl');
+segs.forEach(function(s){s.addEventListener('click',function(){
+var was=s.classList.contains('on');
+segs.forEach(function(x){x.classList.remove('on');});
+if(was){dv.textContent='€985';dl.textContent='total squad';}
+else{s.classList.add('on');dv.textContent=s.dataset.v;dl.textContent=s.dataset.l;}});});})();
+
+// compare
+(function(){var r=document.getElementById('cmpR'),a=document.getElementById('cmpA'),
+l=document.getElementById('cline');
+function up(){a.style.clipPath='inset(0 '+(100-r.value)+'% 0 0)';l.style.left=r.value+'%';}
+r.addEventListener('input',up);up();})();
+
+// swipe votos
+(function(){var planes=[['🏄','Surf en Caparica','propone Leo'],['🍽','Cena en el mirador','propone Marta'],
+['🚋','Tranvía 28 al alba','propone Sofía'],['🏰','Castillo + ginjinha','propone Dani']];
+var i=0,top=document.getElementById('vtop'),under=document.getElementById('vunder'),
+sx=0,dx=0,drag=false,si=top.querySelector('.stamp.si'),no=top.querySelector('.stamp.no');
+function fill(el,n){el.querySelector('.em').textContent=planes[n%4][0];
+el.querySelector('h6').textContent=planes[n%4][1];el.querySelector('small').textContent=planes[n%4][2];}
+top.addEventListener('pointerdown',function(e){drag=true;sx=e.clientX;top.style.transition='none';
+top.setPointerCapture(e.pointerId);});
+top.addEventListener('pointermove',function(e){if(!drag)return;dx=e.clientX-sx;
+top.style.transform='translateX('+dx+'px) rotate('+(dx/11)+'deg)';
+si.style.opacity=Math.max(0,dx/80);no.style.opacity=Math.max(0,-dx/80);});
+top.addEventListener('pointerup',function(){drag=false;
+top.style.transition='transform .45s cubic-bezier(.3,1.3,.5,1)';
+if(Math.abs(dx)>70){top.style.transform='translateX('+(dx>0?380:-380)+'px) rotate('+(dx/6)+'deg)';
+setTimeout(function(){i++;fill(top,i);fill(under,i+1);top.style.transition='none';
+top.style.transform='scale(.93) translateY(9px)';void top.offsetWidth;
+top.style.transition='transform .35s cubic-bezier(.3,1.4,.5,1)';top.style.transform='';
+si.style.opacity=0;no.style.opacity=0;},430);}
+else{top.style.transform='';si.style.opacity=0;no.style.opacity=0;}dx=0;});
+fill(under,1);})();
+
+// confetti
+(function(){var b=document.getElementById('liq'),st=document.getElementById('liqstage'),
+m=document.getElementById('liqmsg'),cols=['#9782B8','#7FA08C','#C98A6B','#D8B24A','#9FB6BF'];
+b.addEventListener('click',function(){var br=b.getBoundingClientRect(),sr=st.getBoundingClientRect(),
+cx=br.left-sr.left+br.width/2,cy=br.top-sr.top;
+for(var k=0;k<28;k++){var p=document.createElement('i');p.className='cf';
+p.style.background=cols[k%5];p.style.left=cx+'px';p.style.top=cy+'px';st.appendChild(p);
+p.animate([{transform:'translate(0,0) rotate(0)',opacity:1},
+{transform:'translate('+((Math.random()-.5)*240)+'px,'+(-50-Math.random()*130)+'px) rotate('+(Math.random()*540)+'deg)',opacity:1,offset:.55},
+{transform:'translate('+((Math.random()-.5)*280)+'px,60px) rotate('+(Math.random()*720)+'deg)',opacity:0}],
+{duration:950+Math.random()*450,easing:'cubic-bezier(.2,.6,.3,1)'}).onfinish=(function(el){return function(){el.remove();};})(p);}
+m.style.opacity=1;setTimeout(function(){m.style.opacity=0;},1800);});})();
+
+// blast
+(function(){var b=document.getElementById('blast'),st=document.getElementById('blaststage'),
+avs=st.querySelectorAll('.av');
+b.addEventListener('click',function(){var br=b.getBoundingClientRect(),sr=st.getBoundingClientRect();
+avs.forEach(function(a,i){var ar=a.getBoundingClientRect(),
+d=document.createElement('span');d.className='dot';
+d.style.left=(br.left-sr.left+br.width/2)+'px';d.style.top=(br.top-sr.top)+'px';st.appendChild(d);
+d.animate([{transform:'translate(0,0) scale(1)'},
+{transform:'translate('+(ar.left-br.left-br.width/2+ar.width/2-5)+'px,'+(ar.top-br.top+ar.height/2-5)+'px) scale(.5)'}],
+{duration:480,delay:i*95,easing:'cubic-bezier(.4,0,.3,1)',fill:'forwards'}).onfinish=(function(av,el){
+return function(){el.remove();av.classList.add('got');};})(a,d);});
+setTimeout(function(){avs.forEach(function(a){a.classList.remove('got');});},2600);});})();
+
+// explode
+(function(){var bub=document.getElementById('bub'),txt=bub.textContent,busy=false;
+bub.addEventListener('click',function(){if(busy)return;busy=true;
+bub.innerHTML='';txt.split('').forEach(function(ch){var s=document.createElement('span');
+s.textContent=ch;bub.appendChild(s);});
+bub.querySelectorAll('span').forEach(function(s,i){
+s.animate([{transform:'translate(0,0)',opacity:1},
+{transform:'translate('+((Math.random()-.5)*130)+'px,'+((Math.random()-.7)*110)+'px) rotate('+(Math.random()*180-90)+'deg)',opacity:0}],
+{duration:600,delay:i*14,easing:'cubic-bezier(.3,0,.7,1)',fill:'forwards'});});
+setTimeout(function(){bub.style.opacity=0;setTimeout(function(){
+bub.textContent=txt;bub.style.transition='opacity .4s';bub.style.opacity=1;busy=false;},400);},900);});})();
+
+// ripple
+(function(){var z=document.getElementById('ripzone');
+z.addEventListener('click',function(e){var r=z.getBoundingClientRect(),
+d=document.createElement('span');d.className='ring';
+d.style.left=(e.clientX-r.left-11)+'px';d.style.top=(e.clientY-r.top-11)+'px';
+z.appendChild(d);d.addEventListener('animationend',function(){d.remove();});});})();
+
+// recap
+(function(){var s=document.getElementById('stack');
+s.addEventListener('click',function(){s.classList.toggle('fan');});})();
+</script>
