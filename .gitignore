@@ -33,3 +33,4 @@ secrets/
 # Temporales
 *.log
 .cache/
+.gstack/
