@@ -1,0 +1,1 @@
+{"id":"int-baf150be3298cc24b1818e2a60ad1098","kind":"field_change","created_at":"2026-07-11T01:07:07.70331Z","actor":"andrea.avila","issue_id":"TripSquad-iOS-1lu","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Ciclo completo verificado: create → claim → close. Evidencia: F0-core en ejecución, design doc APPROVED 2026-07-11"}}
