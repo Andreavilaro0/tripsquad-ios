@@ -50,6 +50,24 @@ Un bead está "done" cuando:
 | Presupuesto agotado | bead → `blocked` (regla de presupuesto) |
 | Branch huérfana >7 días | se borra tras volcar su diff como comentario en el bead |
 
+## Handoff de sesión
+
+Al terminar una sesión de trabajo (por fin de tarea, timeout o interrupción), el agente
+SIEMPRE deja el terreno legible para el siguiente:
+
+1. **Beads al día:** cerrar lo terminado (con evidencia), `bd update` en lo que sigue
+   abierto con una nota de estado, y crear beads para el trabajo descubierto no hecho.
+2. **Sin trabajo fantasma:** ningún cambio queda suelto sin explicar. Si el perfil
+   activo (ver "Agent Context Profiles" en CLAUDE.md) autoriza commits
+   (team-maintainer, o el flujo del bead lo pide), se
+   commitea como WIP explícito en la branch del bead; si no, se reporta el estado
+   exacto del working tree y se propone commit o descarte — la decisión es de
+   Andrea o del perfil activo, nunca se descarta trabajo unilateralmente.
+3. **Nota de handoff en el bead activo:** qué se hizo, qué falta, qué se intentó y
+   falló (para no repetirlo), y el próximo comando o paso concreto.
+4. **Reporte a Andrea** (vía aviso matinal en F2a, o resumen de sesión antes):
+   beads cerrados, bloqueados con causa, y gasto de la sesión si hubo modelo de pago.
+
 ## Ciclo limpio (gate de autonomía)
 
 Un ciclo es "limpio" si: PR fusionado sin que Andrea pidiera cambios de código;
