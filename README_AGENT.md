@@ -16,7 +16,9 @@ Cerrar un bead exige evidencia enlazada: commit, PR, review o documento.
 3. Trabajar SOLO el alcance del bead. Alcance nuevo = bead nuevo, no scope creep.
 4. `make verify` en verde antes de abrir PR.
 5. PR a `develop` con: qué, por qué, evidencia, y el id del bead en el título.
-6. Review de modelos (Codex + MiniMax) contra `docs/agents/review-checklist.md`.
+6. Review de los revisores activos contra `docs/agents/review-checklist.md`.
+   Roster actual: Codex (§2 seguridad) + MiniMax (§1/§3 corrección y dominio) +
+   Gemini (§6 simplicidad) cuando esté operativo — el checklist define las lentes.
 7. La etiqueta `ready-to-merge` la aplica el pipeline cuando los checks están verdes — **nunca el agente que escribió el código**.
 8. **Andrea fusiona** (fase actual: autonomía ganada — ver design doc).
 9. `bd close <id> --reason "<evidencia>"`.
@@ -37,7 +39,7 @@ Cerrar un bead exige evidencia enlazada: commit, PR, review o documento.
 Un bead está "done" cuando:
 1. El cambio está fusionado en `develop` (por Andrea, o por pipeline en F2b).
 2. `make verify` pasó en el commit fusionado.
-3. Ambos revisores aprobaron (cualquier rechazo bloquea; el conflicto lo resuelve Andrea).
+3. Todos los revisores activos aprobaron (cualquier rechazo bloquea; el conflicto lo resuelve Andrea).
 4. El bead está cerrado con evidencia enlazada.
 
 ## Estados de fallo del bead
@@ -71,5 +73,5 @@ SIEMPRE deja el terreno legible para el siguiente:
 ## Ciclo limpio (gate de autonomía)
 
 Un ciclo es "limpio" si: PR fusionado sin que Andrea pidiera cambios de código;
-ambos revisores aprobaron en ≤2 rondas; evidencia completa en el bead.
+todos los revisores activos aprobaron en ≤2 rondas; evidencia completa en el bead.
 **3 ciclos limpios + suite de contrato verde (F3) desbloquean el auto-merge nocturno a develop.**
