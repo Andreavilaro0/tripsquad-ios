@@ -14,14 +14,30 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / ".sortie" / "issues.json"
+JSONL = REPO / ".beads" / "issues.jsonl"
+
+
+def load_beads() -> list:
+    """bd list (fuente viva) con fallback al export JSONL versionado.
+
+    En máquinas sin base de datos de Beads inicializada (p. ej. el Pi,
+    despachador de solo-lectura), la fuente es el export .beads/issues.jsonl
+    que viaja por git. Las escrituras de beads ocurren en máquinas con bd."""
+    try:
+        raw = subprocess.run(
+            ["bd", "list", "--json", "--status", "open,in_progress,blocked,closed"],
+            capture_output=True, text=True, cwd=REPO, check=True,
+        ).stdout
+        return json.loads(raw or "[]")
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+        if not JSONL.exists():
+            raise SystemExit("ni bd operativo ni .beads/issues.jsonl — sin fuente de beads")
+        rows = [json.loads(l) for l in JSONL.read_text().splitlines() if l.strip()]
+        return [r for r in rows if r.get("_type") in (None, "issue")]
 
 
 def main() -> int:
-    raw = subprocess.run(
-        ["bd", "list", "--json", "--status", "open,in_progress,blocked,closed"],
-        capture_output=True, text=True, cwd=REPO, check=True,
-    ).stdout
-    beads = json.loads(raw or "[]")
+    beads = load_beads()
 
     issues = []
     for b in beads:
