@@ -2,10 +2,15 @@
 # Fábrica TripSquad — workflow del despachador Sortie
 # Fuente de verdad de tickets: Beads (bd). Este tracker `file` lee el export
 # generado por scripts/beads-to-sortie.py — Sortie nunca escribe en él.
+# active_states incluye in_progress (review Codex P2): el agente reclama el
+# bead nada más empezar (open → in_progress) y la reconciliación de Sortie
+# debe seguir viéndolo activo para permitir turnos de continuación.
+# Los beads open-pero-bloqueados los exporta el puente como `blocked`.
 tracker:
   kind: file
   active_states:
     - open
+    - in_progress
   terminal_states:
     - closed
 
@@ -25,13 +30,21 @@ agent:
 
 db_path: .sortie/sortie.db
 
-# Los hooks corren por workspace/attempt, no por poll — el refresco del export
-# beads→sortie lo hace before_run (y un cron externo cuando esté en el Pi).
+# Los hooks corren DENTRO del workspace por-issue, no en el repo del
+# despachador (review Codex P1). Por eso:
+#  - after_create clona el repo en el workspace para que el agente tenga código
+#  - el puente se invoca por ruta estable FUERA del workspace, en el clon del
+#    despachador: $SORTIE_FABRICA_REPO (heredado por empezar por SORTIE_) con
+#    fallback a ~/fabrica/tripsquad-ios (la ruta del Pi)
 hooks:
+  after_create: |
+    git clone --branch develop https://github.com/Andreavilaro0/tripsquad-ios.git "$SORTIE_WORKSPACE"
   before_run: |
-    python3 scripts/beads-to-sortie.py
+    FABRICA="${SORTIE_FABRICA_REPO:-$HOME/fabrica/tripsquad-ios}"
+    python3 "$FABRICA/scripts/beads-to-sortie.py"
   after_run: |
-    python3 scripts/beads-to-sortie.py
+    FABRICA="${SORTIE_FABRICA_REPO:-$HOME/fabrica/tripsquad-ios}"
+    python3 "$FABRICA/scripts/beads-to-sortie.py"
 ---
 
 Eres un agente de la Fábrica TripSquad. Trabaja este ticket obedeciendo

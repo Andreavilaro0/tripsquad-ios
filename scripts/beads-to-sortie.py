@@ -36,8 +36,38 @@ def load_beads() -> list:
         return [r for r in rows if r.get("_type") in (None, "issue")]
 
 
+def load_ready_ids() -> set | None:
+    """IDs listos para trabajar según Beads (`bd ready` = sin bloqueos).
+
+    Devuelve None si bd no está operativo (fallback JSONL): en ese caso
+    se aplica la heurística conservadora dependency_count > 0 → blocked."""
+    try:
+        raw = subprocess.run(
+            ["bd", "ready", "--json"],
+            capture_output=True, text=True, cwd=REPO, check=True,
+        ).stdout
+        return {i["id"] for i in json.loads(raw or "[]")}
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def effective_state(b: dict, ready: set | None) -> str:
+    """Estado para Sortie respetando el ready-queue de Beads (review Codex P1).
+
+    Un bead `open` bloqueado por dependencias no debe despacharse: se exporta
+    como `blocked` (fuera de active_states). Con bd vivo la verdad es `bd ready`;
+    en fallback JSONL, dependency_count > 0 bloquea por precaución."""
+    state = b.get("status", "open")
+    if state != "open":
+        return state
+    if ready is not None:
+        return "open" if b["id"] in ready else "blocked"
+    return "blocked" if b.get("dependency_count", 0) > 0 else "open"
+
+
 def main() -> int:
     beads = load_beads()
+    ready = load_ready_ids()
 
     issues = []
     for b in beads:
@@ -45,7 +75,7 @@ def main() -> int:
             "id": b["id"],
             "identifier": b["id"],
             "title": b["title"],
-            "state": b.get("status", "open"),
+            "state": effective_state(b, ready),
             "description": b.get("description", ""),
             "priority": b.get("priority"),
             "assignee": b.get("assignee", ""),
