@@ -40,3 +40,5 @@ secrets/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.sortie/sortie.db*
+.sortie/issues.json
