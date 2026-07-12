@@ -8,14 +8,15 @@
 
 Andrea quiere TripSquad también en Android, además del iOS ya diseñado (dirección
 UX/UI v7 cerrada, ADR-0005). Se investigó el panorama multiplataforma a julio de
-2026 con fuentes verificadas: Skip es gratis/OSS desde enero 2026 (SwiftUI→Compose,
+2026 (fuentes al pie): Skip es gratis/OSS desde enero 2026 (SwiftUI→Compose,
 vendor pequeño, poco corpus en los agentes de IA); el Swift SDK oficial de Android
 llegó en Swift 6.3 (marzo 2026, lenguaje sin UI); Compose Multiplatform en iOS es
 estable pero imita iOS (sin liquid glass real); Flutter no tiene liquid glass
 (issue más votado de su repo); React Native/Expo puede dar liquid glass real vía
-wrappers pero no suma al aprendizaje Swift de Andrea. Dato que cambia el cálculo:
-con agentes de IA escribiendo ~90% del código, el coste de dos apps nativas ya no
-es escribirlas — es QA y evitar drift de features.
+wrappers pero no suma al aprendizaje Swift de Andrea. Dato que cambia el cálculo
+(estimación interna, basada en la operación de la propia fábrica — no es cifra
+externa): con los agentes escribiendo la gran mayoría del código, el coste de dos
+apps nativas ya no es escribirlas — es QA y evitar drift de features.
 
 ## Decisión
 
@@ -57,3 +58,13 @@ es escribirlas — es QA y evitar drift de features.
   mismo contrato que servirá a Android.
 - Si esta decisión se revisa (p. ej. Skip madura), el contrato la hace barata de
   cambiar: los clientes son generados, no artesanales.
+
+## Fuentes
+
+- Skip gratis/OSS (ene-2026): https://skip.dev/blog/skip-is-free/ · https://www.infoq.com/news/2026/01/swift-skip-open-sourced/
+- Swift SDK oficial de Android (Swift 6.3): https://www.swift.org/blog/nightly-swift-sdk-for-android/ · https://www.swift.org/android-workgroup/
+- Compose Multiplatform iOS estable: https://blog.jetbrains.com/kotlin/2025/05/compose-multiplatform-1-8-0-released-compose-multiplatform-for-ios-is-stable-and-production-ready/
+- Flutter sin liquid glass (issue top): https://github.com/flutter/flutter/issues/170310
+- RN/Expo liquid glass real: https://docs.expo.dev/versions/latest/sdk/glass-effect/ · https://expo.dev/blog/liquid-glass-app-with-expo-ui-and-swiftui
+- Estado KMP 2026: https://medium.com/codex/the-state-of-kotlin-multiplatform-in-2026-c87a2d71421b
+- Solo dev + agentes manteniendo multiplataforma: https://www.buildmvpfast.com/blog/solo-developer-ai-coding-agent-scale-large-project-2026
