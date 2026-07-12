@@ -1,4 +1,4 @@
-# ADR-0007 — Clientes: nativo ×2 escalonado (iOS primero) + API contract-first
+# ADR-0008 — Clientes: nativo ×2 escalonado (iOS primero) + API contract-first
 
 - **Fecha:** 2026-07-11
 - **Estado:** accepted
