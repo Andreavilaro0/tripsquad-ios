@@ -27,9 +27,13 @@ Well-Architected Framework (pilares Reliability y Security) — ver Fuentes.
    hacia fuera; Infra/Data implementan las interfaces del núcleo; las
    dependencias apuntan siempre hacia dentro. Coherente con la constitution
    (Presentation/Domain/Data/Infra).
-3. **El monolito ES el BFF.** Un solo cliente (iOS) y un solo backend: el propio
-   servicio agrega las lecturas del bento en una request. No se añade API
-   gateway ni capa de agregación separada.
+3. **El monolito ES el BFF — compartido para móvil.** Un solo backend sirve a
+   los clientes móviles (iOS hoy, Android/Kotlin después — ADR-0008): el propio
+   servicio agrega las lecturas del bento en una request, con formas de lectura
+   pensadas para las pantallas de la app pero **agnósticas de plataforma**
+   (nada Apple-specific en el contrato, premisa de ADR-0008). No se añade API
+   gateway ni capa de agregación separada, ni un BFF por plataforma: se
+   reevaluará solo si las necesidades de iOS y Android divergen de verdad.
 4. **Cuatro patrones obligatorios desde el día 1** (catálogo Azure):
    - **Retry + Circuit Breaker, juntos** — toda llamada a Supabase es red; el
      catálogo indica emparejarlos (reintentar lo transitorio, cortar lo persistente).

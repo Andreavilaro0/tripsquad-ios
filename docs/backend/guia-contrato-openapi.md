@@ -17,7 +17,10 @@ Store) y **una cola offline que reintenta a ciegas** (PowerSync).
   **plural**: `/trips/{tripId}/expenses`, `/trips/{tripId}/messages`,
   `/trips/{tripId}/polls`.
 - Path segments en **kebab-case**; query params y campos JSON en **camelCase**;
-  headers en kebab-case. Todo case-sensitive.
+  headers en kebab-case. Paths, query params, campos JSON e IDs son
+  case-sensitive; los **nombres de header NO** — se comparan case-insensitive
+  (RFC 9110 §5.1: URLSession, proxies y HTTP/2 pueden minusculizarlos, p. ej.
+  `idempotency-key`).
 - Los IDs son **strings opacos** generados en cliente (UUID): el servidor los
   almacena y compara case-sensitive, nunca los interpreta.
 - Acciones no-CRUD: `POST /trips/{id}:action` — ej. `:settle` (liquidar),
@@ -68,7 +71,11 @@ Toda respuesta de error usa el objeto estándar (forma Azure, header renombrado)
 Regla dura de Azure: *"All HTTP methods are idempotent"* — el móvil con red mala
 reintenta, y un gasto duplicado es confianza rota.
 
-- `PUT`/`PATCH`/`DELETE`: idempotentes por naturaleza.
+- `PUT`/`DELETE`: idempotentes por naturaleza. `PATCH` **no lo es** (RFC 5789
+  §2 — depende del formato): en este contrato PATCH se restringe a
+  **merge-patch con semántica set-only** (asignar valores, jamás
+  add/increment/append) + `If-Match` obligatorio — así el reintento de un
+  timeout es seguro.
 - `DELETE` → `204 No Content` **incluso si el recurso ya no existe** (nunca
   `404`): un reintento de la cola no debe marcar como fallo lo ya completado.
 - `POST`-create → `201` + URL del recurso, con **`Idempotency-Key`
