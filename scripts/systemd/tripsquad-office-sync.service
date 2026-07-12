@@ -15,6 +15,9 @@ ExecStart=/usr/bin/python3 /home/pi/fabrica/tripsquad-ios/scripts/beads-to-offic
 Restart=always
 RestartSec=10
 Environment=VO_URL=http://127.0.0.1:8090
+# El servicio es de solo-lectura: la verdad llega por git pull (JSONL), nunca
+# por una DB Dolt local potencialmente rancia (review Codex P2, PR #7)
+Environment=BEADS_SOURCE=jsonl
 
 [Install]
 WantedBy=multi-user.target

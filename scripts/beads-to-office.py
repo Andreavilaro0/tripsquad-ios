@@ -40,6 +40,8 @@ VO_URL = os.environ.get("VO_URL", "http://127.0.0.1:8090").rstrip("/")
 PRESENCE_AGENT = os.environ.get("VO_PRESENCE_AGENT", "claude-code-main")
 PROJECT_TITLE = os.environ.get("VO_PROJECT_TITLE", "TripSquad — Beads")
 PULL_EVERY = int(os.environ.get("PULL_EVERY", "15"))
+# auto = bd si está operativo, si no JSONL · jsonl = SOLO el export versionado
+BEADS_SOURCE = os.environ.get("BEADS_SOURCE", "auto")
 STATE_FILE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "vo-beads-sync.json"
 
 # estado efectivo del bead → columna del kanban ("Review" queda para movimientos
@@ -63,6 +65,14 @@ PRIORITY = {0: "high", 1: "high", 2: "medium"}  # resto → low
 # ─── Beads (idéntico contrato que beads-to-sortie.py) ───────────────────────
 
 def load_beads() -> list:
+    if BEADS_SOURCE == "jsonl":
+        # Servicio de solo-lectura (Pi): el loop refresca el JSONL con git pull,
+        # pero NO la DB Dolt local — si bd ganara aquí, publicaría datos rancios
+        # tras cambios remotos (review Codex P2 en PR #7).
+        if not JSONL.exists():
+            raise SystemExit("BEADS_SOURCE=jsonl pero no existe .beads/issues.jsonl")
+        rows = [json.loads(l) for l in JSONL.read_text().splitlines() if l.strip()]
+        return [r for r in rows if r.get("_type") in (None, "issue")]
     try:
         raw = subprocess.run(
             ["bd", "list", "--json", "--status", "open,in_progress,blocked,closed"],
@@ -77,6 +87,8 @@ def load_beads() -> list:
 
 
 def load_ready_ids():
+    if BEADS_SOURCE == "jsonl":
+        return None  # heurística dependency_count, coherente con la fuente JSONL
     try:
         raw = subprocess.run(
             ["bd", "ready", "--json"], capture_output=True, text=True, cwd=REPO, check=True,
