@@ -78,9 +78,15 @@ reintenta, y un gasto duplicado es confianza rota.
   timeout es seguro.
 - `DELETE` → `204 No Content` **incluso si el recurso ya no existe** (nunca
   `404`): un reintento de la cola no debe marcar como fallo lo ya completado.
-- `POST`-create → `201` + URL del recurso, con **`Idempotency-Key`
-  obligatorio** (estándar de facto Stripe/IETF; adoptamos el patrón
-  Repeatability de Azure con este nombre):
+- **Toda `POST` que muta estado lleva `Idempotency-Key` obligatorio** — tanto
+  las de creación como las **acciones** de §1 (`:settle`, `:close`, `:leave`).
+  Una acción no es menos peligrosa que un create: si la respuesta de `:settle`
+  se pierde y la cola reintenta, se re-ejecutarían la liquidación, el outbox y
+  las notificaciones a todo el squad. El replay devuelve el resultado de la
+  primera ejecución con `Idempotency-Result: replayed`, **sin volver a ejecutar
+  los efectos**.
+- `POST`-create → `201` + URL del recurso (`Idempotency-Key` es el estándar de
+  facto Stripe/IETF; adoptamos el patrón Repeatability de Azure con ese nombre):
   - El cliente envía `Idempotency-Key: <uuid>` + la petición lleva el ID de
     entidad generado en cliente (doble red: key + unique constraint).
   - El servidor responde `Idempotency-Result: created | replayed` — la cola
@@ -115,9 +121,21 @@ reintenta, y un gasto duplicado es confianza rota.
 
 ## 8. Fechas, horas y duraciones
 
-- Body y query: **RFC 3339** UTC — `YYYY-MM-DDTHH:mm:ss.sssZ`, máximo 3
-  decimales (`format: date-time` en OpenAPI; mapea 1:1 a `Foundation.Date`).
-- Los timestamps con autoridad son **de servidor** (premisa F3).
+**Instantes vs fechas civiles — son dos tipos distintos, y confundirlos corrompe
+la app.** Un viaje del 12 al 17 de junio no es un instante: si `startDate` viaja
+como `date-time` UTC, un usuario en México (UTC−6) puede ver el día anterior, y
+la duración del viaje y la agrupación por días del itinerario salen mal.
+
+- **Instantes** (creación de un gasto, envío de un mensaje, auditoría):
+  **RFC 3339 UTC** — `YYYY-MM-DDTHH:mm:ss.sssZ`, máximo 3 decimales
+  (`format: date-time`; mapea a `Foundation.Date`). Con autoridad de
+  **servidor** (premisa F3).
+- **Fechas civiles** (`startDate`/`endDate` del viaje, el día de una actividad
+  del itinerario): **`format: date`** — `YYYY-MM-DD`, sin hora ni zona. En
+  Swift **no** se decodifican a `Date`: se modelan como fecha de calendario
+  (`DateComponents`/tipo propio) y jamás se convierten a instante.
+- Regla para decidir: si el valor del campo cambia al cruzar un huso horario,
+  es una fecha civil.
 - Headers: RFC 7231 IMF-fixdate.
 - Duraciones: unidad en el nombre del campo (`durationInMinutes: int`), no
   ISO-8601 durations.
@@ -181,10 +199,10 @@ reintenta, y un gasto duplicado es confianza rota.
 - [ ] ¿Toda operación acepta `api-version` y está en el changelog del contrato?
 - [ ] ¿Los errores nuevos añaden su `code` al enum contractual?
 - [ ] ¿Las colecciones devuelven `value` + `nextLink` opaco?
-- [ ] ¿Los POST-create requieren `Idempotency-Key`? ¿Los DELETE devuelven `204` siempre?
+- [ ] ¿**Toda** POST mutante (creates Y acciones `:settle`/`:close`/`:leave`) requiere `Idempotency-Key` y responde `Idempotency-Result`? ¿Los DELETE devuelven `204` siempre?
 - [ ] ¿Los recursos editables llevan `ETag`/`If-Match` → `412`?
 - [ ] ¿Los enums son extensibles? ¿Ningún campo `null` en respuestas? ¿Ningún dinero como number?
-- [ ] ¿Campos de fecha en RFC 3339 con sufijo correcto? ¿Duraciones con unidad en el nombre?
+- [ ] ¿Cada campo de fecha usa el tipo correcto — `format: date` para fechas civiles (viaje, día de itinerario) y `date-time` UTC solo para instantes? ¿Duraciones con unidad en el nombre?
 - [ ] ¿Operaciones >1s p99 modeladas como LRO?
 - [ ] ¿Ningún campo requerido añadido después de v1?
 
