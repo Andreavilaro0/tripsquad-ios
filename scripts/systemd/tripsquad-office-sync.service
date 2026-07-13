@@ -1,0 +1,23 @@
+# Pegamento Beads → oficina pixel (bead TripSquad-iOS-pms)
+# Instalación en el Pi:
+#   sudo cp scripts/systemd/tripsquad-office-sync.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now tripsquad-office-sync
+[Unit]
+Description=TripSquad — sync Beads → My Virtual Office (kanban + presencia)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/fabrica/tripsquad-ios
+ExecStart=/usr/bin/python3 /home/pi/fabrica/tripsquad-ios/scripts/beads-to-office.py --loop 20
+Restart=always
+RestartSec=10
+Environment=VO_URL=http://127.0.0.1:8090
+# El servicio es de solo-lectura: la verdad llega por git pull (JSONL), nunca
+# por una DB Dolt local potencialmente rancia (review Codex P2, PR #7)
+Environment=BEADS_SOURCE=jsonl
+
+[Install]
+WantedBy=multi-user.target
