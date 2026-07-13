@@ -42,6 +42,7 @@ PROJECT_TITLE = os.environ.get("VO_PROJECT_TITLE", "TripSquad — Beads")
 PULL_EVERY = int(os.environ.get("PULL_EVERY", "15"))
 # auto = bd si está operativo, si no JSONL · jsonl = SOLO el export versionado
 BEADS_SOURCE = os.environ.get("BEADS_SOURCE", "auto")
+STALE_WARN_H = float(os.environ.get("STALE_WARN_H", "24"))  # aviso de export rancio
 STATE_FILE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "vo-beads-sync.json"
 
 # estado efectivo del bead → columna del kanban ("Review" queda para movimientos
@@ -64,13 +65,36 @@ PRIORITY = {0: "high", 1: "high", 2: "medium"}  # resto → low
 
 # ─── Beads (idéntico contrato que beads-to-sortie.py) ───────────────────────
 
+def jsonl_age_hours() -> float:
+    """Antigüedad del export según el último commit que lo tocó.
+
+    El JSONL es un export PASIVO: solo se refresca cuando alguien corre
+    `bd export` y lo commitea. Si nadie lo hace, el kanban publica datos
+    rancios en silencio (review Codex P2, PR #7). Aquí no se puede arreglar
+    solo (el Pi no tiene DB de beads: `bd` responde "no beads database
+    found"), así que la mitigación honesta es MEDIRLO y avisar."""
+    try:
+        ts = subprocess.run(
+            ["git", "log", "-1", "--format=%ct", "--", str(JSONL)],
+            capture_output=True, text=True, cwd=REPO, check=True,
+        ).stdout.strip()
+        return (time.time() - int(ts)) / 3600 if ts else -1.0
+    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+        return -1.0
+
+
 def load_beads() -> list:
     if BEADS_SOURCE == "jsonl":
-        # Servicio de solo-lectura (Pi): el loop refresca el JSONL con git pull,
-        # pero NO la DB Dolt local — si bd ganara aquí, publicaría datos rancios
-        # tras cambios remotos (review Codex P2 en PR #7).
+        # Fuente forzada para el servicio del Pi: es su ÚNICA fuente real
+        # (no hay DB de beads allí) y la refresca `git pull` en cada ciclo.
         if not JSONL.exists():
             raise SystemExit("BEADS_SOURCE=jsonl pero no existe .beads/issues.jsonl")
+        age = jsonl_age_hours()
+        if age > STALE_WARN_H:
+            print(f"⚠️  export de beads con {age:.1f} h de antigüedad "
+                  f"(>{STALE_WARN_H} h): alguien debe correr `bd export -o "
+                  f".beads/issues.jsonl` y commitearlo, o el kanban miente",
+                  file=sys.stderr, flush=True)
         rows = [json.loads(l) for l in JSONL.read_text().splitlines() if l.strip()]
         return [r for r in rows if r.get("_type") in (None, "issue")]
     try:
