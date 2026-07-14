@@ -59,8 +59,9 @@ por objeto** · **una transacción = un agregado**.
 - **Concesión de Acceso** (raíz, Acceso) — **sí** agregado propio: su ciclo de
   vida es técnico (emitir/revocar token, URL firmada, suscripción push) y cambia
   a otro ritmo que la membresía.
-- **Gasto** (raíz, Gastos) — `id, viajeId, pagadorId, importe (Dinero), fecha,
-  reparto[]`. Invariante: **la suma de las cuotas es igual al importe total**
+- **Gasto** (raíz, Gastos) — `id, viajeId, pagadorId (**MiembroId**, no
+  `UsuarioId` — ver §5), importe (Dinero), fecha, reparto[]`. Invariante: **la
+  suma de las cuotas es igual al importe total**
   (con política de redondeo explícita; el resto va al pagador — R3 lo fija).
   `Dinero` = value object (entero en unidades menores + divisa). **`Double`
   prohibido.**
@@ -93,14 +94,17 @@ cero) · **Pago** (transferencia real; es un hecho, no una promesa) ·
 cerrado deja en el perfil) · **Brújula** (asistente IA; responde solo con lo que
 ese miembro puede ver) · **Cierre** · **Expulsión / Salida** (ambas ⇒ revocación
 de acceso) · **Fantasma** (miembro anonimizado: sus cifras siguen, su identidad
-no).
+no) · **MiembroId** (identidad de una participación en *un* viaje; es lo que
+referencian los agregados — no enlazable entre viajes) · **UsuarioId** (identidad
+de la cuenta global; **vive solo en Identidad**, nunca en un agregado).
 
 ### 4. Consistencia y eventos de dominio
 
 - **Transaccional** (dentro de un agregado): cuotas == importe del gasto;
   miembros y roles del viaje; votos de una votación; estado de un pago.
-- **Eventual** (entre agregados, vía eventos): saldos tras un gasto; revocación
-  de acceso tras expulsión; cierre en cascada; contexto de la Brújula.
+- **Eventual** (entre agregados, vía eventos): saldos tras un gasto; cierre en
+  cascada; contexto de la Brújula; recuentos y proyecciones de lectura.
+- **NUNCA eventual: la revocación de acceso.** Ver §4.bis.
 - Regla operativa: **1 comando = 1 transacción = 1 agregado**; el resto lo mueve
   un manejador de evento **idempotente** (encaja con los IDs de cliente y las
   escrituras idempotentes ya decididas: reintentar es seguro y el offline cuadra).
@@ -110,8 +114,30 @@ no).
   `PagoMarcado`, `PagoConfirmado`, `ActividadAñadida`, `ActividadMovida`,
   `VotaciónAbierta`, `VotoEmitido`, `VotaciónCerrada`, `MensajeEnviado`,
   `FotoSubida`, `AccesoRevocado`, `UsuarioAnonimizado`.
-- Evento crítico: `MiembroExpulsado`/`MiembroSalió` → Acceso ejecuta
-  `revocarTodo(miembro)`. Con test de contrato propio (R6).
+### 4.bis La revocación de acceso es SÍNCRONA (no eventual)
+
+Acceso emite *bearer capabilities* — tokens de realtime, URLs firmadas, topics de
+push, buckets offline, contexto IA — y **una capability ya emitida funciona sola,
+sin volver a preguntar quién eres**. Si la revocación fuese eventual (vía outbox),
+un manejador retrasado o fallido dejaría una **ventana en la que el expulsado
+sigue leyendo el viaje con las credenciales que ya tiene**. Esa ventana ES el bug
+de privacidad que este ADR dice cerrar. Por tanto:
+
+1. **Expulsar/salir revoca en la misma transacción** que cambia el estado de la
+   membresía: `revocarTodo(miembro)` se ejecuta dentro de la frontera de
+   seguridad, no después de ella. La operación no se considera exitosa si la
+   revocación no lo fue.
+2. **Toda capability se verifica contra la membresía activa** en cada uso (o tiene
+   TTL tan corto que la ventana sea despreciable y esté acotada por diseño). Una
+   capability que no se pueda invalidar de inmediato **debe** ser de vida corta:
+   nada de URLs firmadas de horas.
+3. Lo que sí puede ser eventual es la **limpieza best-effort** posterior (purgar
+   cachés, borrar el bucket local del dispositivo, reindexar el contexto IA):
+   son mejoras, no la barrera de seguridad. **La barrera es el paso 1 y el 2.**
+
+El evento `AccesoRevocado` se publica *después* de revocar, para que otros
+reaccionen — nunca *para* revocar. R6 (STRIDE) escribe el test de contrato que
+prueba que ninguna capability sobrevive a la expulsión.
 
 ### 5. Usuario fantasma (RGPD)
 
@@ -120,18 +146,39 @@ obligaciones legales y defensa de reclamaciones) y el Considerando 26 deja los
 datos **anónimos** fuera del RGPD — los seudonimizados **no**. Por tanto:
 **anonimizar de verdad, no seudonimizar.**
 
-- **Se borra:** email, teléfono, nombre real, avatar (y derivados), tokens push,
-  dispositivos, logs con PII, embeddings del contexto IA con su texto.
+**Clave del diseño: los agregados NO referencian `UsuarioId`, sino `MiembroId`**
+(la identidad de la participación en *ese* viaje). El `MiembroId` se genera por
+viaje y **no es derivable del usuario**: dos membresías de la misma persona en
+viajes distintos no comparten identificador ni son enlazables entre sí.
+
+Conservar el `UsuarioId` global en los gastos **no sería anonimización sino
+seudonimización**: un identificador estable que enlaza todos los registros
+financieros de la misma persona a través de viajes permite "singularizarla", y el
+Considerando 26 + el Art. 4(5) del RGPD dejan claro que eso sigue siendo dato
+personal. Con `MiembroId` por viaje, el vínculo entre viajes desaparece con la
+tabla de Identidad.
+
+- **Se borra (en Identidad):** la cuenta y su mapa `UsuarioId → MiembroId[]`,
+  email, teléfono, nombre real, avatar y derivados, tokens push, dispositivos,
+  logs con PII, embeddings del contexto IA con su texto. **Borrar ese mapa es lo
+  que corta la enlazabilidad entre viajes.**
 - **Se sustituye:** nombre mostrado → "Miembro eliminado"; avatar → placeholder.
-- **Se conserva:** importes, repartos, pagos y su `UsuarioId` (clave técnica sin
-  significado) — **los saldos de terceros son datos de terceros** y la suma debe
-  seguir dando cero.
-- **Invariante que lo hace barato:** ningún agregado guarda nombre ni avatar
-  copiados; solo `UsuarioId`. El nombre se resuelve en la capa de lectura contra
-  Identidad. Así, anonimizar es **un solo UPDATE**, no una migración por seis
-  módulos. **Denormalizar el nombre "por rendimiento" rompe el fantasma: queda
-  prohibido.**
+- **Se conserva (por viaje, bajo `MiembroId`):** importes, repartos y pagos — **los
+  saldos de terceros son datos de terceros** y la suma debe seguir dando cero.
+  Dentro de un viaje, los demás miembros ya sabían quién era; lo que se elimina es
+  la capacidad del sistema (y de cualquiera con la base de datos) de reconstruir a
+  la persona **entre** viajes o fuera de ellos.
+- **Invariante que lo hace barato:** ningún agregado guarda nombre, avatar **ni
+  `UsuarioId`** copiados; solo `MiembroId`. El nombre se resuelve en la capa de
+  lectura contra Identidad. Así, anonimizar es **borrar en Identidad**, no una
+  migración por seis módulos. **Denormalizar el nombre o el `UsuarioId` "por
+  rendimiento" rompe el fantasma: queda prohibido.**
 - Evento `UsuarioAnonimizado` invalida cachés, proyecciones y contexto IA.
+- **Límite honesto:** si el aviso de privacidad promete borrado total y un viaje
+  activo sigue mostrando "Miembro eliminado — debe 40 €", eso hay que decirlo en
+  el aviso. R6 revisa el resultado y, si queda algún residuo enlazable, se declara
+  explícitamente como dato seudonimizado con su base de retención (defensa de
+  reclamaciones), en vez de llamarlo anónimo sin serlo.
 
 ### 6. Qué de DDD NO se usa
 
@@ -166,7 +213,11 @@ datos **anónimos** fuera del RGPD — los seudonimizados **no**. Por tanto:
 - R3 (motor de saldos) trabaja sobre `Gasto`/`Liquidación` con `Dinero` como value
   object y la invariante de reparto ya fijada aquí.
 - R6 (STRIDE) hereda `revocarTodo(miembro)` como requisito de primera clase, con
-  la lista cerrada de capabilities y su test de contrato.
+  la lista cerrada de capabilities, su test de contrato y la verificación de que
+  **ninguna capability sobrevive a la expulsión** (§4.bis).
+- **Los agregados referencian `MiembroId`, no `UsuarioId`.** El contrato OpenAPI y
+  el esquema de Postgres deben nacer así: cambiarlo después obliga a migrar datos
+  de dinero ya escritos. Coste: una indirección más al resolver nombres.
 - El glosario es vinculante: el contrato OpenAPI y la UI usan estos términos.
 - Coste aceptado: la prohibición de denormalizar nombres puede exigir un join o
   una proyección extra en las lecturas. Es el precio del fantasma barato.
