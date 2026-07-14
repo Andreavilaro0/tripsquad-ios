@@ -1,7 +1,8 @@
 # ADR-0013 — Sincronización: relojes, conflictos y criterio de CRDT
 
 - **Fecha:** 2026-07-14
-- **Estado:** proposed
+- **Estado:** accepted
+- **Firmado:** 2026-07-14 por Andrea ("firma los ADRs y mergea todo" — por delegación, con derecho de veto vía ADR nuevo)
 - **Dueña:** Andrea
 - **Origen:** bead R5 (`TripSquad-iOS-ewo`), design doc Backend F3
 - **Depende de:** ADR-0012 (cola de escrituras), guía de contrato §6 (ETag/If-Match)
@@ -121,8 +122,14 @@ Guidelines 5/2019 del EDPB. **El soft-delete a secas no cumple el Art. 17.**
 
 ### 6. PowerSync: Cloud, no self-host
 
-Free tier de PowerSync Cloud (2 GB de sync/mes) + Supabase Free para empezar;
-~70 $/mes cuando haya producción temprana (PowerSync Pro 49 $ + Supabase Pro 25 $).
+**Se empieza con los planes GRATUITOS (0 €)**: PowerSync Cloud Free (2 GB de
+sync/mes) + Supabase Free. Cubren de sobra todo el desarrollo y la beta.
+
+**El salto a planes de pago (~70 $/mes: PowerSync Pro 49 $ + Supabase Pro 25 $) NO
+se aprueba aquí.** Es gasto en servicios de pago → decisión de Andrea (regla de
+alto riesgo de la constitution), y se le presenta cuando haya usuarios reales o se
+rocen los límites del free tier, no antes. Mantiene la premisa del design doc:
+**presupuesto 0 € hasta lanzar.**
 
 **Self-host se descarta** aunque sea gratis (Open Edition): añadiría un **cuarto
 sistema con logs y fallos propios** a una operación de **una sola persona**. El
