@@ -4,7 +4,10 @@
 - **Estado:** proposed
 - **Dueña:** Andrea
 - **Origen:** bead R3 (`TripSquad-iOS-2bq`), design doc Backend F3
-- **Depende de:** ADR-0009 (estructura), ADR-0010 (Gasto/Liquidación, `Dinero`)
+- **Depende de:** ADR-0009 (estructura) · ADR-0010 (Gasto/Liquidación, `Dinero`,
+  `MiembroId`) — **en revisión en el PR #10; este ADR debe fusionarse después.**
+  Mientras tanto, el contrato de dinero vigente está en
+  `docs/backend/guia-contrato-openapi.md` §9 (string decimal + `currencyCode`).
 
 ## Contexto
 
@@ -28,20 +31,59 @@ harness de tests.
    Coste O(N log N).
 
 **El mínimo absoluto de transferencias es NP-completo** (reducción desde
-PARTITION) — no se intenta calcular exacto. El greedy no siempre es óptimo (hay
-contraejemplos donde da 4 transferencias en vez de 3), pero para un squad
-(N ≤ 12) la diferencia es de 0–1 transferencias. **Se asume conscientemente.**
+PARTITION) — no se busca el óptimo exacto.
+
+**El greedy puede quedarse bastante lejos del óptimo, también con squads
+pequeños.** Contraejemplo verificado (7 saldos, dentro de nuestro rango):
+`[−14, −13, +14, +13, +7, +11, −18]` → el greedy emite **6 transferencias**,
+mientras que partir en subgrupos de suma cero (`[−14,+14]`, `[−13,+13]`,
+`[−18,+7,+11]`) las salda en **4**. La cota real es la dura: `|T| ≤ N−1`.
+
+Por eso el motor hace **dos pasadas**, no una:
+
+1. **Descomposición en subgrupos de suma cero pequeños** (pares y tríos). Cada
+   subgrupo de tamaño *m* se salda con *m−1* transferencias. Es barato
+   (O(N²)/O(N³) sobre N ≤ 12 miembros: nada) y captura la mayor parte de la
+   mejora — en el contraejemplo, toda.
+2. **Greedy sobre el resto**, con la cota `N−1` como garantía.
+
+Sigue sin ser el óptimo exacto (eso es NP-completo y no se persigue), pero ya no
+se afirma una cercanía al óptimo que es falsa. La **invariante de tamaño** que se
+testea es `|T| ≤ N−1`; adicionalmente, se comprueba que la salida de dos pasadas
+**nunca es peor** que la del greedy solo.
 
 **Determinismo obligatorio:** el desempate en el heap es **estable por
 `miembroId`** — dos deudores con la misma deuda se ordenan siempre igual. Sin
 esto, la misma entrada podría producir liquidaciones distintas.
 
-**Restricciones de producto (reglas de Splitwise, protegen la confianza):**
-todos acaban con el mismo neto que antes · nadie acaba debiendo a alguien a
-quien no debía · nadie paga más en total del que debía. La regla 2 impide
-algunas simplificaciones óptimas: **se prioriza la trazabilidad social sobre el
-mínimo absoluto** ("¿por qué le pago a Marta si comí con Iván?"). La
-simplificación se ofrece con el detalle "de dónde sale esto" siempre visible.
+**Restricciones de producto — hay que elegir, no se pueden tener las tres.**
+Las reglas de Splitwise son: (1) todos acaban con el mismo neto que antes;
+(2) nadie acaba debiendo a alguien a quien no debía; (3) nadie paga más en total
+del que debía.
+
+**Liquidar a partir de netos cumple (1) y (3), pero NO puede cumplir (2)** — y es
+matemáticamente inevitable, porque el vector de netos **descarta el grafo de
+deudas original**. Contraejemplo: deudas B→A 5, D→C 10, D→A 5 dan netos
+`A +10, C +10, B −5, D −15`, y el greedy puede emitir **B→C 5** aunque B nunca le
+debió nada a C.
+
+**Decisión (dos modos explícitos, el usuario elige):**
+
+- **Modo detallado (por defecto):** no se simplifica. Se muestran las deudas tal
+  como nacieron, respetando el grafo original. Cumple las tres reglas
+  trivialmente. Es el modo honesto para un squad de amigos, donde la trazabilidad
+  social importa más que el número de Bizums ("¿por qué le pago a Marta si comí
+  con Iván?").
+- **Modo simplificado (opt-in por viaje):** liquidación por netos con las dos
+  pasadas de arriba. Minimiza transferencias, y **se admite explícitamente que
+  puede crear deudas entre personas que no se debían nada** — la regla (2) se
+  suelta de forma consciente, no por descuido. La UI **debe** avisarlo y mantener
+  el desglose "de dónde sale esto" siempre accesible.
+
+Se descarta implementar un `settle` restringido al conjunto de aristas originales
+(que cumpliría las tres): añade complejidad al núcleo y, en la práctica, produce
+resultados poco mejores que el modo detallado. Si algún día se pide, es un ADR
+nuevo.
 
 ### 2. Dinero: `Int64` en unidades menores, nunca `Double`
 
@@ -113,12 +155,18 @@ acumulación e iteración sobre `Set`); (6) elemento neutro (gasto de importe 0,
 que el pagador se asigna entero a sí mismo, no cambia nada); (7) aditividad;
 (8) inverso.
 
-**Sobre `settle`:** (9) corrección — aplicar las transferencias deja todos los
-saldos a 0; (10) suma cero de transferencias por persona; (11) `|T| ≤ N−1`;
+**Sobre `settle` (modo simplificado):** (9) corrección — aplicar las
+transferencias deja todos los saldos a 0; (10) suma cero de transferencias por
+persona; (11) **`|T| ≤ N−1`** (la cota dura; **no** se testea cercanía al óptimo,
+que sería falsa) y la salida de dos pasadas nunca es peor que la del greedy solo;
 (12) positividad (importe > 0; nunca `p → p`); (13) **nadie paga de más** — un
 acreedor jamás aparece como pagador; (14) **idempotencia** — simplificar lo ya
 simplificado no hace nada; (15) determinismo byte a byte; (16) estabilidad ante
 permutación.
+
+**Nota:** NO se testea "nadie debe a quien no debía" en modo simplificado —
+liquidar por netos no puede garantizarlo (§1), y el modo detallado lo cumple por
+construcción al no simplificar.
 
 **Sobre FX (2º incremento):** (17) **congelación** — recalcular con una tabla de
 tasas distinta, pero los mismos gastos con su `fx_rate` guardada, da **los mismos
@@ -165,10 +213,12 @@ grupo de una persona).
 
 ## Alternativas consideradas
 
-- **Buscar el mínimo exacto de transferencias** — NP-completo; para N ≤ 12 el
-  greedy queda a 0–1 transferencias del óptimo. Descartado por complejidad sin
-  beneficio percibible. (Mejora barata futura: detectar subgrupos de suma cero de
-  tamaño 2 y 3 antes del greedy.)
+- **Buscar el mínimo exacto de transferencias** — NP-completo. Descartado: la
+  descomposición en subgrupos de suma cero (pasada 1) captura la mayor parte de la
+  mejora a coste trivial para N ≤ 12.
+- **`settle` restringido al grafo de deudas original** (cumpliría las tres reglas
+  de Splitwise a la vez) — descartado: complica el núcleo y da resultados poco
+  mejores que simplemente no simplificar (modo detallado). Si se pide, ADR nuevo.
 - **`Decimal` en el núcleo del motor** — exacto, pero ~12× más lento que `Double`,
   no conforma `Strideable`, y su inicialización desde literal es una trampa.
   `Int64` en unidades menores es más simple y exacto por diseño.
@@ -194,9 +244,10 @@ grupo de una persona).
 1. **¿Quién asume el céntimo sobrante?** Por defecto, orden estable por
    `miembroId` (determinista, arbitrario). Alternativa: lo asume el pagador
    (más "justo" a la vista del usuario).
-2. **¿La simplificación de deudas es opt-in por viaje?** Recomendado: sí, y con el
-   desglose siempre accesible — simplificar agresivamente rompe la trazabilidad
-   social del gasto.
+2. **¿Modo detallado por defecto y simplificación opt-in?** Recomendado: sí. La
+   simplificación **puede hacer que le pagues a alguien a quien no le debías nada**
+   (es inevitable al liquidar por netos, §1). Con el modo detallado por defecto,
+   eso solo pasa si la usuaria lo elige a sabiendas y con el desglose delante.
 
 ## Fuentes
 
