@@ -1,7 +1,10 @@
 # ADR-0011 — Motor de saldos: algoritmo, dinero, FX e invariantes
 
 - **Fecha:** 2026-07-14
-- **Estado:** proposed
+- **Estado:** accepted
+- **Firmado:** 2026-07-14 por Andrea ("firma los ADRs y mergea todo" — firma por
+  delegación. Las decisiones de producto se resolvieron con los defaults
+  recomendados; **Andrea conserva el derecho de veto** vía ADR nuevo).
 - **Dueña:** Andrea
 - **Origen:** bead R3 (`TripSquad-iOS-2bq`), design doc Backend F3
 - **Depende de:** ADR-0009 (estructura) · ADR-0010 (Gasto/Liquidación, `Dinero`,
@@ -114,10 +117,12 @@ a los primeros `rem` participantes, en orden determinista, se les suma 1 céntim
 repartos por peso: `floor(total * wᵢ / Σw)`, ordenar por parte fraccionaria
 descendente y repartir los restos uno a uno.
 
-**Orden determinista (decisión de producto):** por defecto, **orden estable por
-`miembroId`** — reproducible y testeable. Alternativa documentada: que el céntimo
-extra lo asuma el pagador (percepción de justicia). **Queda prohibido** que el
-orden dependa de la BD o de un `Set` sin ordenar.
+**Orden determinista (decisión de producto, firmada en §8):** los céntimos
+sobrantes los asume **el pagador del gasto**; si sobran más céntimos que la cuota
+del pagador (caso degenerado), el resto se reparte en **orden estable por
+`miembroId`**. Es determinista (el pagador es un dato del gasto) y se percibe como
+justo: quien adelantó el dinero absorbe el resto, nunca un participante al azar.
+**Queda prohibido** que el orden dependa de la BD o de un `Set` sin ordenar.
 
 ### 4. Redondeo: half-even solo en FX
 
@@ -239,15 +244,21 @@ grupo de una persona).
 - Se acepta una dependencia joven (PropertyBased) con plan de salida explícito.
 - La simplificación de deudas se presenta **con su detalle**, no como caja negra.
 
-## Pendiente de firma de Andrea (producto)
+## 8. Decisiones de producto (firmadas por delegación — vetables)
 
-1. **¿Quién asume el céntimo sobrante?** Por defecto, orden estable por
-   `miembroId` (determinista, arbitrario). Alternativa: lo asume el pagador
-   (más "justo" a la vista del usuario).
-2. **¿Modo detallado por defecto y simplificación opt-in?** Recomendado: sí. La
+1. **El céntimo sobrante lo asume el pagador del gasto.** Se elige la opción A
+   sobre el default técnico: el reparto sigue siendo **determinista** (el pagador
+   es un dato del gasto, no depende del orden de la BD ni de un `Set`), y además
+   es el que se percibe como justo — quien adelantó el dinero absorbe el céntimo,
+   nunca un participante al azar. Cumple la invariante (2) de conservación exacta
+   y no introduce ninguna arbitrariedad visible para el usuario.
+2. **Modo detallado por defecto; simplificación opt-in por viaje.** La
    simplificación **puede hacer que le pagues a alguien a quien no le debías nada**
-   (es inevitable al liquidar por netos, §1). Con el modo detallado por defecto,
-   eso solo pasa si la usuaria lo elige a sabiendas y con el desglose delante.
+   (es matemáticamente inevitable al liquidar por netos, §1). Con el modo detallado
+   por defecto, eso solo ocurre si la usuaria lo activa a sabiendas, con el aviso
+   y el desglose delante.
+
+**Andrea conserva el derecho de veto** sobre ambas mediante un ADR nuevo.
 
 ## Fuentes
 
