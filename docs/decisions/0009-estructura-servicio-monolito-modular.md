@@ -1,7 +1,8 @@
 # ADR-0009 — Estructura del servicio: monolito modular Swift con Clean Architecture
 
 - **Fecha:** 2026-07-12
-- **Estado:** proposed
+- **Estado:** accepted
+- **Firmado:** 2026-07-14 por Andrea ("firma los ADRs y mergea todo")
 - **Dueña:** Andrea
 - **Origen:** bead R1 (`TripSquad-iOS-lea`), design doc Backend F3 (APPROVED 2026-07-11)
 
