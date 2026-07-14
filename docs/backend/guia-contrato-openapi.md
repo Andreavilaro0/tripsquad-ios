@@ -78,6 +78,12 @@ reintenta, y un gasto duplicado es confianza rota.
   timeout es seguro.
 - `DELETE` → `204 No Content` **incluso si el recurso ya no existe** (nunca
   `404`): un reintento de la cola no debe marcar como fallo lo ya completado.
+- **`DELETE` de un recurso editable exige `If-Match`** (ADR-0013): borrar es la
+  mutación *más* destructiva, no la menos. Sin precondición, un DELETE encolado
+  hace cinco días **borraría un gasto que otro miembro editó mientras tanto**. Si
+  el ETag no coincide → **412**, y la usuaria decide. Las dos propiedades conviven:
+  idempotente ante reintentos (204 si ya no está), pero **no ciego** ante ediciones
+  concurrentes.
 - **Toda `POST` que muta estado lleva `Idempotency-Key` obligatorio** — tanto
   las de creación como las **acciones** de §1 (`:settle`, `:close`, `:leave`).
   Una acción no es menos peligrosa que un create: si la respuesta de `:settle`
@@ -200,7 +206,7 @@ la duración del viaje y la agrupación por días del itinerario salen mal.
 - [ ] ¿Los errores nuevos añaden su `code` al enum contractual?
 - [ ] ¿Las colecciones devuelven `value` + `nextLink` opaco?
 - [ ] ¿**Toda** POST mutante (creates Y acciones `:settle`/`:close`/`:leave`) requiere `Idempotency-Key` y responde `Idempotency-Result`? ¿Los DELETE devuelven `204` siempre?
-- [ ] ¿Los recursos editables llevan `ETag`/`If-Match` → `412`?
+- [ ] ¿Los recursos editables llevan `ETag`/`If-Match` → `412`, **incluidos los DELETE** (ADR-0013)?
 - [ ] ¿Los enums son extensibles? ¿Ningún campo `null` en respuestas? ¿Ningún dinero como number?
 - [ ] ¿Cada campo de fecha usa el tipo correcto — `format: date` para fechas civiles (viaje, día de itinerario) y `date-time` UTC solo para instantes? ¿Duraciones con unidad en el nombre?
 - [ ] ¿Operaciones >1s p99 modeladas como LRO?

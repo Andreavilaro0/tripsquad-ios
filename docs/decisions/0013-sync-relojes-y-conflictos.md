@@ -49,6 +49,18 @@ reciente de otro**. Justo lo que no queremos.
    cliente que estuvo offline manda el ETag **que él conocía**; si otro editó
    mientras tanto, recibe **412 y no pisa nada**: se le muestra el conflicto y
    decide. Esto es lo que salva el caso de los 5 días.
+
+   **`If-Match` es obligatorio también en los DELETE.** Un borrado es la mutación
+   *más* destructiva, no la menos: sin precondición, un DELETE encolado hace 5 días
+   **borraría un gasto que otro miembro editó mientras tanto**, en vez de dar 412.
+   La guía de contrato (§5) dice que DELETE es idempotente y que `If-Match` se
+   exige en "updates" — **eso deja el agujero abierto y aquí se cierra**:
+   - `DELETE` sobre un recurso editable **exige `If-Match`**; si el ETag no coincide
+     (alguien lo editó), → **412**, y la usuaria decide si aún quiere borrarlo.
+   - Si el recurso **ya no existe**, el reintento sigue devolviendo **204** (la
+     idempotencia del borrado se mantiene: reintentar lo ya hecho no es un error).
+   - Solo así conviven las dos propiedades: idempotente ante reintentos, **pero no
+     ciego ante ediciones concurrentes**.
 3. **El HLC del cliente se guarda como metadato, pero NO decide.** Sirve para
    ordenar y explicar ("esto se editó antes que aquello") y para el día que
    adoptemos CRDTs. Nunca para resolver quién gana.
@@ -134,6 +146,9 @@ nocturno desde el Pi es un requisito, no un detalle.
 
 - El contrato ya tenía `ETag`/`If-Match` (R1): aquí queda **elevado a árbitro
   oficial** de conflictos. Todo recurso editable debe emitir ETag.
+- **La guía de contrato (`docs/backend/guia-contrato-openapi.md` §5–§6) debe
+  actualizarse**: `If-Match` pasa a ser obligatorio también en `DELETE` de recursos
+  editables (manteniendo el `204` en el reintento de algo ya borrado).
 - El esquema del itinerario nace con **fractional indexing**, no con enteros.
 - El test de paridad RLS↔sync-rules es un **gate de CI**, no una buena intención.
 - Los docs dejan de decir "local-first" y dicen *offline-first*.
