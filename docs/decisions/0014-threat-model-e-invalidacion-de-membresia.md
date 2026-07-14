@@ -1,7 +1,8 @@
 # ADR-0014 — Threat model STRIDE y matriz de invalidación de membresía
 
 - **Fecha:** 2026-07-14
-- **Estado:** proposed
+- **Estado:** accepted
+- **Firmado:** 2026-07-14 por Andrea ("firma los ADRs y mergea todo" — por delegación, con derecho de veto vía ADR nuevo)
 - **Dueña:** Andrea
 - **Origen:** bead R6 (`TripSquad-iOS-df9`), design doc Backend F3
 - **Depende de:** ADR-0010 (revocación síncrona, contexto Acceso) · ADR-0013
