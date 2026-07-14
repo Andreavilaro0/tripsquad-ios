@@ -1,7 +1,11 @@
 # ADR-0010 — Modelo de dominio: contextos, agregados y usuario fantasma
 
 - **Fecha:** 2026-07-14
-- **Estado:** proposed
+- **Estado:** accepted
+- **Firmado:** 2026-07-14 por Andrea ("firma los ADRs y mergea todo" — firma por
+  delegación, como ADR-0006. Las decisiones de producto de §7 se resolvieron con
+  los defaults recomendados; **Andrea conserva el derecho de veto** sobre
+  cualquiera de ellas mediante un ADR que reemplace a este).
 - **Dueña:** Andrea
 - **Origen:** bead R2 (`TripSquad-iOS-6g8`), design doc Backend F3
 - **Depende de:** ADR-0009 (monolito modular + Clean Architecture)
@@ -222,14 +226,32 @@ tabla de Identidad.
 - Coste aceptado: la prohibición de denormalizar nombres puede exigir un join o
   una proyección extra en las lecturas. Es el precio del fantasma barato.
 
-## Pendiente de firma de Andrea (decisiones de producto, no técnicas)
+## 7. Decisiones de producto (firmadas por delegación — vetables)
 
-1. **¿El cierre de un viaje es reversible?** (¿puede el organizador reabrirlo?)
-2. **¿Se puede cerrar un viaje con saldos abiertos**, o hay que liquidar antes?
-3. **Fotos subidas por un usuario anonimizado**: ¿se borran o pasan al viaje?
-   Debe decidirse **y escribirse en el aviso de privacidad antes de codificar**.
-4. **"Sello"**: si la UI no va a usar ese término tal cual, se renombra o se saca
-   del modelo — el lenguaje ubicuo no admite sinónimos.
+Estas cuatro son decisiones de producto, no técnicas. Se resuelven con el default
+recomendado para no bloquear el código; **Andrea puede vetar cualquiera con un ADR
+nuevo** (mismo mecanismo que ADR-0006).
+
+1. **El cierre de un viaje es reversible por el organizador.** Cerrar es un gesto
+   de celebración ("pasa a tus recuerdos"), no una operación destructiva: si
+   alguien lo cierra antes de tiempo o aparece un gasto olvidado, exigir soporte
+   para arreglarlo sería absurdo. Reabrir emite `ViajeReabierto` y queda en el
+   historial (no es un borrado, es un estado). *Si Andrea prefiere el cierre
+   irreversible por ceremonia, es un ADR de una línea.*
+2. **Sí se puede cerrar un viaje con saldos abiertos, pero con fricción
+   explícita:** la UI avisa ("quedan 40 € sin liquidar") y exige confirmación. No
+   se bloquea el cierre, porque en la vida real los amigos se pagan por fuera de
+   la app y forzarles a "liquidar" ficticiamente contamina los datos. Un viaje
+   cerrado con saldos abiertos los conserva visibles en el recuerdo.
+3. **Las fotos de un usuario anonimizado se conservan en el álbum del viaje**, sin
+   autoría (pasan al viaje). Motivo: son recuerdos **compartidos** — borrarlas
+   mutila el álbum de los demás, que no han pedido nada. **Debe escribirse en el
+   aviso de privacidad antes de codificar**, y ofrecerse una opción explícita de
+   "borrar también mis fotos" en el flujo de baja, para quien la quiera.
+4. **"Sello" se mantiene** como término del dominio y de la UI: ya aparece en el
+   diseño cerrado (ADR-0005, pantallas de perfil y cierre de viaje). Si la UI
+   final lo renombra, se renombra **también en el código y el contrato** — el
+   lenguaje ubicuo no admite sinónimos.
 
 ## Fuentes
 
