@@ -4,7 +4,10 @@
 - **Estado:** proposed
 - **Dueña:** Andrea
 - **Origen:** bead R6 (`TripSquad-iOS-df9`), design doc Backend F3
-- **Depende de:** ADR-0010 (revocación síncrona, contexto Acceso), ADR-0013 (paridad RLS↔sync)
+- **Depende de:** ADR-0010 (revocación síncrona, contexto Acceso) · ADR-0013
+  (paridad RLS↔sync-rules) — **en revisión en el PR #15; este ADR debe fusionarse
+  después.** Si ADR-0013 no llegara a aceptarse, el requisito de paridad y su test
+  de CI quedan igualmente vinculantes aquí (§2 y §6).
 
 ## Contexto
 
@@ -31,8 +34,20 @@ Tres superficies **no se pueden revocar al instante**. Hay que diseñar sabiénd
    expire o se fuerce la desconexión.
 
 **Conclusión dura:** para esas tres, la única defensa real es **TTL corto +
-verificación server-side en cada uso**. Todo lo demás (RLS, PowerSync, push,
-contexto IA) **sí** se corta de forma síncrona contra `trip_members`.
+verificación server-side en cada uso**.
+
+Se cortan **de verdad al instante** (porque se comprueban contra `trip_members` en
+el momento de uso) las capabilities *server-side*: **RLS**, la **emisión** de URLs
+firmadas, el **fan-out de push**, el **retriever de la Brújula** y el historial vía
+API.
+
+**PowerSync y la caché local NO son un corte síncrono** — y conviene no engañarse:
+la fila deja de coincidir con el bucket al instante, pero **el dispositivo solo
+borra los datos cuando vuelve a sincronizar** (segundos si está online; **tiempo
+indefinido si está offline**). Es una **ventana real**, no un detalle de
+implementación: por eso la matriz exige tests explícitos de desconexión,
+reconexión y purga local, y por eso el riesgo del dispositivo offline queda
+**aceptado y escrito** (§Consecuencias), no disimulado.
 
 ## Decisión
 
