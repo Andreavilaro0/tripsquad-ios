@@ -27,11 +27,16 @@ Se adopta `Idempotency-Key` con los códigos del **draft IETF**
 | **400** | Falta el header en una POST mutante |
 | **409** | Petición **concurrente**: la original sigue en vuelo → reintentar luego |
 | **422** | Key reusada con **payload distinto** |
-| **412** | Key **fuera de la ventana** de retención (§3) → rechazo permanente |
+| **412** | Key **fuera de la ventana** de retención (§3) → rechazo permanente. **Solo en llamadas directas de API, NUNCA en escrituras que vienen de la cola** (ver §4) |
 
 Respuesta: `Idempotency-Result: created | replayed` (equivalente al
 `Repeatability-Result` de OASIS). El servidor **publica su política de
 expiración**, como exige el draft.
+
+⚠️ **Los códigos 4xx de esta tabla valen para clientes que llaman a la API
+directamente. Las escrituras que llegan desde la cola de PowerSync se rigen por
+§4: un 4xx allí bloquearía la cola entera.** El único 4xx admitido en el camino de
+la cola es el **409** (en vuelo), porque queremos que reintente.
 
 ### 2. Dos capas: la clave (HTTP) y el constraint (dominio)
 
@@ -98,8 +103,25 @@ Por tanto:
   reintenta solo con backoff.
 - **409** (key en vuelo) es la única 4xx permitida, precisamente porque queremos
   que reintente.
+- **Key expirada (`first-sent` fuera de ventana) en una escritura de la cola:** se
+  trata como **rechazo permanente**, no como 412. Devolver un 412 crudo haría
+  fallar `uploadData()` **antes** de `batch.complete()`, dejando la operación
+  rancia a la cabeza de la cola FIFO: el SDK la reintentaría para siempre y
+  **ninguna escritura offline posterior podría drenar**. Respuesta correcta:
+  **200 OK** + `{"status":"rejected","reason":"idempotency_key_expired"}` + fila en
+  `write_rejections`. El 412 queda reservado a las llamadas directas de API.
 - Toda fila de `write_rejections` es una **señal de producto**, no un log: se
   monitoriza.
+
+**Tabla de mapeo (el contrato que implementa la cola):**
+
+| Situación | Respuesta al camino de la cola | Efecto |
+|---|---|---|
+| Transitorio (BD caída, timeout) | **5xx** | El SDK reintenta con backoff |
+| Permanente (viaje cerrado, expulsado, validación) | **200** + `write_rejections` | La cola avanza; la usuaria ve el error |
+| Reintento de algo ya ejecutado | **200** + `Idempotency-Result: replayed` | La cola avanza; sin duplicado |
+| Key en vuelo (concurrencia) | **409** | La cola espera y reintenta |
+| **Key expirada** | **200** + `write_rejections` (**no 412**) | La cola avanza; no se re-ejecuta a ciegas |
 
 ### 5. Reautenticación antes del flush
 
