@@ -1,7 +1,8 @@
 # ADR-0012 — Camino de escritura idempotente y cola offline
 
 - **Fecha:** 2026-07-14
-- **Estado:** proposed
+- **Estado:** accepted
+- **Firmado:** 2026-07-14 por Andrea ("firma los ADRs y mergea todo" — por delegación, con derecho de veto vía ADR nuevo)
 - **Dueña:** Andrea
 - **Origen:** bead R4 (`TripSquad-iOS-3h7`), design doc Backend F3
 - **Depende de:** ADR-0009 (Outbox + idempotencia), ADR-0011 (dinero en enteros)
