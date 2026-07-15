@@ -65,15 +65,15 @@ lleva su identidad de cliente y su clave de idempotencia derivada:
 
 ```json
 {
-  "clientId": "device-uuid-A",                 // UUID del esquema local, por dispositivo
+  "deviceId": "device-uuid-A",                 // UUID por instalación, lo mantiene la app (NO viene de CrudEntry)
   "ops": [
     {
-      "opId": "op-8123",                       // CrudEntry.opId (correlación) — LOCAL al dispositivo
+      "crudId": "5",                           // = CrudEntry.clientId (secuencia de la op) — LOCAL al dispositivo
       "op": "PUT",                             // PUT | PATCH | DELETE
       "table": "expenses",
       "rowId": "9f3c…",                        // UUIDv7 de cliente = PK
       "tripId": "trip-abc",
-      "idempotencyKey": "sha256(device-uuid-A|op-8123|expenses|9f3c…)",
+      "idempotencyKey": "sha256(device-uuid-A|5|expenses|9f3c…)",
       "firstSent": "2026-07-01T10:12:00Z",     // lo firma el CLIENTE en generación local (ADR-0015 §4)
       "ifMatch": "v7",                         // solo PATCH/DELETE de fila sincronizada
       "data": { … }                            // el estado; ausente en DELETE
@@ -89,24 +89,33 @@ Reglas de la petición:
   4xx la congela, un `api-version` inválido se trata como **error de despliegue del
   cliente** que no debería ocurrir (el cliente es generado). Si ocurre, **503** con
   log de alarma, no 400 — la cola no es rehén de un bug de versión.
-- **⭐ `idempotencyKey` incluye el `clientId`** (hallazgo P0 de la voz externa
-  Gemini — **corrige la fórmula de ADR-0012 §6**): `sha256(clientId ‖ opId ‖ table ‖
-  rowId)`. El `opId` de PowerSync es un entero **local por dispositivo**, así que sin
-  el `clientId` el iPhone y el iPad de la MISMA persona editando la MISMA fila
-  generan `opId:5` los dos → misma clave → la segunda edición se tomaría como replay
-  de la primera y **se perdería**. El `clientId` es un UUID del esquema local, uno
-  por dispositivo. Sigue siendo determinista por op (no aleatoria por intento);
-  reautenticar no la regenera.
+- **⭐ `idempotencyKey` incluye el `deviceId`** (hallazgo P0 de la voz externa
+  Gemini — **corrige la fórmula de ADR-0012 §6**): `sha256(deviceId ‖ crudId ‖ table ‖
+  rowId)`. El `crudId` (= `CrudEntry.clientId`, la secuencia de la operación) es un
+  entero **local por dispositivo**, así que sin el `deviceId` el iPhone y el iPad de
+  la MISMA persona editando la MISMA fila generan `crudId:5` los dos → misma clave →
+  la segunda edición se tomaría como replay de la primera y **se perdería**. El
+  `deviceId` es un UUID que la app genera una vez por instalación y guarda en local
+  (**NO** es un campo de `CrudEntry`; `CrudEntry` expone `id`, `clientId`,
+  `transactionId`, no un device-id). Sigue siendo determinista por op; reautenticar
+  no la regenera.
 - **`ifMatch`** solo en `PATCH`/`DELETE` de una fila **ya sincronizada**. Un `PUT`
   (create) no lo lleva: su protección es la PK de cliente (ADR-0015 §12).
 - **`firstSent`** obligatorio: fija la ventana de 60 días (ADR-0012 §3).
 
 ### Tamaño del batch (el 413, ADR-0015 §10)
 
-- **El cliente fragmenta** el `CrudBatch` en lotes de **≤ 100 ops** o **≤ 1 MB**,
-  lo que se alcance antes. Un `batch.complete()` por fragmento.
-- El servidor acepta cuerpos holgadamente por encima de ese límite. Si aun así se
-  excede, responde **503** (no 413) en el camino de la cola.
+⚠️ **NO se fragmenta un `CrudBatch` a mano** (hallazgo P1 de Codex, leído del código
+del SDK): `CrudBatch.complete()` borra **todas** las entradas encoladas hasta la
+última del batch, así que completar tras subir solo un fragmento **perdería la cola
+en silencio**. En su lugar:
+
+- **El cliente pide batches pequeños al SDK con `getCrudBatch(limit: N)`** (N ≈ 100,
+  ajustado para que el cuerpo quede por debajo del límite). Cada `getCrudBatch`
+  devuelve ≤ N ops, se suben en UNA petición `/sync/upload`, y `complete()` se llama
+  **una sola vez por batch del SDK**, cuando el servidor confirmó todas.
+- El servidor acepta cuerpos holgadamente por encima de N ops. Si aun así se excede,
+  responde **503** (no 413) en el camino de la cola.
 
 ---
 
@@ -159,15 +168,15 @@ Traducción `CrudEntry` → caso de uso:
 
 ---
 
-## 3. Respuesta 200: desenlace por operación, correlacionado por `opId`
+## 3. Respuesta 200: desenlace por operación, correlacionado por `crudId`
 
 ```json
 {
   "results": [
-    { "opId": "op-8123", "outcome": "accepted",  "etag": "v8" },
-    { "opId": "op-8124", "outcome": "replayed",  "etag": "v3" },
-    { "opId": "op-8125", "outcome": "rejected",  "reason": "trip_closed" },
-    { "opId": "op-8126", "outcome": "conflict",  "serverEtag": "v9" }
+    { "crudId": "crud-8123", "outcome": "accepted",  "etag": "v8" },
+    { "crudId": "crud-8124", "outcome": "replayed",  "etag": "v3" },
+    { "crudId": "crud-8125", "outcome": "rejected",  "reason": "trip_closed" },
+    { "crudId": "crud-8126", "outcome": "conflict",  "serverEtag": "v9" }
   ]
 }
 ```
@@ -175,7 +184,7 @@ Traducción `CrudEntry` → caso de uso:
 - **`outcome`** por op, mapeado desde el `ResultadoEscritura` del adaptador:
   `creado`/`actualizado` → `accepted`; `reproducido` → `replayed`; `rechazado` →
   `rejected` (+ `reason`); `conflicto` → `conflict` (+ `serverEtag`).
-- **`opId`** correlaciona cada resultado con su `CrudEntry` — el cliente actualiza
+- **`crudId`** correlaciona cada resultado con su `CrudEntry` — el cliente actualiza
   el estado local de esa fila (máquina de estados, ADR-0015 §12).
 - **La respuesta es la señal INMEDIATA; las tablas sincronizadas son la durable.**
   Los `rejected` y `conflict` **también** se escriben en `write_rejections` /
@@ -188,7 +197,7 @@ Traducción `CrudEntry` → caso de uso:
 ### Correlación y orden
 
 - El array `results` va en **el mismo orden** que `ops`, y además cada entrada
-  lleva su `opId`: el cliente no depende del orden para correlacionar.
+  lleva su `crudId`: el cliente no depende del orden para correlacionar.
 - **Todo o nada en la respuesta 200** (hallazgo P2 de Gemini): una respuesta 200
   DEBE incluir un resultado para CADA op enviada — el conector de PowerSync falla de
   forma opaca si el array no cuadra. El servidor **nunca omite** una op. Si el
@@ -221,8 +230,8 @@ sobre el id borrado solo puede ser un create rancio de la cola, y se rechaza.
 | Gate | Qué prueba | Cómo |
 |---|---|---|
 | **G1** | Ninguna respuesta de `/sync/upload` es 4xx salvo 409 (y 409 es imposible aquí) | Test de contrato que enumera todos los caminos de error y assertea el status |
-| **G1b** | Toda op enviada tiene exactamente un `result` con su `opId` | Test: batch de N ops → N results, opIds correlacionan |
-| **G1c** | Reenviar un batch ya aplicado (retry) da los mismos `opId → outcome`, con `accepted` degradado a `replayed`, y no duplica filas | Test de integración: aplicar batch, reaplicar, comparar |
+| **G1b** | Toda op enviada tiene exactamente un `result` con su `crudId` | Test: batch de N ops → N results, crudIds correlacionan |
+| **G1c** | Reenviar un batch ya aplicado (retry) da los mismos `crudId → outcome`, con `accepted` degradado a `replayed`, y no duplica filas | Test de integración: aplicar batch, reaplicar, comparar |
 | **G4** | Dos `:settle` concurrentes con el mismo `settlementId` = una ejecución | (cuando `:settle` se defina) |
 
 ---
