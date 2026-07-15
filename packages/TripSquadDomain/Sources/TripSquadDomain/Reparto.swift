@@ -34,8 +34,11 @@ public func cuotas(de gasto: Gasto) throws -> [MiembroId: Int64] {
 /// `base = importe / n`, `rem = importe % n`. A los primeros `rem` participantes,
 /// en orden determinista, se les suma 1 céntimo. El orden pone al **pagador
 /// primero** (si participa) y luego por `miembroId` ascendente, de modo que el
-/// céntimo sobrante lo asuma quien adelantó el dinero (ADR-0011 §8.1). Si el
-/// pagador no participa, el resto cae al primer participante por `miembroId`.
+/// céntimo sobrante lo asuma quien adelantó el dinero (ADR-0011 §8.1).
+///
+/// Decisión consciente (no es un bug): si el pagador **no participa**, no tiene
+/// cuota que absorber el céntimo, así que el resto cae al primer participante por
+/// `miembroId`. Sigue siendo determinista y conserva el total exacto.
 func repartoIgual(importe: Int64, entre: [MiembroId], pagador: MiembroId) -> [MiembroId: Int64] {
     let n = Int64(entre.count)
     let base = importe / n
@@ -60,17 +63,31 @@ func repartoIgual(importe: Int64, entre: [MiembroId], pagador: MiembroId) -> [Mi
 /// fraccionaria descendente, con desempate estable por `miembroId` (ADR-0011 §3).
 func repartoPorPeso(importe: Int64, pesos: [MiembroId: Int]) throws -> [MiembroId: Int64] {
     for w in pesos.values where w <= 0 { throw DomainError.pesoInvalido }
-    let sumaPesos = Int64(pesos.values.reduce(0, +))
+    // Suma en Int64 desde el principio (evita overflow del `Int` en la reducción,
+    // hallazgo de la voz externa Gemini) y con sumas seguras.
+    var sumaPesos: Int64 = 0
+    for w in pesos.values {
+        let (s, overflow) = sumaPesos.addingReportingOverflow(Int64(w))
+        guard !overflow else { throw DomainError.pesoInvalido }
+        sumaPesos = s
+    }
     guard sumaPesos > 0 else { throw DomainError.pesoInvalido }
 
     var resultado: [MiembroId: Int64] = [:]
     var restos: [(m: MiembroId, resto: Int64)] = []
     var asignado: Int64 = 0
 
+    let sw = UInt64(sumaPesos)
     for (m, w) in pesos {
-        let numerador = importe * Int64(w)
-        let cuota = numerador / sumaPesos
-        let resto = numerador % sumaPesos
+        // `importe * peso` puede desbordar Int64 con importes o pesos grandes
+        // (hallazgo P0 de Gemini). Se hace el producto a 128 bits con
+        // `multipliedFullWidth` y se divide con `dividingFullWidth` — sin `Int128`
+        // (que exige macOS 15) y sin `Double`. Todo es no-negativo aquí (importe ≥ 0,
+        // peso > 0), así que UInt64 es seguro; la cuota (≤ importe) cabe en Int64.
+        let producto = UInt64(importe).multipliedFullWidth(by: UInt64(w))
+        let (cuotaU, restoU) = sw.dividingFullWidth(producto)
+        let cuota = Int64(cuotaU)
+        let resto = Int64(restoU)
         resultado[m] = cuota
         asignado += cuota
         restos.append((m, resto))

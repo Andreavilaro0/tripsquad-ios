@@ -73,4 +73,17 @@ struct ErroresTests {
         let g = Gasto(id: "g", pagadoPor: m1, importeMinor: 100, reparto: .porPeso([m1: 0, m2: 3]))
         #expect(throws: DomainError.pesoInvalido) { try cuotas(de: g) }
     }
+
+    /// Overflow del reparto por peso (hallazgo P0 de la voz externa Gemini): con
+    /// `importe * peso` en Int64 esto crasheaba; con Int128 intermedio, no. El
+    /// producto `10^9 · 10^9` desborda Int64 (~9.2·10^18) por rozar el límite.
+    @Test func repartoPorPesoNoDesborda() {
+        let importe: Int64 = 1_000_000_000            // 10^9 céntimos
+        let g = Gasto(id: "g", pagadoPor: m1, importeMinor: importe,
+                      reparto: .porPeso([m1: 1_000_000_000, m2: 1_000_000_000]))  // pesos 10^9
+        let c = try! cuotas(de: g)
+        #expect(c.values.reduce(0, +) == importe)      // conservación exacta
+        #expect(c[m1] == 500_000_000)
+        #expect(c[m2] == 500_000_000)
+    }
 }
