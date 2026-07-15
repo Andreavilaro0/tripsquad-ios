@@ -1,0 +1,52 @@
+name: TripSquadDomain
+
+# Gate de CI del motor de saldos (ADR-0011, ADR-0015 §8).
+# Corre en Linux Y macOS: el dominio es la base compartida servidor+iOS y debe
+# compilar en los dos. Verifica las 33 pruebas, la ausencia de deriva en los
+# golden vectors, y que el target de dominio no arrastra dependencias externas.
+
+on:
+  push:
+    paths: ["packages/TripSquadDomain/**", ".github/workflows/domain.yml"]
+  pull_request:
+    paths: ["packages/TripSquadDomain/**", ".github/workflows/domain.yml"]
+
+defaults:
+  run:
+    working-directory: packages/TripSquadDomain
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + test
+        run: swift test
+
+      - name: Golden vectors sin deriva
+        run: |
+          swift run generate-golden-vectors
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git diff --exit-code golden-vectors.json \
+            || (echo "::error::golden-vectors.json cambió — regenera y commitea" && exit 1)
+
+      - name: Dominio sin dependencias externas
+        run: |
+          # El paquete no debe declarar ninguna .package(...) externa. La raíz
+          # siempre lista su propia url, así que se comprueba que el array
+          # "dependencies" esté vacío (bead 9dn — el dominio es puro).
+          if swift package show-dependencies --format json | tr -d ' \n' | grep -q '"dependencies":\[\]'; then
+            echo "OK: dominio sin dependencias externas"
+          else
+            echo "::error::el paquete arrastra dependencias externas — el dominio debe ser puro (bead 9dn)"
+            swift package show-dependencies
+            exit 1
+          fi
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + test
+        run: swift test
