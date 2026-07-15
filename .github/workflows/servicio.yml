@@ -1,0 +1,45 @@
+name: TripSquadService
+
+# CI del servicio HTTP (Hummingbird). Los tests de rutas usan el adaptador EN
+# MEMORIA, así que no necesitan Postgres. Un job aparte valida que el Dockerfile
+# construye (el camino de deploy a Render).
+
+on:
+  push:
+    paths:
+      - "packages/TripSquadService/**"
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadExpensesPostgres/**"
+      - "packages/TripSquadDomain/**"
+      - ".github/workflows/servicio.yml"
+  pull_request:
+    paths:
+      - "packages/TripSquadService/**"
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadExpensesPostgres/**"
+      - "packages/TripSquadDomain/**"
+      - ".github/workflows/servicio.yml"
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - working-directory: packages/TripSquadService
+        run: swift test
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - working-directory: packages/TripSquadService
+        run: swift test
+
+  docker-build:
+    # Valida el Dockerfile + contexto de build (el deploy a Render). Contexto = raíz.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build imagen del servicio
+        run: docker build -f packages/TripSquadService/Dockerfile -t tripsquad-service .
