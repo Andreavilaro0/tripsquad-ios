@@ -189,11 +189,18 @@ outbox y notifica a todo el squad**.
 **Decisión — el mismo patrón que ya protege los gastos:**
 
 - La acción `:settle` lleva un **`settlementId` (UUIDv7) generado en cliente**.
-- Cada fila de liquidación tiene **PK determinista**:
-  `id = uuidv5(settlementId, from_member ‖ to_member)`.
+- Cada fila de liquidación tiene **PK determinista**, con el **índice de
+  transferencia** dentro de la liquidación (0, 1, 2…), no solo el par:
+  `id = uuidv5(settlementId, from_member ‖ to_member ‖ transferIndex)`.
+  Sin el `transferIndex`, **dos transferencias del mismo deudor al mismo acreedor
+  en la misma liquidación colisionarían** y `ON CONFLICT DO NOTHING` se comería una
+  — perdiendo dinero, justo lo que el dedupe debía impedir (hallazgo de la voz
+  externa Gemini). El orden `from ‖ to` es semántico (deudor→acreedor), no
+  simétrico: `A→B` y `B→A` son transferencias legítimamente distintas.
 - `INSERT … ON CONFLICT (id) DO NOTHING` ⇒ **la liquidación duplicada es
   físicamente imposible**, aunque toda la capa 1 falle.
-- `UNIQUE (trip_id, settlement_id, from_member, to_member)` como refuerzo.
+- `UNIQUE (trip_id, settlement_id, from_member, to_member, transfer_index)` como
+  refuerzo.
 - **`round` queda como ordinal de presentación**, asignado por el servidor.
   **Jamás como clave de dedupe.**
 - Los efectos de `:settle` (outbox, notificaciones) van **en la misma
@@ -203,6 +210,14 @@ outbox y notifica a todo el squad**.
 PowerSync. Requiere una **tabla local de intención** (p. ej. `settlement_requests`)
 que el `uploadData()` traduce a `POST /trips/{id}:settle`. ADR-0012 §6 lo daba por
 supuesto sin escribirlo.
+
+**⛔ `:settle` bloquea la generación de clientes hasta que Andrea decida su
+semántica** (§13; hallazgo de la voz externa MiniMax). No es solo una decisión de
+producto aplazada: es un bloqueo de la máquina contract-first (ADR-0008). El
+OpenAPI de `:settle` no se puede generar sin saber si es sugerir / marcar pagado /
+registrar pago. **Regla:** el endpoint `:settle` **no se codegenera** hasta la
+decisión; **la Fase S arranca por los gastos** (create/edit), que no dependen de
+ella. Así el slice vertical no se queda esperando a una decisión de producto.
 
 ---
 
@@ -447,16 +462,31 @@ mirado desde el producto en vez de desde la sincronización.
   — la misma función única de ADR-0013 §4, ni una superficie más.
 - **Qué se registra:** quién, cuándo (reloj del **servidor**, ADR-0013 §2), y el
   cambio **campo a campo**. Nunca "se editó": siempre "cambió el importe de 40 a 45".
-- **`expense_revisions` es append-only.** Ni `UPDATE` ni `DELETE`. Es la tabla que
-  hace que "queda registrado" sea verdad y no una promesa.
+- **`expense_revisions` es append-only para el reintento normal.** Ni `UPDATE` ni
+  `DELETE` en operación corriente. Excepción: el borrado por RGPD (ver más abajo).
 - **El `If-Match` sigue siendo obligatorio** (§2). "Todos pueden editar" no es
   "todos pueden pisar": dos ediciones concurrentes siguen dando conflicto, y el
   conflicto sigue siendo visible.
 - **Viaje cerrado → no se edita.** Ya existe: ADR-0012 §4 lista `trip_closed` como
   rechazo permanente (200 + `write_rejections`).
 - **Expulsado → no edita.** No es miembro; lo para la RLS, sin código nuevo.
-- **RGPD:** el historial guarda `edited_by` (un `MiembroId`), no datos personales.
-  Sobrevive al tombstone estructural de ADR-0013 §5.
+- **⚠️ RGPD — corrección (hallazgo de las voces externas Gemini y MiniMax).** Una
+  versión anterior de este ADR afirmaba que el historial "guarda `edited_by`, no
+  datos personales". **Es falso:** `old_value`/`new_value` de un campo de **texto
+  libre** (la descripción de un gasto: *"medicinas de Marta"*) SÍ es dato personal,
+  y un `expense_revisions` puramente append-only lo conservaría **para siempre**,
+  chocando con el tombstone estructural de ADR-0013 §5 (que hard-borra el
+  contenido). Reglas:
+  - Los campos **estructurales** (importe, divisa, `paidBy`, reparto) se guardan en
+    claro: no son datos personales y son la trazabilidad que importa.
+  - Los campos de **texto libre** (descripción, notas) se versionan con el mismo
+    **crypto-shredding** de ADR-0013 §5: el valor viejo se cifra con la clave del
+    gasto; borrar la clave lo hace irrecuperable sin romper la fila. El derecho al
+    olvido se ejerce borrando la clave, no la historia.
+  - **Retención:** el historial se **purga al borrar el viaje** (o a los N meses de
+    cerrarlo), no vive eternamente. Es un dato de servidor; al cliente baja solo el
+    **último** valor + un contador de ediciones, no las 50 revisiones (evita
+    inflar la SQLite del móvil — hallazgo de MiniMax).
 
 **Sub-caso que queda abierto (vetable):** ¿qué pasa al **editar un gasto que ya
 entró en una liquidación cerrada**? Cambia los saldos hacia atrás. Recomendación de

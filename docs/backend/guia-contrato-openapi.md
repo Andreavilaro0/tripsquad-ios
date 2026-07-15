@@ -46,6 +46,23 @@ lo reintenta — que es lo que queremos cuando otra petición tiene la key en vu
 Un **412 de conflicto** con 409 sería un **bucle infinito** (el cliente reintentaría
 con el mismo ETag rancio, eternamente), así que tampoco vale.
 
+**⭐ Cómo sabe el servidor por qué camino llega una petición (el mecanismo, sin el
+cual esta regla es teatro):** NO se adivina ni se mira un header falsificable. **El
+camino ES el path.** Las escrituras de la cola llegan TODAS a un **único endpoint de
+upload** — `POST /sync/upload` — porque el `uploadData()` de PowerSync traduce el
+`CrudBatch` a llamadas contra ese path (ADR-0012 §6). Las llamadas directas van a
+los paths REST normales (`/trips/{id}/expenses`, `:settle`, …). Entonces:
+
+```
+   POST /sync/upload         → reglas de la COLA  (nunca 4xx salvo 409)
+   POST /trips/{id}/…         → reglas DIRECTAS    (412/429/4xx normales)
+   POST /trips/{id}:settle    → reglas DIRECTAS
+```
+
+El gate G1 (ADR-0015 §8) se ejecuta **solo sobre `/sync/upload`**: ahí es donde
+"ninguna 4xx salvo 409" es verificable y obligatorio. Sin este path separado la
+regla del camino no tendría dónde agarrarse (hallazgo de la 3ª voz externa).
+
 ## 1. URLs y naming
 
 - Forma: `https://api.tripsquad.app/{colección}/{id}` — colecciones en
@@ -139,6 +156,18 @@ reintenta, y un gasto duplicado es confianza rota.
     móvil sin red 10 días de viaje subiría su cola y **crearía el gasto otra vez,
     semanas después**. `Idempotency-First-Sent` es **obligatorio**; fuera de
     ventana, el servidor **jamás re-ejecuta a ciegas**.
+  - **Qué reloj firma `Idempotency-First-Sent`** (lo firma el **cliente**, en el
+    momento de **generar la operación en local** — es un metadato del `CrudEntry`,
+    no del primer intento de subida). Debe ser así para que la ventana cuente desde
+    que nació el gasto, no desde que hubo red: si lo firmara el servidor en el
+    primer `POST`, un móvil 10 días sin cobertura entraría siempre "dentro de
+    ventana" y el bug volvería. **Es un reloj de cliente, luego es falsificable —
+    pero el riesgo está acotado:** un cliente que mienta con su `first-sent` solo se
+    perjudica a sí mismo (se autoexpulsa de la ventana o revive su propia
+    operación); no puede tocar las de otro usuario, que están aisladas por
+    `UNIQUE (user_id, idempotency_key)`. La red de seguridad real no es el reloj,
+    es el **dedupe estructural** (PK de cliente). Hallazgo de la voz externa
+    MiniMax: sin fijar esto, la ventana "estaba movida, no resuelta".
 - **Decidido: POST + `Idempotency-Key`, no PUT-create** (ADR-0012). Se evaluó
   `PUT /trips/{id}/expenses/{expenseId}` (idempotente sin maquinaria extra, ya que
   los IDs los genera el cliente), pero **PUT no cubre las acciones** (`:settle`,
