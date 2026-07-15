@@ -4,12 +4,47 @@
 **Fuente ancla:** Azure REST API Guidelines (la guía viva de Microsoft; el
 `Guidelines.md` clásico está deprecado) + Graph Guidelines como contraste.
 **Autoridad:** subordinada a `constitution.md` y a los ADRs. Los beads R3/R4/R5
-refinan las secciones marcadas con ⏳.
+cerraron las secciones que antes estaban pendientes; ADR-0015 fija las
+correcciones. **Ya no queda nada abierto en esta guía.**
 
-El contrato OpenAPI es la **fuente única de verdad** (ADR-0008): los clientes
-Swift y Kotlin se generan de él, jamás a mano. Cada regla de esta guía existe
-para proteger dos cosas: **clientes viejos vivos durante meses** (ciclo App
-Store) y **una cola offline que reintenta a ciegas** (PowerSync).
+El contrato OpenAPI es la **fuente única de verdad del contrato HTTP** (ADR-0008):
+los clientes Swift y Kotlin se generan de él, jamás a mano.
+
+> ⚠️ **Hay DOS contratos, no uno** (ADR-0015 §14). OpenAPI **no** cubre las sync
+> rules de PowerSync, el esquema SQLite del cliente, los buckets ni las columnas
+> locales. Ese es un **segundo artefacto versionado**, y la **paridad entre los dos**
+> tiene su propio gate de CI (ADR-0013 §4). Decir "el contrato OpenAPI es la fuente
+> única de verdad" a secas es falso y peligroso: invita a olvidar la mitad de la
+> superficie.
+
+Cada regla de esta guía existe para proteger dos cosas: **clientes viejos vivos
+durante meses** (ciclo App Store) y **una cola offline que reintenta a ciegas**
+(PowerSync).
+
+## 0. ⭐ La regla que manda sobre todas las demás: el código depende del CAMINO
+
+**Una respuesta 4xx del endpoint de upload bloquea la cola de PowerSync entera, y
+para siempre** (ADR-0012 §4). Por eso el mismo error se señaliza con **códigos
+distintos según por dónde llegue la petición**:
+
+| Situación | Llamada **directa** de API | Escritura desde la **cola** |
+|---|---|---|
+| Precondición fallida (`If-Match`) | **412** | **200** + `write_conflicts` |
+| Rate limit / sobrecarga | **429** + `retry-after` | **503** + `retry-after` |
+| Rechazo permanente (viaje cerrado, expulsado, validación) | **4xx** de negocio | **200** + `write_rejections` |
+| Key de idempotencia expirada | **412** | **200** + `write_rejections` |
+| Key en vuelo (concurrencia) | **409** | **409** ← la única 4xx permitida |
+| Transitorio (BD caída, timeout) | **5xx** | **5xx** |
+| Reintento de algo ya ejecutado | **200** + `Idempotency-Result: replayed` | igual |
+
+**Invariante (gate de CI, ADR-0015 §8 G1): ninguna respuesta del camino de la cola
+es 4xx salvo 409.** Un test de contrato enumera todos los caminos de error y falla
+si alguno lo viola.
+
+**Por qué el 409 sí y el resto no:** el 409 significa "reinténtalo luego" y el SDK
+lo reintenta — que es lo que queremos cuando otra petición tiene la key en vuelo.
+Un **412 de conflicto** con 409 sería un **bucle infinito** (el cliente reintentaría
+con el mismo ETag rancio, eternamente), así que tampoco vale.
 
 ## 1. URLs y naming
 
@@ -50,9 +85,11 @@ Toda respuesta de error usa el objeto estándar (forma Azure, header renombrado)
 - **Los `code` top-level son parte del contrato**: enumerados en el OpenAPI,
   estables, jamás se renombran. `message` es diagnóstico no-contractual (puede
   cambiar/traducirse — el cliente NUNCA lo parsea).
-- La cola offline clasifica por `code` + status: reintentable (`429`, `5xx`,
-  respetando `retry-after`) / permanente (`4xx` de negocio) / conflicto (`409`,
-  `412`). ⏳ R4 define la política exacta de escritura rechazada.
+- **La cola offline NO clasifica por status 4xx** — no puede: un 4xx la congela
+  (§0). Clasifica por el **cuerpo** de un `200`: `{"status": "rejected" | "conflict",
+  "reason": …}`, más `5xx`/`503` para lo reintentable (respetando `retry-after`) y
+  `409` para la key en vuelo. La política completa de escritura rechazada está en
+  **ADR-0012 §4**; la de conflicto, en **ADR-0015 §2**.
 
 ## 4. Colecciones: paginación, filtrado, orden
 
@@ -81,9 +118,10 @@ reintenta, y un gasto duplicado es confianza rota.
 - **`DELETE` de un recurso editable exige `If-Match`** (ADR-0013): borrar es la
   mutación *más* destructiva, no la menos. Sin precondición, un DELETE encolado
   hace cinco días **borraría un gasto que otro miembro editó mientras tanto**. Si
-  el ETag no coincide → **412**, y la usuaria decide. Las dos propiedades conviven:
-  idempotente ante reintentos (204 si ya no está), pero **no ciego** ante ediciones
-  concurrentes.
+  el ETag no coincide, la usuaria decide — pero **el código depende del camino**
+  (§0): **412** en llamada directa, **`200` + `write_conflicts`** si viene de la
+  cola. Las dos propiedades conviven: idempotente ante reintentos (`204` si ya no
+  está), pero **no ciego** ante ediciones concurrentes.
 - **Toda `POST` que muta estado lleva `Idempotency-Key` obligatorio** — tanto
   las de creación como las **acciones** de §1 (`:settle`, `:close`, `:leave`).
   Una acción no es menos peligrosa que un create: si la respuesta de `:settle`
@@ -97,28 +135,64 @@ reintenta, y un gasto duplicado es confianza rota.
     entidad generado en cliente (doble red: key + unique constraint).
   - El servidor responde `Idempotency-Result: created | replayed` — la cola
     offline DEBE distinguir "creado" de "ya estaba".
-  - Ventana de deduplicación finita (mínimo 5 min; ⏳ R4 fija el valor y el
-    almacenamiento — con timestamp de primer envío no hay que guardar keys
-    para siempre).
-- ⏳ Alternativa legitimada por la guía, a evaluar en R4: como los IDs los
-  genera el cliente, `PUT /trips/{id}/expenses/{expenseId}` es idempotente sin
-  maquinaria extra. R4 decide POST+key vs PUT-create.
+  - **Ventana de deduplicación: 60 días** (ADR-0012 §3). No 24 h como Stripe: un
+    móvil sin red 10 días de viaje subiría su cola y **crearía el gasto otra vez,
+    semanas después**. `Idempotency-First-Sent` es **obligatorio**; fuera de
+    ventana, el servidor **jamás re-ejecuta a ciegas**.
+- **Decidido: POST + `Idempotency-Key`, no PUT-create** (ADR-0012). Se evaluó
+  `PUT /trips/{id}/expenses/{expenseId}` (idempotente sin maquinaria extra, ya que
+  los IDs los genera el cliente), pero **PUT no cubre las acciones** (`:settle`,
+  `:close`, `:leave`), que son las que de verdad hay que deduplicar — un `:settle`
+  reejecutado re-dispara el outbox y notifica a todo el squad. Un solo mecanismo
+  para todas las escrituras mutantes es más simple que dos.
+- **La `Idempotency-Key` de una escritura de la cola se deriva de forma
+  DETERMINISTA** del `CrudEntry` (`sha256(op_id + table + row_id)`), **nunca
+  aleatoria por intento**: una key nueva en cada reintento = duplicado garantizado
+  (ADR-0012 §6). Reautenticarse **tampoco** las regenera.
+- **`:settle` se dedupe como un gasto** (ADR-0015 §5): lleva un `settlementId`
+  (UUIDv7) generado en cliente, y cada fila de liquidación tiene PK determinista
+  `uuidv5(settlementId, from ‖ to)` + `ON CONFLICT (id) DO NOTHING`. **El dedupe
+  estructural es la garantía; la key es higiene.**
 
 ## 6. Concurrencia: ETags y condicionales
 
 - Toda operación que devuelve o modifica un recurso devuelve **`ETag`**.
 - Updates con **`If-Match`** obligatorio en recursos editables (gastos,
-  itinerario): precondición fallida → **`412 Precondition Failed`**.
+  itinerario). Precondición fallida: **`412`** en llamada directa, **`200` +
+  `write_conflicts`** si viene de la cola (§0 — un 412 ahí la congelaría).
 - `GET` con `If-None-Match` → `304` (ahorra datos en móvil).
-- Es el detector de conflictos del cliente offline: sin ETag, dos ediciones
-  sin red = last-write-wins silencioso — en gastos, dinero perdido sin rastro.
-  ⏳ R5 decide la política de resolución (LWW con reloj de servidor vs HLC);
-  esta guía solo garantiza que el conflicto se DETECTA en el contrato.
+- **El árbitro del conflicto es el ETag, NO un reloj** (ADR-0013 §2). Los relojes
+  de cliente mienten (NTP roto, hora cambiada a mano, cruzar husos — que es
+  literalmente nuestro caso de uso). El `server-receive-time` da el **orden
+  canónico**; el HLC del cliente se guarda como metadato pero **no decide nunca**.
+- **Cuándo se exige `If-Match`, exactamente** (ADR-0015 §12 — los creates no tienen
+  ETag y esto se pasaba por alto):
+
+  | Operación | `If-Match` | Protección |
+  |---|---|---|
+  | **Create** (fila nacida en local, nunca sincronizada) | **No** | PK de cliente + `ON CONFLICT DO NOTHING` |
+  | **Update/Delete** de fila ya sincronizada | **Sí, obligatorio** | ETag que el cliente conocía → conflicto si no cuadra |
+  | **Update/Delete** de fila local aún no confirmada | **No** | Se colapsan las operaciones **en local** antes de subirlas. Nunca viaja un `If-Match` inventado |
+
+- **Todos los miembros pueden editar cualquier gasto** (ADR-0015 §15) — no hay roles
+  ni candados. Pero *editar no es pisar*: el `If-Match` sigue siendo obligatorio, y
+  toda edición queda registrada campo a campo en `expense_revisions` (append-only).
 
 ## 7. Operaciones largas (LRO)
 
-- Umbral: si el p99 supera **1 segundo**, se modela como LRO — aplica a
-  liquidación del grupo (cálculo + notificaciones) y procesado de fotos.
+> ⚠️ **`:settle` NO es un LRO** (ADR-0015 §7). Esta guía lo modelaba como operación
+> larga; era un error por dos motivos. **(1)** Choca con ADR-0012 §6: el endpoint de
+> escritura debe ser **síncrono respecto a la BD** ("nada de encolar para procesar
+> luego") o se rompe la consistencia de checkpoints de PowerSync — un `202` hacia la
+> cola es incompatible con lo que la cola necesita. **(2)** El umbral no se alcanza:
+> liquidar N ≤ 12 miembros son **microsegundos**. Lo lento son las notificaciones, y
+> esas ya salen por el **outbox**, sin que la respuesta las espere.
+>
+> **`:settle` responde síncrono.** El LRO se conserva **solo para el procesado de
+> fotos**, que nunca viaja por la cola de escrituras.
+
+- Umbral: si el p99 supera **1 segundo**, se modela como LRO. Hoy aplica **solo al
+  procesado de fotos**.
 - `202 Accepted` + header `operation-location` (URL absoluta del monitor).
 - `GET <operation-location>` → `{ "id", "status":
   "NotStarted|Running|Succeeded|Failed|Canceled", "error", "result" }`.
@@ -158,8 +232,28 @@ la duración del viaje y la agrupación por días del itinerario salen mal.
   **crash del decoder en apps ya publicadas**.
 - Enteros dentro de ±(2^53−1).
 - **Dinero: jamás JSON number** (decodifica a `Double`). En el contrato viaja
-  como **string decimal** + `currencyCode` (en Postgres es `numeric`).
-  ⏳ R3 confirma representación y reglas de rounding.
+  como **string decimal** + `currencyCode`.
+
+  **El dinero, de punta a punta** (ADR-0011 §2 + ADR-0015 §4 — fuente única; si
+  otro documento dice otra cosa, manda esta tabla):
+
+  | Capa | Tipo | Por qué |
+  |---|---|---|
+  | Contrato OpenAPI | **string decimal** + `currencyCode` | Un JSON number decodifica a `Double` |
+  | Frontera (Data) | `Decimal(string:)` → `Int64` | **Nunca** `Decimal` desde literal `Double`: reintroduce el error binario |
+  | Núcleo del dominio | **`Int64` de céntimos** | *Money pattern* (Fowler/Stripe). Exacto **por diseño** |
+  | **Postgres** | **`bigint`** ← *antes decía `numeric`* | `int8 → integer` es exacto (ambos int64 con signo) |
+  | SQLite del cliente | **`integer`** | Mapeo directo, sin conversión |
+
+  🚫 **PROHIBIDO declarar una columna de dinero como `.real`** en el `Schema` del
+  cliente PowerSync. Es la **única** puerta por la que el `Double` puede entrar: el
+  esquema del cliente solo admite `text`/`integer`/`real` y PowerSync **castea en
+  silencio** — *"Nothing in PowerSync will fail hard"*. Sin error, sin warning, sin
+  log; y reaparece meses después como céntimos descuadrados. Lo vigila un gate de CI
+  (ADR-0015 §8, G3).
+
+  🚫 **`Double` prohibido en todo el camino del dinero.** `0.1 + 0.2 ≠ 0.3` en
+  binario: acumular saldos con `Double` rompe la invariante de suma cero.
 - Mutabilidad declarada por campo: create / update / read (el codegen genera
   los DTOs correctos por operación).
 
@@ -181,10 +275,17 @@ la duración del viaje y la agrupación por días del itinerario salen mal.
 | `x-client-request-id` | → | Opcional; el servidor lo devuelve tal cual |
 | `x-request-id` | ← | Siempre — id opaco único (soporte: "mándame el id del error") |
 | `x-error-code` | ← | En errores, espejo de `error.code` |
+| `Idempotency-First-Sent` | → | **Obligatorio** con `Idempotency-Key` (§5) — sin él no hay ventana de 60 días |
 | `ETag` / `last-modified` | ← | En recursos (§6) |
-| `retry-after` | ← | En `429`/`503`; la cola offline lo RESPETA en su backoff |
+| `Idempotency-Result` | ← | `created` \| `replayed` (§5) |
+| `retry-after` | ← | En `503` (cola) y `429` (API directa); la cola lo RESPETA en su backoff |
 
 - Tolerancia: un header desconocido **nunca** hace fallar la petición.
+
+> ⚠️ **El `429` nunca viaja a la cola** (§0). `429` es un 4xx: enviárselo a la cola
+> la **congela**, y precisamente a quien vuelve con 200 operaciones acumuladas — el
+> usuario al que más le importa. Desde la cola, la sobrecarga se señaliza con
+> **`503` + `retry-after`**.
 
 ## 12. Lo que NO adoptamos (y por qué)
 
@@ -202,12 +303,16 @@ la duración del viaje y la agrupación por días del itinerario salen mal.
 
 ## 13. Checklist para PRs que tocan el contrato
 
+- [ ] 🔴 **¿NINGUNA respuesta del camino de la cola es 4xx salvo 409?** (§0) — el conflicto va `200`+`write_conflicts`, el rate limit `503`, el rechazo `200`+`write_rejections`. **Un solo 4xx aquí congela la cola de esa persona para siempre.**
+- [ ] 🔴 **¿Ninguna columna de dinero se declara `.real`** en el `Schema` del cliente? (§9) — PowerSync castea a `Double` **en silencio**.
 - [ ] ¿Toda operación acepta `api-version` y está en el changelog del contrato?
 - [ ] ¿Los errores nuevos añaden su `code` al enum contractual?
 - [ ] ¿Las colecciones devuelven `value` + `nextLink` opaco?
-- [ ] ¿**Toda** POST mutante (creates Y acciones `:settle`/`:close`/`:leave`) requiere `Idempotency-Key` y responde `Idempotency-Result`? ¿Los DELETE devuelven `204` siempre?
-- [ ] ¿Los recursos editables llevan `ETag`/`If-Match` → `412`, **incluidos los DELETE** (ADR-0013)?
-- [ ] ¿Los enums son extensibles? ¿Ningún campo `null` en respuestas? ¿Ningún dinero como number?
+- [ ] ¿**Toda** POST mutante (creates Y acciones `:settle`/`:close`/`:leave`) requiere `Idempotency-Key` + `Idempotency-First-Sent` y responde `Idempotency-Result`? ¿Los DELETE devuelven `204` siempre?
+- [ ] ¿La `Idempotency-Key` de la cola se deriva **determinísticamente** del `CrudEntry` (nunca aleatoria por intento, nunca regenerada al reautenticar)?
+- [ ] ¿Los recursos editables llevan `ETag`/`If-Match`, **incluidos los DELETE**? ¿Y los **creates NO** lo exigen (§6)?
+- [ ] ¿Toda escritura mutante tiene **dedupe estructural** (PK de cliente + `ON CONFLICT DO NOTHING`), y no solo la tabla de claves? — la capa 2 es la garantía; la 1 es higiene.
+- [ ] ¿Los enums son extensibles? ¿Ningún campo `null` en respuestas? ¿Ningún dinero como number, y `bigint` en Postgres?
 - [ ] ¿Cada campo de fecha usa el tipo correcto — `format: date` para fechas civiles (viaje, día de itinerario) y `date-time` UTC solo para instantes? ¿Duraciones con unidad en el nombre?
 - [ ] ¿Operaciones >1s p99 modeladas como LRO?
 - [ ] ¿Ningún campo requerido añadido después de v1?
