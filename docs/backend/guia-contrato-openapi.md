@@ -271,7 +271,7 @@ la duración del viaje y la agrupación por días del itinerario salen mal.
 | Header | Dirección | Regla |
 |---|---|---|
 | `authorization: Bearer <jwt>` | → | Obligatorio salvo `/health` |
-| `Idempotency-Key` | → | Obligatorio en POST-create (§5) |
+| `Idempotency-Key` | → | Obligatorio en **toda POST mutante** — creates Y acciones `:settle`/`:close`/`:leave` (§5) |
 | `x-client-request-id` | → | Opcional; el servidor lo devuelve tal cual |
 | `x-request-id` | ← | Siempre — id opaco único (soporte: "mándame el id del error") |
 | `x-error-code` | ← | En errores, espejo de `error.code` |
