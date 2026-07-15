@@ -1,0 +1,53 @@
+name: TripSquadExpensesPostgres
+
+# CI del adaptador Postgres. Levanta un Postgres real (service container), aplica
+# las migraciones de db/ y corre los tests de integración con PG_TEST=1. Sin esto,
+# el suite se salta (no hay Docker local). Solo Linux: el adaptador vive en el
+# servidor (Linux); no necesita macOS.
+
+on:
+  push:
+    paths:
+      - "packages/TripSquadExpensesPostgres/**"
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadDomain/**"
+      - "db/**"
+      - ".github/workflows/adaptador-postgres.yml"
+  pull_request:
+    paths:
+      - "packages/TripSquadExpensesPostgres/**"
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadDomain/**"
+      - "db/**"
+      - ".github/workflows/adaptador-postgres.yml"
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tripsquad
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PG_TEST: "1"
+      PG_TEST_HOST: postgres          # nombre del service dentro de la red del job
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Aplicar migraciones
+        run: |
+          apt-get update && apt-get install -y postgresql-client
+          for f in db/migrations/*.sql; do
+            echo "== $f =="
+            PGPASSWORD=postgres psql -h postgres -U postgres -d tripsquad -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Tests de integración contra Postgres real
+        working-directory: packages/TripSquadExpensesPostgres
+        run: swift test
