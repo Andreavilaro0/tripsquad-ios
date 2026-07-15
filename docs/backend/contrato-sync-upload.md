@@ -26,12 +26,29 @@ camino (guía §0) vive aquí:
 | Batch procesado (todas las ops tienen desenlace terminal) | **200** + resultados por-op | `batch.complete()`; la cola avanza |
 | Sobrecarga / rate limit | **503** + `retry-after` | el SDK reintenta el batch entero |
 | Transitorio (BD caída, timeout, op en vuelo) | **5xx** | el SDK reintenta el batch entero |
+| **JWT inválido / revocado** | **401** | el connector RE-AUTENTICA (ver abajo), no congela |
 | **Nunca** | ~~400/409/412/413/422/429~~ | congelaría la cola |
+
+Confirmado en la doc de PowerSync: *"a `4xx` or `5xx` response… the SDK will
+repeatedly retry the upload, blocking the queue… return `2xx` responses for
+validation or write conflicts and reserve error responses for transient issues"*.
+Es decir, **4xx Y 5xx bloquean por igual** — de ahí que validación y conflicto
+vayan en 200, y lo transitorio en 5xx/503.
 
 El **409** (clave en vuelo) no puede ocurrir aquí: la cola de un cliente es FIFO y
 un solo hilo, así que dos ops con la misma `Idempotency-Key` no viajan
 concurrentemente. Si el adaptador devolviera `in_flight` (carrera con otro
 dispositivo del mismo usuario), se trata como **transitorio → 5xx**, no como 409.
+
+**El 401 es la excepción, y no la maneja PowerSync solo** (hallazgo P0 de Gemini,
+matizado con la doc real): `uploadData()` es NUESTRO código, así que un `401` del
+servidor no lo trata el SDK de forma especial — lo tratamos NOSOTROS en el connector.
+El servidor devuelve **401** ante un JWT inválido/revocado; el connector lo **captura
+y re-autentica** (refresh token, ADR-0012 §5) en vez de reintentar a ciegas, y solo
+si el refresh falla pausa la cola y pide login. Como `fetchCredentials()` pide
+credenciales frescas ANTES de cada flush, un 401 en vuelo es raro; pero cuando ocurre
+(token revocado a mitad), este es el camino. **Sin este manejo, un 401 sí congelaría
+la cola** — por eso es requisito del cliente, no solo del servidor.
 
 ---
 
@@ -48,14 +65,15 @@ lleva su identidad de cliente y su clave de idempotencia derivada:
 
 ```json
 {
+  "clientId": "device-uuid-A",                 // UUID del esquema local, por dispositivo
   "ops": [
     {
-      "opId": "op-8123",                       // CrudEntry.opId (correlación)
+      "opId": "op-8123",                       // CrudEntry.opId (correlación) — LOCAL al dispositivo
       "op": "PUT",                             // PUT | PATCH | DELETE
       "table": "expenses",
       "rowId": "9f3c…",                        // UUIDv7 de cliente = PK
       "tripId": "trip-abc",
-      "idempotencyKey": "sha256(op-8123|expenses|9f3c…)",
+      "idempotencyKey": "sha256(device-uuid-A|op-8123|expenses|9f3c…)",
       "firstSent": "2026-07-01T10:12:00Z",     // lo firma el CLIENTE en generación local (ADR-0015 §4)
       "ifMatch": "v7",                         // solo PATCH/DELETE de fila sincronizada
       "data": { … }                            // el estado; ausente en DELETE
@@ -71,8 +89,14 @@ Reglas de la petición:
   4xx la congela, un `api-version` inválido se trata como **error de despliegue del
   cliente** que no debería ocurrir (el cliente es generado). Si ocurre, **503** con
   log de alarma, no 400 — la cola no es rehén de un bug de versión.
-- **`idempotencyKey` es determinista** por op (`sha256(opId ‖ table ‖ rowId)`),
-  nunca aleatoria por intento (ADR-0012 §6). Reautenticar no la regenera.
+- **⭐ `idempotencyKey` incluye el `clientId`** (hallazgo P0 de la voz externa
+  Gemini — **corrige la fórmula de ADR-0012 §6**): `sha256(clientId ‖ opId ‖ table ‖
+  rowId)`. El `opId` de PowerSync es un entero **local por dispositivo**, así que sin
+  el `clientId` el iPhone y el iPad de la MISMA persona editando la MISMA fila
+  generan `opId:5` los dos → misma clave → la segunda edición se tomaría como replay
+  de la primera y **se perdería**. El `clientId` es un UUID del esquema local, uno
+  por dispositivo. Sigue siendo determinista por op (no aleatoria por intento);
+  reautenticar no la regenera.
 - **`ifMatch`** solo en `PATCH`/`DELETE` de una fila **ya sincronizada**. Un `PUT`
   (create) no lo lleva: su protección es la PK de cliente (ADR-0015 §12).
 - **`firstSent`** obligatorio: fija la ventana de 60 días (ADR-0012 §3).
@@ -110,6 +134,19 @@ devuelve 200 con el desenlace de cada op.
 - **Transitorio → 5xx + para.** El SDK reintenta el batch completo; el dedupe
   estructural + la respuesta congelada hacen que re-aplicar lo ya hecho sea seguro.
 - **Permanente / conflicto → sigue.** Se registra por-op y el batch termina en 200.
+
+**El resultado de cada op se CONGELA por su `idempotencyKey`** (hallazgo P1 de
+Gemini): la fila de `idempotency_keys` de esa op ES la tabla de "ops procesadas"
+—guarda `outcome` + `etag`. Si el servidor commitea la op y muere antes de responder,
+el retry del batch la reencuentra congelada y devuelve `replayed` con el mismo etag,
+sin re-ejecutar. (Ya implementado en `RepositorioPostgres`: `reclamar` + `congelar`.)
+
+**⚠️ Nada de efectos secundarios síncronos en este endpoint** (hallazgo P1 de
+Gemini): notificaciones push, emails, integraciones externas van SIEMPRE por el
+**transactional outbox** (ADR-0009 §4), nunca inline. Si la op 1 disparara una
+notificación inline y la op 2 diera 5xx, el retry del batch la dispararía otra vez
+(el dedupe protege la BD, no el efecto externo). El outbox se drena aparte, con su
+propia idempotencia, así que un retry del batch no re-emite nada.
 
 Traducción `CrudEntry` → caso de uso:
 
@@ -152,8 +189,18 @@ Traducción `CrudEntry` → caso de uso:
 
 - El array `results` va en **el mismo orden** que `ops`, y además cada entrada
   lleva su `opId`: el cliente no depende del orden para correlacionar.
-- Una op sin `opId` correspondiente en la respuesta es un **fallo de contrato**
-  (el test G1 lo verifica): toda op enviada tiene exactamente un resultado.
+- **Todo o nada en la respuesta 200** (hallazgo P2 de Gemini): una respuesta 200
+  DEBE incluir un resultado para CADA op enviada — el conector de PowerSync falla de
+  forma opaca si el array no cuadra. El servidor **nunca omite** una op. Si el
+  procesamiento se corta a mitad por un error transitorio, **no hay 200 parcial**: se
+  responde **5xx** envolviendo el batch entero, sin array de resultados, y se
+  reintenta completo. `200 ⟺ toda op tiene resultado`; `5xx ⟺ ningún resultado
+  parcial`.
+
+**PUT sobre una fila tombstoneada** (hallazgo P2 de Gemini): un `PUT` cuyo `rowId`
+ya tiene tombstone → **`rejected: "deleted"`** (no resucita, ADR-0013 §5). Como los
+`rowId` son UUID de cliente, recrear un gasto usa un id NUEVO, no el borrado; un PUT
+sobre el id borrado solo puede ser un create rancio de la cola, y se rechaza.
 
 ---
 
