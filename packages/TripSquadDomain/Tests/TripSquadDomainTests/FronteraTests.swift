@@ -35,6 +35,25 @@ struct DineroTests {
         }
     }
 
+    /// Parseo parcial (hallazgo P1 de Codex): Foundation aceptaría estos y
+    /// registraría un importe equivocado en silencio. Deben lanzar.
+    @Test func parseoParcialEsError() {
+        for malo in ["10,99", "10.99abc", "--1", "10.", ".5", "", " 10", "10 ", "1.2.3", "0x10"] {
+            #expect(throws: DineroError.formatoInvalido, "debería rechazar \"\(malo)\"") {
+                try Dinero.minorUnits(desde: malo, divisa: .eur)
+            }
+        }
+    }
+
+    /// Overflow de Int64 (hallazgo P2 de Codex): un importe válido pero enorme no
+    /// debe envolver en silencio; debe lanzar `fueraDeRango`.
+    @Test func importeFueraDeRangoEsError() {
+        // Int64.max ≈ 9.22e18; en EUR (×100) cualquier entero de 20 cifras se sale.
+        #expect(throws: DineroError.fueraDeRango) {
+            try Dinero.minorUnits(desde: "99999999999999999999", divisa: .eur)
+        }
+    }
+
     @Test func formateo() {
         #expect(Dinero.decimalString(1099, divisa: .eur) == "10.99")
         #expect(Dinero.decimalString(5, divisa: .eur) == "0.05")

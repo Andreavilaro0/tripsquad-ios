@@ -50,3 +50,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build + test
         run: swift test
+
+      - name: Golden vectors sin deriva (macOS)
+        # Los golden vectors son el contrato byte-a-byte también del lado iOS/macOS.
+        # Una diferencia de JSONEncoder/Foundation entre plataformas debe fallar
+        # aquí, no solo en Linux (hallazgo de la voz externa Codex).
+        run: |
+          swift run generate-golden-vectors
+          git diff --exit-code golden-vectors.json \
+            || (echo "::error::golden-vectors.json difiere en macOS — Foundation no es byte-idéntico entre plataformas" && exit 1)
