@@ -50,7 +50,7 @@ struct RepositorioPostgresTests {
     @Test func crearYLeer() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()
-            let r = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "k1")
+            let r = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "\(id)-k1")
             guard case .creado = r else { Issue.record("esperaba creado, obtuve \(r)"); return }
             let leidos = try await repo.gastos(de: trip)
             #expect(leidos.count == 1)
@@ -61,8 +61,8 @@ struct RepositorioPostgresTests {
     @Test func idempotenciaPorClave() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()
-            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "k1")
-            let previa = try await repo.respuestaPrevia(actor: ana, idempotencyKey: "k1")
+            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "\(id)-k1")
+            let previa = try await repo.respuestaPrevia(actor: ana, idempotencyKey: "\(id)-k1")
             guard case .reproducido = previa else { Issue.record("esperaba replay, obtuve \(String(describing: previa))"); return }
             #expect(try await repo.gastos(de: trip).count == 1)
         }
@@ -71,9 +71,9 @@ struct RepositorioPostgresTests {
     @Test func dedupeEstructural() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()
-            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "k1")
+            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "\(id)-k1")
             // Mismo id, otra clave, otro actor -> no duplica.
-            let segundo = try await repo.guardar(gasto(id), en: trip, por: ivan, idempotencyKey: "k2")
+            let segundo = try await repo.guardar(gasto(id), en: trip, por: ivan, idempotencyKey: "\(id)-k2")
             guard case .reproducido = segundo else { Issue.record("esperaba reproducido, obtuve \(segundo)"); return }
             #expect(try await repo.gastos(de: trip).count == 1)
         }
@@ -82,10 +82,10 @@ struct RepositorioPostgresTests {
     @Test func conflictoPorEtagRancio() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()
-            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "k1")
+            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "\(id)-k1")
             let etagViejo = try #require(await repo.gasto(id: id, en: trip)).etag
-            _ = try await repo.actualizar(gasto(id, importe: 4000), en: trip, por: ana, ifMatch: etagViejo, idempotencyKey: "k2")
-            let r = try await repo.actualizar(gasto(id, importe: 9000), en: trip, por: ivan, ifMatch: etagViejo, idempotencyKey: "k3")
+            _ = try await repo.actualizar(gasto(id, importe: 4000), en: trip, por: ana, ifMatch: etagViejo, idempotencyKey: "\(id)-k2")
+            let r = try await repo.actualizar(gasto(id, importe: 9000), en: trip, por: ivan, ifMatch: etagViejo, idempotencyKey: "\(id)-k3")
             guard case .conflicto = r else { Issue.record("esperaba conflicto, obtuve \(r)"); return }
         }
     }
@@ -93,10 +93,10 @@ struct RepositorioPostgresTests {
     @Test func tombstoneNoResucita() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()
-            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "k1")
+            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "\(id)-k1")
             let etag = try #require(await repo.gasto(id: id, en: trip)).etag
-            _ = try await repo.eliminar(id: id, en: trip, por: ana, ifMatch: etag, idempotencyKey: "k2")
-            let recreacion = try await repo.guardar(gasto(id), en: trip, por: ivan, idempotencyKey: "k3")
+            _ = try await repo.eliminar(id: id, en: trip, por: ana, ifMatch: etag, idempotencyKey: "\(id)-k2")
+            let recreacion = try await repo.guardar(gasto(id), en: trip, por: ivan, idempotencyKey: "\(id)-k3")
             #expect(recreacion == .rechazado(razon: "deleted"))
             #expect(try await repo.gastos(de: trip).isEmpty)
         }
@@ -107,7 +107,7 @@ struct RepositorioPostgresTests {
             let id = nuevoId()
             let exacto = Gasto(id: id, pagadoPor: ana, importeMinor: 1000,
                                reparto: .exacto([ana: 600, ivan: 400]))
-            _ = try await repo.guardar(exacto, en: trip, por: ana, idempotencyKey: "k1")
+            _ = try await repo.guardar(exacto, en: trip, por: ana, idempotencyKey: "\(id)-k1")
             let leido = try #require(await repo.gasto(id: id, en: trip))
             guard case .exacto(let cuotas) = leido.gasto.reparto else {
                 Issue.record("esperaba reparto exacto"); return
@@ -122,10 +122,10 @@ struct RepositorioPostgresTests {
         try await conRepo { repo, trip in
             let id = nuevoId()
             let exacto = Gasto(id: id, pagadoPor: ana, importeMinor: 1000, reparto: .exacto([ana: 600, ivan: 400]))
-            _ = try await repo.guardar(exacto, en: trip, por: ana, idempotencyKey: "k1")
+            _ = try await repo.guardar(exacto, en: trip, por: ana, idempotencyKey: "\(id)-k1")
             let etag = try #require(await repo.gasto(id: id, en: trip)).etag
             // Editar a reparto igual.
-            _ = try await repo.actualizar(gasto(id, importe: 1000), en: trip, por: ana, ifMatch: etag, idempotencyKey: "k2")
+            _ = try await repo.actualizar(gasto(id, importe: 1000), en: trip, por: ana, ifMatch: etag, idempotencyKey: "\(id)-k2")
             let leido = try #require(await repo.gasto(id: id, en: trip))
             guard case .igual = leido.gasto.reparto else {
                 Issue.record("esperaba reparto igual tras editar, obtuve \(leido.gasto.reparto)"); return
