@@ -61,7 +61,13 @@ begin
     perform 1 from information_schema.tables where table_schema='public' and table_name='write_conflicts';
     if not found then raise exception 'falta write_conflicts'; end if;
 
-    raise notice 'OK: G3 + dedupe estructural + dead-letters verificados';
+    -- Reparto exacto: las cuotas van en tabla tipada, no en jsonb (hallazgo de
+    -- Codex). El gate G3 de arriba ya cubre expense_shares.amount_minor porque es
+    -- un `%_minor`; aquí solo confirmamos que la tabla existe.
+    perform 1 from information_schema.tables where table_schema='public' and table_name='expense_shares';
+    if not found then raise exception 'falta expense_shares (cuotas exactas tipadas)'; end if;
+
+    raise notice 'OK: G3 + dedupe estructural + dead-letters + cuotas exactas tipadas verificados';
 end $$;
 
 -- Prueba funcional del dedupe estructural: insertar el mismo gasto dos veces con
@@ -83,4 +89,18 @@ begin
     select count(*) into n from expenses where id='g1';
     if n <> 1 then raise exception 'dedupe estructural FALLÓ: % filas para g1', n; end if;
     raise notice 'OK: dedupe estructural funciona (1 fila para g1 tras 2 inserts)';
+end $$;
+
+-- Cuotas exactas tipadas: se insertan con amount_minor bigint y no-negativo. Una
+-- cuota negativa debe ser rechazada por el check.
+insert into expense_shares (expense_id, member_id, amount_minor) values ('g1','m1', 1000)
+on conflict do nothing;
+do $$
+begin
+    begin
+        insert into expense_shares (expense_id, member_id, amount_minor) values ('g1','m2', -5);
+        raise exception 'una cuota negativa NO debería aceptarse';
+    exception when check_violation then
+        raise notice 'OK: expense_shares rechaza cuotas negativas';
+    end;
 end $$;

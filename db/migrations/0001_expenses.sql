@@ -47,6 +47,18 @@ create table expenses (
 );
 create index expenses_trip_idx on expenses (trip_id) where deleted_at is null;
 
+-- Cuotas de reparto EXACTO en tabla tipada (hallazgo de Codex): para
+-- `split_kind='exact'` las cuotas SON dinero, y guardarlas en el `split` jsonb las
+-- dejaría fuera del gate G3 (podrían ser decimales, negativas o no sumar). Aquí van
+-- con `amount_minor bigint` y check de no-negatividad. Para equal/weight, las cuotas
+-- se DERIVAN (no se guardan), así que esta tabla solo se puebla en repartos exactos.
+create table expense_shares (
+    expense_id      text not null references expenses(id),
+    member_id       text not null,
+    amount_minor    bigint not null check (amount_minor >= 0),
+    primary key (expense_id, member_id)
+);
+
 -- Liquidaciones: dedupe estructural con transfer_index (ADR-0015 §5). `round` es
 -- ordinal de presentación, JAMÁS clave de dedupe.
 create table settlements (
