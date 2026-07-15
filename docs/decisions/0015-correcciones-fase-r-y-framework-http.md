@@ -1,7 +1,12 @@
 # ADR-0015 — Framework HTTP (Hummingbird 2) y correcciones a la Fase R
 
 - **Fecha:** 2026-07-14
-- **Estado:** proposed — **pendiente de firma de Andrea**
+- **Estado:** accepted
+- **Firmado:** 2026-07-15 por Andrea ("mergea el PR y firma el ADR"). Recoge la
+  elección de Hummingbird 2 y las correcciones P0 verificadas por tres voces
+  externas (Codex, Gemini, MiniMax) en dos rondas. **Las decisiones de producto de
+  la sección final (`:settle`, modo por defecto, FX, edición de gasto liquidado)
+  quedan abiertas y vetables por ADR nuevo** — firmar este ADR no las cierra.
 - **Dueña:** Andrea
 - **Origen:** `/plan-eng-review` sobre ADR-0009, ADR-0011, ADR-0012, ADR-0013 y
   `docs/backend/guia-contrato-openapi.md`
