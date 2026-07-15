@@ -49,20 +49,27 @@ public struct CasosDeUsoGastos: Sendable {
     }
 
     public func crear(_ c: ComandoCrearGasto) async throws -> ResultadoEscritura {
+        // Replay ANTES de re-autorizar (ADR-0012): un reintento de algo ya cometido
+        // devuelve la respuesta original aunque al actor lo hayan expulsado entre
+        // intentos — si no, el cliente se queda con una escritura "rechazada" de un
+        // gasto que sí se guardó (hallazgo P1 de Codex).
+        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
         if let rechazo = validarDominio(c.gasto) { return rechazo }
-        return try await repo.guardar(c.gasto, en: c.tripId, idempotencyKey: c.idempotencyKey)
+        return try await repo.guardar(c.gasto, en: c.tripId, por: c.actor, idempotencyKey: c.idempotencyKey)
     }
 
     public func editar(_ c: ComandoEditarGasto) async throws -> ResultadoEscritura {
+        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
         if let rechazo = validarDominio(c.gasto) { return rechazo }
-        return try await repo.actualizar(c.gasto, en: c.tripId, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
+        return try await repo.actualizar(c.gasto, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
     }
 
     public func eliminar(_ c: ComandoEliminarGasto) async throws -> ResultadoEscritura {
+        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
-        return try await repo.eliminar(id: c.gastoId, en: c.tripId, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
+        return try await repo.eliminar(id: c.gastoId, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
     }
 
     // MARK: - Reglas comunes

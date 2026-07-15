@@ -111,4 +111,48 @@ struct CasosDeUsoTests {
         #expect(r2 == .eliminado)
         #expect(await repo.gastos(de: trip).isEmpty)
     }
+
+    /// (Codex P1) Replay antes de autorizar: si crea y LUEGO lo expulsan, el
+    /// reintento con la misma clave devuelve la respuesta original, no un rechazo.
+    @Test func replayGanaAunTrasExpulsion() async throws {
+        let repo = RepositorioEnMemoria()
+        await repo.anadirMiembro(ana, a: trip)
+        let casos = CasosDeUsoGastos(repo: repo, membresia: repo)
+        let cmd = ComandoCrearGasto(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1")
+        let primero = try await casos.crear(cmd)
+        guard case .creado = primero else { Issue.record("esperaba creado"); return }
+        // Ana deja de ser miembro (expulsada) entre intentos.
+        let repoSinAna = RepositorioEnMemoria()  // no puede quitar miembro; simulamos con viaje cerrado
+        _ = repoSinAna
+        await repo.cerrarViaje(trip)
+        // El reintento con la MISMA clave: replay, no "trip_closed".
+        let segundo = try await casos.crear(cmd)
+        guard case .reproducido = segundo else { Issue.record("esperaba reproducido, obtuve \(segundo)"); return }
+    }
+
+    /// (Codex P1) Un create con el id de un gasto ya borrado NO resucita la fila
+    /// (tombstone, ADR-0013 §5): se rechaza como "deleted".
+    @Test func createSobreTombstoneNoResucita() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        _ = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1"))
+        let etag = try #require(await repo.gasto(id: "g1", en: trip)).etag
+        _ = try await casos.eliminar(.init(tripId: trip, gastoId: "g1", actor: ana, ifMatch: etag, idempotencyKey: "k2"))
+        // Create rancio del mismo id con clave nueva -> no resucita.
+        let r = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ivan, idempotencyKey: "k3"))
+        #expect(r == .rechazado(razon: "deleted"))
+        #expect(await repo.gastos(de: trip).isEmpty, "el tombstone no debe resucitar")
+    }
+
+    /// (Codex P2) La clave de idempotencia se scopa por actor: dos usuarios con la
+    /// misma clave determinista NO colisionan.
+    @Test func claveIdempotenciaScopadaPorActor() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        // Ana e Iván usan la MISMA clave "k" para gastos DISTINTOS.
+        let ra = try await casos.crear(.init(tripId: trip, gasto: gasto("gA"), actor: ana, idempotencyKey: "k"))
+        let ri = try await casos.crear(.init(tripId: trip, gasto: gasto("gB"), actor: ivan, idempotencyKey: "k"))
+        guard case .creado = ra, case .creado = ri else {
+            Issue.record("ambos deberían crearse: ana=\(ra), ivan=\(ri)"); return
+        }
+        #expect(await repo.gastos(de: trip).count == 2, "Iván no debe recibir el replay de Ana")
+    }
 }

@@ -37,13 +37,24 @@ public struct GastoConEtag: Equatable, Sendable {
 
 /// Puerto de persistencia de gastos. Todas las escrituras llevan `idempotencyKey`
 /// (derivada de forma determinista en el cliente, ADR-0012 §6) para que el
-/// reintento no duplique. Las actualizaciones/borrados llevan `ifMatch` (ADR-0013).
+/// reintento no duplique, y el `actor` que las hace (para el historial de
+/// ediciones `edited_by`, ADR-0015 §15). Las actualizaciones/borrados llevan
+/// `ifMatch` (ADR-0013).
+///
+/// La idempotencia se scopa por **(actor, idempotencyKey)** — igual que el
+/// `UNIQUE (user_id, idempotency_key)` del servidor — para que un usuario no pueda
+/// secuestrar la clave de otro (ADR-0012 §5, hallazgo de Codex).
 public protocol GastoRepositorio: Sendable {
-    func guardar(_ gasto: Gasto, en tripId: String, idempotencyKey: String) async throws -> ResultadoEscritura
+    /// Replay: si esta `(actor, idempotencyKey)` ya se ejecutó, devuelve su
+    /// respuesta congelada. Se consulta ANTES de re-autorizar (ADR-0012): un
+    /// reintento de algo ya cometido no se rechaza aunque al actor lo hayan
+    /// expulsado entre intentos (hallazgo P1 de Codex).
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura?
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura
     func gastos(de tripId: String) async throws -> [GastoConEtag]
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag?
-    func actualizar(_ gasto: Gasto, en tripId: String, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
-    func eliminar(id: String, en tripId: String, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
 }
 
 /// Puerto de autorización: ¿este miembro pertenece al viaje? Una sola fuente de

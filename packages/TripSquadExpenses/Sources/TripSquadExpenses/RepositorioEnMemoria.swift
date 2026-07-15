@@ -10,7 +10,7 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     private struct Fila { var gasto: Gasto; var etag: String; var borrado: Bool }
 
     private var datos: [String: [String: Fila]] = [:]        // tripId -> gastoId -> fila
-    private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // idempotencyKey -> resultado
+    private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // "actor|key" -> resultado
     private var miembros: [String: Set<MiembroId>] = [:]
     private var cerrados: Set<String> = []
     private var version = 0
@@ -31,53 +31,67 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     // MARK: - GastoRepositorio
 
-    public func guardar(_ gasto: Gasto, en tripId: String, idempotencyKey: String) -> ResultadoEscritura {
-        // Capa 1: idempotencia por clave — el reintento devuelve la respuesta
-        // congelada, sin re-ejecutar.
-        if let congelada = respuestaCongelada[idempotencyKey] { return comoReplay(congelada) }
+    /// Clave de idempotencia scopada por actor (ADR-0012 §5): un usuario no puede
+    /// secuestrar la clave de otro.
+    private func claveIdem(_ actor: MiembroId, _ key: String) -> String { "\(actor.raw)|\(key)" }
 
-        // Capa 2: dedupe estructural por id — aunque la clave fallara, el mismo id
-        // no se duplica (ADR-0012 §2, la garantía real).
-        if let existente = datos[tripId]?[gasto.id], !existente.borrado {
-            let r = ResultadoEscritura.reproducido(etag: existente.etag)
-            respuestaCongelada[idempotencyKey] = r
+    public func respuestaPrevia(actor: MiembroId, idempotencyKey: String) -> ResultadoEscritura? {
+        respuestaCongelada[claveIdem(actor, idempotencyKey)].map(comoReplay)
+    }
+
+    public func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) -> ResultadoEscritura {
+        let idem = claveIdem(actor, idempotencyKey)
+        if let congelada = respuestaCongelada[idem] { return comoReplay(congelada) }
+
+        // Dedupe estructural por id. Incluye los TOMBSTONES: un create con el id de
+        // un gasto ya borrado NO resucita la fila (ADR-0013 §5, hallazgo P1 de
+        // Codex) — se rechaza como dead-letter visible.
+        if let existente = datos[tripId]?[gasto.id] {
+            let r: ResultadoEscritura = existente.borrado
+                ? .rechazado(razon: "deleted")
+                : .reproducido(etag: existente.etag)
+            respuestaCongelada[idem] = r
             return r
         }
 
         let etag = nuevoEtag()
         datos[tripId, default: [:]][gasto.id] = Fila(gasto: gasto, etag: etag, borrado: false)
         let r = ResultadoEscritura.creado(etag: etag)
-        respuestaCongelada[idempotencyKey] = r
+        respuestaCongelada[idem] = r
         return r
     }
 
-    public func actualizar(_ gasto: Gasto, en tripId: String, ifMatch etag: String, idempotencyKey: String) -> ResultadoEscritura {
-        if let congelada = respuestaCongelada[idempotencyKey] { return comoReplay(congelada) }
+    public func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) -> ResultadoEscritura {
+        let idem = claveIdem(actor, idempotencyKey)
+        if let congelada = respuestaCongelada[idem] { return comoReplay(congelada) }
 
         guard let fila = datos[tripId]?[gasto.id], !fila.borrado else {
             let r = ResultadoEscritura.rechazado(razon: "not_found")
-            respuestaCongelada[idempotencyKey] = r
+            respuestaCongelada[idem] = r
             return r
         }
         // El árbitro del conflicto es el ETag (ADR-0013 §2), no un reloj.
         guard fila.etag == etag else {
             return .conflicto(serverEtag: fila.etag)   // no se congela: no es terminal
         }
+        // (En un adaptador real, aquí se escribiría una fila en expense_revisions
+        // con edited_by = actor — ADR-0015 §15.)
         let nuevo = nuevoEtag()
         datos[tripId]![gasto.id] = Fila(gasto: gasto, etag: nuevo, borrado: false)
         let r = ResultadoEscritura.actualizado(etag: nuevo)
-        respuestaCongelada[idempotencyKey] = r
+        respuestaCongelada[idem] = r
         return r
     }
 
-    public func eliminar(id: String, en tripId: String, ifMatch etag: String, idempotencyKey: String) -> ResultadoEscritura {
-        if let congelada = respuestaCongelada[idempotencyKey] { return comoReplay(congelada) }
+    public func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) -> ResultadoEscritura {
+        let idem = claveIdem(actor, idempotencyKey)
+        if let congelada = respuestaCongelada[idem] { return comoReplay(congelada) }
 
         guard let fila = datos[tripId]?[id], !fila.borrado else {
-            // Ya no existe: el reintento de un borrado ya hecho no es error
-            // (idempotencia del DELETE, ADR-0013 §2 -> 204).
+            // Ya no existe (o ya está tombstoneado): el reintento de un borrado ya
+            // hecho no es error (idempotencia del DELETE, ADR-0013 §2 -> 204).
             let r = ResultadoEscritura.eliminado
-            respuestaCongelada[idempotencyKey] = r
+            respuestaCongelada[idem] = r
             return r
         }
         guard fila.etag == etag else {
@@ -87,7 +101,7 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
         // al sincronizar, ADR-0013 §5).
         datos[tripId]![id]!.borrado = true
         let r = ResultadoEscritura.eliminado
-        respuestaCongelada[idempotencyKey] = r
+        respuestaCongelada[idem] = r
         return r
     }
 
