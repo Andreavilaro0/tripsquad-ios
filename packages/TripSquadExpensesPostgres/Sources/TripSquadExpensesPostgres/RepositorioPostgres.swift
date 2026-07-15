@@ -58,7 +58,14 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         let etag = UUID().uuidString
 
         return try await client.withTransaction(logger: logger) { conn in
-            if let previa = try await self.replayEn(conn, actor: actor, key: idempotencyKey) { return previa }
+            // Reclamar la clave ANTES de mutar (hallazgo P1 de Codex): dos peticiones
+            // concurrentes con la misma (actor,key) se serializan en el índice único;
+            // la perdedora ve el replay tras el commit de la ganadora.
+            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
+            case .replay(let r): return r
+            case .enVuelo: return .rechazado(razon: "in_flight")
+            case .duena: break
+            }
 
             // Dedupe estructural: el id de cliente es la PK. ON CONFLICT DO NOTHING
             // hace el duplicado físicamente imposible (ADR-0012 §2).
@@ -94,31 +101,45 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         let nuevoEtag = UUID().uuidString
 
         return try await client.withTransaction(logger: logger) { conn in
-            if let previa = try await self.replayEn(conn, actor: actor, key: idempotencyKey) { return previa }
+            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
+            case .replay(let r): return r
+            case .enVuelo: return .rechazado(razon: "in_flight")
+            case .duena: break
+            }
 
-            guard let actual = try await self.etagActual(conn, id: gasto.id, tripId: tripId) else {
+            // UPDATE condicional ATÓMICO (hallazgo P1 de Codex): el ETag va en el
+            // WHERE, así dos ediciones concurrentes con el mismo If-Match no se pisan
+            // — solo una encuentra la fila con ese etag; la otra afecta 0 filas.
+            let upd = try await conn.query("""
+                UPDATE expenses SET paid_by = \(gasto.pagadoPor.raw), amount_reference = \(gasto.importeMinor),
+                    split_kind = \(kind), split = \(splitJSON)::jsonb, etag = \(nuevoEtag), updated_at = now()
+                WHERE id = \(gasto.id) AND trip_id = \(tripId) AND etag = \(etag) AND deleted_at IS NULL
+                RETURNING etag
+                """, logger: self.logger)
+            var actualizado = false
+            for try await _ in upd.decode(String.self) { actualizado = true }
+
+            guard actualizado else {
+                // 0 filas: o no existe/borrado (not_found) o el etag no coincide
+                // (conflicto). Distinguimos leyendo el estado actual.
+                if let actual = try await self.etagActual(conn, id: gasto.id, tripId: tripId) {
+                    return .conflicto(serverEtag: actual)   // no se congela: no terminal
+                }
                 let r = ResultadoEscritura.rechazado(razon: "not_found")
                 try await self.congelar(conn, actor: actor, key: idempotencyKey, resultado: r)
                 return r
             }
-            // El árbitro del conflicto es el ETag (ADR-0013 §2). El conflicto NO se
-            // congela: no es terminal (el cliente resuelve y reintenta).
-            guard actual == etag else { return .conflicto(serverEtag: actual) }
 
-            _ = try await conn.query("""
-                UPDATE expenses SET paid_by = \(gasto.pagadoPor.raw), amount_reference = \(gasto.importeMinor),
-                    split_kind = \(kind), split = \(splitJSON)::jsonb, etag = \(nuevoEtag), updated_at = now()
-                WHERE id = \(gasto.id)
-                """, logger: self.logger)
             // edited_by = actor -> historial append-only (ADR-0015 §15).
             _ = try await conn.query("""
                 INSERT INTO expense_revisions (expense_id, edited_by, field, new_value)
                 VALUES (\(gasto.id), \(actor.raw), 'expense', \(splitJSON)::jsonb)
                 """, logger: self.logger)
-            if let shares {
-                _ = try await conn.query("DELETE FROM expense_shares WHERE expense_id = \(gasto.id)", logger: self.logger)
-                try await self.insertarShares(conn, expenseId: gasto.id, shares: shares)
-            }
+            // Las shares se limpian SIEMPRE al editar (hallazgo P2 de Codex): si el
+            // reparto pasa de exacto a igual/peso, no deben quedar shares rancias.
+            _ = try await conn.query("DELETE FROM expense_shares WHERE expense_id = \(gasto.id)", logger: self.logger)
+            if let shares { try await self.insertarShares(conn, expenseId: gasto.id, shares: shares) }
+
             let r = ResultadoEscritura.actualizado(etag: nuevoEtag)
             try await self.congelar(conn, actor: actor, key: idempotencyKey, resultado: r)
             return r
@@ -129,18 +150,29 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
 
     public func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura {
         return try await client.withTransaction(logger: logger) { conn in
-            if let previa = try await self.replayEn(conn, actor: actor, key: idempotencyKey) { return previa }
-
-            guard let actual = try await self.etagActual(conn, id: id, tripId: tripId) else {
-                // Ya no existe o ya está tombstoneado: reintento de un borrado hecho
-                // no es error (idempotencia del DELETE, ADR-0013 §2).
-                let r = ResultadoEscritura.eliminado
-                try await self.congelar(conn, actor: actor, key: idempotencyKey, resultado: r)
-                return r
+            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
+            case .replay(let r): return r
+            case .enVuelo: return .rechazado(razon: "in_flight")
+            case .duena: break
             }
-            guard actual == etag else { return .conflicto(serverEtag: actual) }
 
-            _ = try await conn.query("UPDATE expenses SET deleted_at = now() WHERE id = \(id)", logger: self.logger)
+            // Borrado condicional ATÓMICO por etag: no es ciego ante ediciones
+            // concurrentes (ADR-0013 §2). El tombstone se marca con deleted_at.
+            let del = try await conn.query("""
+                UPDATE expenses SET deleted_at = now()
+                WHERE id = \(id) AND trip_id = \(tripId) AND etag = \(etag) AND deleted_at IS NULL
+                RETURNING etag
+                """, logger: self.logger)
+            var borrado = false
+            for try await _ in del.decode(String.self) { borrado = true }
+
+            if !borrado {
+                // 0 filas: o ya no existe/borrado (idempotencia del DELETE -> eliminado)
+                // o el etag no coincide (conflicto).
+                if let actual = try await self.etagActual(conn, id: id, tripId: tripId) {
+                    return .conflicto(serverEtag: actual)
+                }
+            }
             let r = ResultadoEscritura.eliminado
             try await self.congelar(conn, actor: actor, key: idempotencyKey, resultado: r)
             return r
@@ -170,6 +202,30 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
 
     // MARK: - Helpers (dentro de la conexión de la transacción)
 
+    /// Resultado de reclamar la clave de idempotencia (patrón Brandur, ADR-0012 §2).
+    enum Reclamacion { case duena, enVuelo, replay(ResultadoEscritura) }
+
+    /// Intenta reclamar la clave. Si ya tiene respuesta congelada -> replay. Si la
+    /// fila existe pero sin respuesta -> en vuelo (otra petición la tiene). Si no
+    /// existía -> la reclamamos e insertamos (`.duena`). El `INSERT ON CONFLICT DO
+    /// NOTHING` se serializa contra inserciones concurrentes del mismo par en el
+    /// índice único: la perdedora bloquea hasta el commit de la ganadora y luego ve
+    /// la respuesta congelada.
+    private func reclamar(_ conn: PostgresConnection, actor: MiembroId, key: String) async throws -> Reclamacion {
+        if let previa = try await replayEn(conn, actor: actor, key: key) { return .replay(previa) }
+        let ins = try await conn.query("""
+            INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, first_sent, locked_at)
+            VALUES (\(actor.raw), \(key), '', now(), now())
+            ON CONFLICT (user_id, idempotency_key) DO NOTHING
+            RETURNING user_id
+            """, logger: logger)
+        for try await _ in ins.decode(String.self) { return .duena }
+        // No reclamamos: la fila ya existía. Tras el bloqueo, la respuesta ya debería
+        // estar congelada.
+        if let previa = try await replayEn(conn, actor: actor, key: key) { return .replay(previa) }
+        return .enVuelo
+    }
+
     private func replayEn(_ conn: PostgresConnection, actor: MiembroId, key: String) async throws -> ResultadoEscritura? {
         let rows = try await conn.query(
             "SELECT response_body FROM idempotency_keys WHERE user_id = \(actor.raw) AND idempotency_key = \(key) AND response_body IS NOT NULL",
@@ -180,14 +236,15 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         return nil
     }
 
+    /// Congela la respuesta en la fila de idempotencia ya reclamada (UPDATE, no
+    /// INSERT: la fila existe desde `reclamar`). No se congela el conflicto: no es
+    /// terminal.
     private func congelar(_ conn: PostgresConnection, actor: MiembroId, key: String, resultado: ResultadoEscritura) async throws {
-        // No se congela el conflicto: no es terminal.
         if case .conflicto = resultado { return }
         let body = RespuestaSerializada(resultado).json
         _ = try await conn.query("""
-            INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, first_sent, response_body)
-            VALUES (\(actor.raw), \(key), '', now(), \(body)::jsonb)
-            ON CONFLICT (user_id, idempotency_key) DO UPDATE SET response_body = EXCLUDED.response_body
+            UPDATE idempotency_keys SET response_body = \(body)::jsonb, locked_at = NULL
+            WHERE user_id = \(actor.raw) AND idempotency_key = \(key)
             """, logger: logger)
     }
 
@@ -218,7 +275,7 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         }
     }
 
-    private func leerShares(id: String) async throws -> [(String, Int64)] {
+    func leerShares(id: String) async throws -> [(String, Int64)] {
         let rows = try await client.query(
             "SELECT member_id, amount_minor FROM expense_shares WHERE expense_id = \(id)", logger: logger)
         var out: [(String, Int64)] = []
