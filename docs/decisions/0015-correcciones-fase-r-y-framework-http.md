@@ -478,7 +478,11 @@ mirado desde el producto en vez de desde la sincronización.
   chocando con el tombstone estructural de ADR-0013 §5 (que hard-borra el
   contenido). Reglas:
   - Los campos **estructurales** (importe, divisa, `paidBy`, reparto) se guardan en
-    claro: no son datos personales y son la trazabilidad que importa.
+    claro **por necesidad contable** — son la trazabilidad que da sentido al
+    historial. **Ojo (corrección de la voz externa Codex):** `paidBy` y el reparto
+    SÍ son datos personales (identifican a personas); se conservan por la base
+    legítima de llevar las cuentas del grupo, no porque "no sean personales". Al
+    borrar el viaje se purgan como el resto.
   - Los campos de **texto libre** (descripción, notas) se versionan con el mismo
     **crypto-shredding** de ADR-0013 §5: el valor viejo se cifra con la clave del
     gasto; borrar la clave lo hace irrecuperable sin romper la fila. El derecho al

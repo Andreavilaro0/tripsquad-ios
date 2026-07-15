@@ -5,7 +5,9 @@
 `Guidelines.md` clásico está deprecado) + Graph Guidelines como contraste.
 **Autoridad:** subordinada a `constitution.md` y a los ADRs. Los beads R3/R4/R5
 cerraron las secciones que antes estaban pendientes; ADR-0015 fija las
-correcciones. **Ya no queda nada abierto en esta guía.**
+correcciones. **Queda UNA cosa abierta, y está marcada como tal:** la semántica de
+`:settle` (ADR-0015 §13) — por eso ese endpoint **NO se codegenera** hasta que
+Andrea decida (ver §1). El resto de la guía es implementable.
 
 El contrato OpenAPI es la **fuente única de verdad del contrato HTTP** (ADR-0008):
 los clientes Swift y Kotlin se generan de él, jamás a mano.
@@ -63,6 +65,19 @@ El gate G1 (ADR-0015 §8) se ejecuta **solo sobre `/sync/upload`**: ahí es dond
 "ninguna 4xx salvo 409" es verificable y obligatorio. Sin este path separado la
 regla del camino no tendría dónde agarrarse (hallazgo de la 3ª voz externa).
 
+**⚠️ El `413` es otra 4xx que congela la cola** (voz externa Gemini, ronda 2).
+Quien vuelve de un viaje largo sin red sube un `CrudBatch` de cientos de
+operaciones; si el body supera el límite de Hummingbird o de Cloudflare Tunnel, la
+respuesta es **413 Request Entity Too Large** → 4xx → cola congelada para siempre,
+y precisamente al usuario con más cambios acumulados. Dos defensas, las dos
+obligatorias:
+- **El cliente fragmenta el `CrudBatch`** en lotes acotados (p. ej. ≤100 ops o
+  ≤N KB) antes de subir. `batch.complete()` por fragmento.
+- **El servidor sube el límite de body de `/sync/upload`** muy por encima del
+  fragmento del cliente, y si aun así se excede responde **413 solo a llamadas
+  directas**; en el camino de la cola nunca sale un 413 (lo cubre G1). Cloudflare
+  Tunnel no impone límite duro de body, pero verificarlo es parte del gate.
+
 ## 1. URLs y naming
 
 - Forma: `https://api.tripsquad.app/{colección}/{id}` — colecciones en
@@ -78,6 +93,11 @@ regla del camino no tendría dónde agarrarse (hallazgo de la 3ª voz externa).
 - Acciones no-CRUD: `POST /trips/{id}:action` — ej. `:settle` (liquidar),
   `:close` (cerrar votación), `:leave` (salir del viaje). Siempre POST; nunca
   verbos inventados en el path.
+- ⛔ **`:settle` está descrito pero EXCLUIDO del codegen** hasta decidir su
+  semántica (ADR-0015 §13). Las reglas que lo mencionan abajo (§5 idempotencia, §7
+  síncrono, §11 headers) son el contrato que tendrá **cuando** se genere, no permiso
+  para generarlo ya. La Fase S arranca por gastos (create/edit); `:close` y
+  `:leave` sí se generan. Marcar el path con `x-codegen: excluded` en el OpenAPI.
 
 ## 2. Versionado
 
@@ -180,8 +200,10 @@ reintenta, y un gasto duplicado es confianza rota.
   (ADR-0012 §6). Reautenticarse **tampoco** las regenera.
 - **`:settle` se dedupe como un gasto** (ADR-0015 §5): lleva un `settlementId`
   (UUIDv7) generado en cliente, y cada fila de liquidación tiene PK determinista
-  `uuidv5(settlementId, from ‖ to)` + `ON CONFLICT (id) DO NOTHING`. **El dedupe
-  estructural es la garantía; la key es higiene.**
+  `uuidv5(settlementId, from ‖ to ‖ transferIndex)` + `ON CONFLICT (id) DO NOTHING`.
+  El `transferIndex` es obligatorio: sin él, dos transferencias del mismo par en la
+  misma liquidación colisionan. **El dedupe estructural es la garantía; la key es
+  higiene.**
 
 ## 6. Concurrencia: ETags y condicionales
 
