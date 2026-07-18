@@ -1,0 +1,24 @@
+# Blueprint de Render (Infrastructure-as-Code) para el servicio TripSquad.
+# Aplícalo desde el dashboard con el deeplink; los secretos (sync:false) se rellenan
+# ahí, no se commitean.
+#
+# Región europea (RGPD, Andrea en España). Plan free. El servicio duerme por
+# inactividad y despierta con la request; el ping de keep-alive ya lo despierta.
+
+services:
+  - type: web
+    name: tripsquad-service
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./packages/TripSquadService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /live          # liveness (siempre 200); /health comprueba la BD
+    autoDeploy: true
+    envVars:
+      # La cadena de conexión de Supabase, tal cual (incluye ?sslmode=require).
+      # Se pega en el dashboard como secreto. Formato:
+      #   postgresql://usuario:password@host:5432/postgres?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+      # Render inyecta PORT automáticamente; el servicio escucha en 0.0.0.0:$PORT.

@@ -65,15 +65,23 @@ func montarSyncUpload(_ router: Router<BasicRequestContext>, _ deps: Dependencia
     }
 }
 
+// Un error de VALIDACIÓN del DTO (divisa no soportada, decimal inválido, reparto
+// malo) es PERMANENTE → se devuelve como `rejected` por-op (hallazgo P1 de Codex),
+// nunca como 5xx: un 5xx haría reintentar el batch para siempre y congelaría la
+// cola. Solo los errores de BD (que lanza el adaptador) suben como transitorios.
 private func aplicar(_ op: SyncOp, actor: MiembroId, deps: Dependencias) async throws -> ResultadoEscritura {
     switch op.op {
     case "PUT":
         guard let dto = op.data else { return .rechazado(razon: "missing_data") }
-        return try await deps.casos.crear(.init(tripId: op.tripId, gasto: try dto.aDominio(),
+        let gasto: Gasto
+        do { gasto = try dto.aDominio() } catch { return .rechazado(razon: "invalid_expense") }
+        return try await deps.casos.crear(.init(tripId: op.tripId, gasto: gasto,
                                                 actor: actor, idempotencyKey: op.idempotencyKey))
     case "PATCH":
         guard let dto = op.data, let etag = op.ifMatch else { return .rechazado(razon: "missing_if_match") }
-        return try await deps.casos.editar(.init(tripId: op.tripId, gasto: try dto.aDominio(),
+        let gasto: Gasto
+        do { gasto = try dto.aDominio() } catch { return .rechazado(razon: "invalid_expense") }
+        return try await deps.casos.editar(.init(tripId: op.tripId, gasto: gasto,
                                                  actor: actor, ifMatch: etag, idempotencyKey: op.idempotencyKey))
     case "DELETE":
         guard let etag = op.ifMatch else { return .rechazado(razon: "missing_if_match") }

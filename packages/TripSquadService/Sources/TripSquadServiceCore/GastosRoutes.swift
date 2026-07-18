@@ -26,7 +26,10 @@ func montarGastos(_ router: Router<BasicRequestContext>, _ deps: Dependencias) {
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")
+        let id = try ctx.parameters.require("id")
         let dto = try await req.decode(as: GastoDTO.self, context: ctx)
+        // El id del path manda: el body no puede editar OTRO gasto (hallazgo P2 de Codex).
+        guard dto.id == id else { return errorJSON(.badRequest, "id_mismatch") }
         let gasto = try dto.aDominio()
         let r = try await deps.casos.editar(.init(tripId: tripId, gasto: gasto, actor: actor, ifMatch: etag, idempotencyKey: key))
         return respuestaDirecta(r)

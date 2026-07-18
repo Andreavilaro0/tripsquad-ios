@@ -48,10 +48,13 @@ extension GastoDTO {
     }
 
     static func divisa(_ code: String) throws -> Divisa {
+        // Solo EUR por ahora (hallazgo P1 de Codex): el adaptador Postgres persiste
+        // `currency_original = 'EUR'` y trata el importe como céntimos de referencia
+        // EUR. Aceptar JPY aquí guardaría un importe con semántica equivocada. La
+        // multi-divisa (JPY incluido) llega con FX, el 2º incremento (ADR-0011 §5).
         switch code {
         case "EUR": return .eur
-        case "JPY": return .jpy
-        default: throw DTOError.divisaNoSoportada(code)   // MVP mono-divisa; FX es 2º incremento
+        default: throw DTOError.divisaNoSoportada(code)
         }
     }
 }

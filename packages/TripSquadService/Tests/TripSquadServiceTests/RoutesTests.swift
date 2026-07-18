@@ -32,6 +32,16 @@ struct RoutesTests {
         ByteBuffer(string: #"{"id":"\#(id)","paidBy":"ana","amount":"\#(amount)","currency":"EUR","split":{"kind":"equal","among":["ana","ivan"]}}"#)
     }
 
+    /// /live es liveness: SIEMPRE 200 (el health check de Render), aunque la BD caiga.
+    @Test func liveSiempre200() async throws {
+        let (app, _) = await app(bdOk: false)   // BD caída y aun así...
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/live", method: .get) { res in
+                #expect(res.status == .ok)
+            }
+        }
+    }
+
     @Test func healthOk() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
