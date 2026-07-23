@@ -13,6 +13,7 @@ public struct Dependencias: Sendable {
     public let casos: CasosDeUsoGastos
     public let casosSettle: CasosDeUsoSettle
     public let casosViaje: CasosDeUsoViaje         // onboarding: viajes/invites/miembros (ADR-0018)
+    public let casosVotacion: CasosDeUsoVotacion   // votaciones: polls/vote/close (M4, ADR-0019 borrador)
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
@@ -24,6 +25,7 @@ public struct Dependencias: Sendable {
         casos: CasosDeUsoGastos,
         casosSettle: CasosDeUsoSettle,
         casosViaje: CasosDeUsoViaje,
+        casosVotacion: CasosDeUsoVotacion,
         repo: GastoRepositorio,
         pingBD: @escaping @Sendable () async -> Bool,
         verificador: any VerificadorDeToken,
@@ -32,6 +34,7 @@ public struct Dependencias: Sendable {
         self.casos = casos
         self.casosSettle = casosSettle
         self.casosViaje = casosViaje
+        self.casosVotacion = casosVotacion
         self.repo = repo
         self.pingBD = pingBD
         self.verificador = verificador
@@ -66,6 +69,13 @@ public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
     )
 
     montarViajes(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarVotaciones(
         router.group()
             .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
             .group(context: ContextoAutenticado.self),
