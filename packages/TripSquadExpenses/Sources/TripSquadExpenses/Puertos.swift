@@ -96,3 +96,16 @@ public protocol ViajeRepositorio: Sendable {
     func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) async throws
     func cerrar(tripId: String, ahora: Date) async throws
 }
+
+/// Puerto de persistencia de votaciones (M4, ADR-0019 borrador). Firma copiada
+/// literal de `docs/design/votaciones-scope-y-plan.md`. `votar` es un UPSERT por
+/// `(pollId, member)` — cambiar de opción no duplica el voto (dedupe estructural,
+/// mismo criterio que `poll_votes` en `db/migrations/0001_expenses.sql`).
+public protocol VotacionRepositorio: Sendable {
+    func crear(_ v: Votacion) async throws
+    func votacion(id: String, en tripId: String) async throws -> Votacion?
+    func votacionesDe(_ tripId: String) async throws -> [Votacion]
+    func votar(pollId: String, tripId: String, member: MiembroId, choice: String, ahora: Date) async throws -> ResultadoVotar
+    func resultado(pollId: String, en tripId: String) async throws -> ResultadoVotacion?
+    func cerrar(pollId: String, en tripId: String, ahora: Date) async throws
+}

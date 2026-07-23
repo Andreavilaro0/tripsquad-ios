@@ -28,6 +28,11 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     private var miembrosDeViaje: [String: [MiembroId: FilaMiembro]] = [:] // tripId -> actor -> fila
     private var invitaciones: [String: Invitacion] = [:]                  // code -> Invitacion
 
+    // MARK: - Almacenes de votaciones (M4, ADR-0019 borrador)
+
+    private var votaciones: [String: [String: Votacion]] = [:]  // tripId -> pollId -> Votacion
+    private var votos: [String: [MiembroId: String]] = [:]      // pollId -> member -> choice (upsert)
+
     public init() {}
 
     // MARK: - Setup para tests
@@ -231,5 +236,46 @@ extension RepositorioEnMemoria: ViajeRepositorio {
     public func cerrar(tripId: String, ahora: Date) {
         guard let v = viajes[tripId] else { return }
         viajes[tripId] = Viaje(id: v.id, name: v.name, baseCurrency: v.baseCurrency, createdBy: v.createdBy, closedAt: ahora)
+    }
+}
+
+extension RepositorioEnMemoria: VotacionRepositorio {
+
+    public func crear(_ v: Votacion) {
+        votaciones[v.tripId, default: [:]][v.id] = v
+    }
+
+    public func votacion(id: String, en tripId: String) -> Votacion? {
+        votaciones[tripId]?[id]
+    }
+
+    public func votacionesDe(_ tripId: String) -> [Votacion] {
+        (votaciones[tripId] ?? [:]).values.sorted { $0.id < $1.id }   // orden estable
+    }
+
+    /// UPSERT por `(pollId, member)` — dedupe estructural, mismo criterio que
+    /// la PK de `poll_votes` (plan §2): cambiar de opción sobrescribe el voto
+    /// anterior, no lo duplica.
+    public func votar(pollId: String, tripId: String, member: MiembroId, choice: String, ahora: Date) -> ResultadoVotar {
+        guard let v = votaciones[tripId]?[pollId] else { return .rechazado(razon: "poll_not_found") }
+        guard v.closedAt == nil else { return .rechazado(razon: "poll_closed") }
+        guard v.options.contains(choice) else { return .rechazado(razon: "invalid_option") }
+        votos[pollId, default: [:]][member] = choice
+        return .registrado
+    }
+
+    /// `conteo` incluye SIEMPRE todas las `options`, aunque tengan 0 votos.
+    public func resultado(pollId: String, en tripId: String) -> ResultadoVotacion? {
+        guard let v = votaciones[tripId]?[pollId] else { return nil }
+        let votosDeLaPoll = votos[pollId] ?? [:]
+        var conteo = Dictionary(uniqueKeysWithValues: v.options.map { ($0, 0) })
+        for (_, choice) in votosDeLaPoll { conteo[choice, default: 0] += 1 }
+        let votosOrdenados = votosDeLaPoll.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+        return ResultadoVotacion(votacion: v, conteo: conteo, votos: votosOrdenados)
+    }
+
+    public func cerrar(pollId: String, en tripId: String, ahora: Date) {
+        guard let v = votaciones[tripId]?[pollId] else { return }
+        votaciones[tripId]![pollId] = Votacion(id: v.id, tripId: v.tripId, question: v.question, options: v.options, createdBy: v.createdBy, closedAt: ahora)
     }
 }
