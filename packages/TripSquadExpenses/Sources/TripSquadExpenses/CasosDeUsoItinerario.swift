@@ -56,6 +56,10 @@ public struct CasosDeUsoItinerario: Sendable {
     /// existencia. Rechaza si el viaje está cerrado (plan §5).
     public func editar(itemId: String, tripId: String, title: String, day: String, startTime: String? = nil, location: String? = nil, notes: String? = nil, orderIndex: Int = 0, actor: MiembroId, ahora: Date) async throws -> Result<ActividadItinerario, ErrorItinerario> {
         guard let existente = try await repo.item(id: itemId, en: tripId) else { return .failure(.noAutorizado) }
+        // Debe ser miembro ACTUAL (Codex M5 P1): un ex-miembro que creó la actividad no puede
+        // seguir editándola tras salir del viaje, aunque `createdBy` coincida. Se usa esMiembro
+        // (consistente con crear/listar); en Postgres devuelve false si left_at != null.
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)
         guard existente.createdBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
@@ -71,6 +75,7 @@ public struct CasosDeUsoItinerario: Sendable {
     /// terminal de limpieza no es una mutación de contenido.
     public func borrar(itemId: String, tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorItinerario> {
         guard let existente = try await repo.item(id: itemId, en: tripId) else { return .failure(.noAutorizado) }
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }   // miembro ACTUAL (Codex M5 P1)
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)
         guard existente.createdBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }
         try await repo.borrar(id: itemId, en: tripId)

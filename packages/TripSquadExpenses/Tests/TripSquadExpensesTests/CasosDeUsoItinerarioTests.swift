@@ -159,4 +159,23 @@ struct CasosDeUsoItinerarioTests {
         }
         #expect(errorEditar == .viajeCerrado)
     }
+
+    // Codex M5 P1: un ex-miembro que creó la actividad NO puede editarla/borrarla tras salir.
+    @Test func exMiembroNoEditaNiBorra() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let actividad) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear"); return
+        }
+        await r.quitarDeMembresia(ana, de: "t1")   // ana sale del viaje (createdBy sigue siendo ana)
+        guard case .failure(let eEditar) = try await casos.editar(itemId: actividad.id, tripId: "t1", title: "Foro", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("editar deberia fallar para ex-miembro"); return
+        }
+        #expect(eEditar == .noAutorizado)
+        guard case .failure(let eBorrar) = try await casos.borrar(itemId: actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("borrar deberia fallar para ex-miembro"); return
+        }
+        #expect(eBorrar == .noAutorizado)
+    }
 }
