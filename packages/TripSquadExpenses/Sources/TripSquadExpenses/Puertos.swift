@@ -63,3 +63,17 @@ public protocol Membresia: Sendable {
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool
     func viajeCerrado(_ tripId: String) async throws -> Bool
 }
+
+/// Resultado de registrar un pago (ADR-0016). `duplicado` = mismo settlementId ya
+/// registrado (idempotencia estructural, ADR-0015 §5), NO es un error.
+public enum ResultadoSettle: Equatable, Sendable {
+    case registrado
+    case duplicado
+    case rechazado(razon: String)
+}
+
+/// Puerto de persistencia de pagos. La idempotencia es por la clave estructural del
+/// Settlement (settlementId + from||to||transferIndex), no por (actor, key).
+public protocol SettlementRepositorio: Sendable {
+    func registrar(_ settlement: Settlement) async throws -> ResultadoSettle
+}
