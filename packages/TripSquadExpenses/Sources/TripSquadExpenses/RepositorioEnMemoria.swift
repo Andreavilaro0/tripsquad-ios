@@ -3,6 +3,7 @@
 // capa Data (Postgres) debe replicar: idempotencia por clave, dedupe estructural
 // por id, y detección de conflictos por ETag (ADR-0012, ADR-0013).
 
+import Foundation
 import TripSquadDomain
 
 public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
@@ -15,6 +16,17 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     private var cerrados: Set<String> = []
     private var settlements: [String: Settlement] = [:]   // idDeterminista -> settlement
     private var version = 0
+
+    // MARK: - Almacenes de onboarding (ADR-0018)
+
+    /// Fila de membresía de `ViajeRepositorio`: `leftAt == nil` = miembro activo
+    /// (salió/lo expulsaron deja `leftAt` puesto, no se borra la fila — igual
+    /// filosofía que los tombstones de gastos).
+    private struct FilaMiembro { var rol: RolMiembro; var leftAt: Date? }
+
+    private var viajes: [String: Viaje] = [:]                             // tripId -> Viaje
+    private var miembrosDeViaje: [String: [MiembroId: FilaMiembro]] = [:] // tripId -> actor -> fila
+    private var invitaciones: [String: Invitacion] = [:]                  // code -> Invitacion
 
     public init() {}
 
@@ -140,5 +152,84 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         if settlements[clave] != nil { return .duplicado }
         settlements[clave] = settlement
         return .registrado
+    }
+}
+
+extension RepositorioEnMemoria: ViajeRepositorio {
+
+    public func crearViaje(id: String, name: String, baseCurrency: String, creador: MiembroId, ahora: Date) -> Viaje {
+        let viaje = Viaje(id: id, name: name, baseCurrency: baseCurrency, createdBy: creador, closedAt: nil)
+        viajes[id] = viaje
+        // El creador entra como owner en la misma operación (ADR-0018 §2): un
+        // viaje sin owner no es un estado válido.
+        miembrosDeViaje[id, default: [:]][creador] = FilaMiembro(rol: .owner, leftAt: nil)
+        return viaje
+    }
+
+    public func viaje(id: String) -> Viaje? { viajes[id] }
+
+    public func viajesDe(_ actor: MiembroId) -> [Viaje] {
+        viajes.values
+            .filter { miembrosDeViaje[$0.id]?[actor]?.leftAt == nil && miembrosDeViaje[$0.id]?[actor] != nil }
+            .sorted { $0.id < $1.id }   // orden estable
+    }
+
+    public func miembros(de tripId: String) -> [(MiembroId, RolMiembro)] {
+        (miembrosDeViaje[tripId] ?? [:])
+            .filter { $0.value.leftAt == nil }
+            .map { ($0.key, $0.value.rol) }
+            .sorted { $0.0 < $1.0 }    // orden estable
+    }
+
+    /// Única fuente de verdad de autorización de este dominio: `nil` = no es
+    /// miembro activo (nunca lo fue, o salió/lo expulsaron).
+    public func rol(de actor: MiembroId, en tripId: String) -> RolMiembro? {
+        guard let fila = miembrosDeViaje[tripId]?[actor], fila.leftAt == nil else { return nil }
+        return fila.rol
+    }
+
+    public func crearInvitacion(tripId: String, por: MiembroId, code: String, expiresAt: Date) -> Invitacion {
+        let inv = Invitacion(code: code, tripId: tripId, createdBy: por, expiresAt: expiresAt, revokedAt: nil)
+        invitaciones[code] = inv
+        return inv
+    }
+
+    /// Idempotente: revocar dos veces la misma invitación sigue siendo `true`
+    /// (queda revocada, que es el estado deseado). `false` solo si el code no
+    /// existe o pertenece a otro viaje (no se filtra cuál de las dos cosas es).
+    public func revocarInvitacion(code: String, en tripId: String, ahora: Date) -> Bool {
+        guard let inv = invitaciones[code], inv.tripId == tripId else { return false }
+        invitaciones[code] = Invitacion(code: inv.code, tripId: inv.tripId, createdBy: inv.createdBy,
+                                         expiresAt: inv.expiresAt, revokedAt: inv.revokedAt ?? ahora)
+        return true
+    }
+
+    /// Valida en orden: código existe → no revocado → no caducado → viaje no
+    /// cerrado → no es ya miembro → hay hueco (tope). Reactiva a quien ya salió
+    /// antes (rejoin tras `salir`/`expulsar`) en vez de duplicar la fila.
+    public func unirsePorCodigo(code: String, actor: MiembroId, ahora: Date, tope: Int) -> ResultadoUnirse {
+        guard let inv = invitaciones[code] else { return .codigoInvalido }
+        guard inv.revokedAt == nil else { return .revocado }
+        guard inv.expiresAt > ahora else { return .caducado }
+        guard let viaje = viajes[inv.tripId] else { return .codigoInvalido }
+        guard viaje.closedAt == nil else { return .viajeCerrado }
+        if miembrosDeViaje[inv.tripId]?[actor]?.leftAt == nil, miembrosDeViaje[inv.tripId]?[actor] != nil {
+            return .yaMiembro
+        }
+        let activos = (miembrosDeViaje[inv.tripId] ?? [:]).values.filter { $0.leftAt == nil }.count
+        guard activos < tope else { return .lleno }
+        miembrosDeViaje[inv.tripId, default: [:]][actor] = FilaMiembro(rol: .member, leftAt: nil)
+        return .unido
+    }
+
+    public func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) {
+        guard var fila = miembrosDeViaje[tripId]?[memberId] else { return }
+        fila.leftAt = ahora
+        miembrosDeViaje[tripId]?[memberId] = fila
+    }
+
+    public func cerrar(tripId: String, ahora: Date) {
+        guard let v = viajes[tripId] else { return }
+        viajes[tripId] = Viaje(id: v.id, name: v.name, baseCurrency: v.baseCurrency, createdBy: v.createdBy, closedAt: ahora)
     }
 }
