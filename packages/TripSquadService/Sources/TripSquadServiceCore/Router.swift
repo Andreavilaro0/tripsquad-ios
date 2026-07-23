@@ -12,22 +12,30 @@ import TripSquadExpenses
 public struct Dependencias: Sendable {
     public let casos: CasosDeUsoGastos
     public let casosSettle: CasosDeUsoSettle
+    public let casosViaje: CasosDeUsoViaje         // onboarding: viajes/invites/miembros (ADR-0018)
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
+    /// Reloj inyectable (tests deterministas). Default = reloj real; no rompe
+    /// los call sites existentes que no lo pasan explícitamente.
+    public let ahora: @Sendable () -> Date
 
     public init(
         casos: CasosDeUsoGastos,
         casosSettle: CasosDeUsoSettle,
+        casosViaje: CasosDeUsoViaje,
         repo: GastoRepositorio,
         pingBD: @escaping @Sendable () async -> Bool,
-        verificador: any VerificadorDeToken
+        verificador: any VerificadorDeToken,
+        ahora: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.casos = casos
         self.casosSettle = casosSettle
+        self.casosViaje = casosViaje
         self.repo = repo
         self.pingBD = pingBD
         self.verificador = verificador
+        self.ahora = ahora
     }
 }
 
@@ -51,6 +59,13 @@ public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
     )
 
     montarSettle(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarViajes(
         router.group()
             .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
             .group(context: ContextoAutenticado.self),

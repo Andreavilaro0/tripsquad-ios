@@ -23,6 +23,7 @@ struct SettleRoutesTests {
         let deps = Dependencias(
             casos: CasosDeUsoGastos(repo: repo, membresia: repo),
             casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
+            casosViaje: CasosDeUsoViaje(repo: repo),
             repo: repo, pingBD: { true },
             verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba))
         return (Application(router: construirRouter(deps)), repo)
@@ -57,6 +58,9 @@ struct SettleRoutesTests {
         let deps = Dependencias(
             casos: CasosDeUsoGastos(repo: repo, membresia: repo),
             casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
+            // RepoNoMiembroQueLanzaEnGastos no conforma ViajeRepositorio y este test
+            // no ejercita /trips: un repo en memoria aparte basta.
+            casosViaje: CasosDeUsoViaje(repo: RepositorioEnMemoria()),
             repo: repo, pingBD: { true },
             verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba))
         let app = Application(router: construirRouter(deps))
