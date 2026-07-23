@@ -133,3 +133,32 @@ public protocol ChatRepositorio: Sendable {
     func mensaje(id: Int64, en tripId: String) async throws -> Mensaje?
     func borrar(id: Int64, en tripId: String, ahora: Date) async throws
 }
+
+/// Puerto de persistencia de fotos (M7 Task 1, ADR-0022 borrador). Firma
+/// copiada literal de `docs/design/fotos-plan-stub.md`. `marcarLista` es
+/// idempotente: repetirlo sobre una foto ya `ready` sigue devolviendo `true`
+/// (mismo criterio de idempotencia que el resto del módulo, ADR-0012/0013).
+public protocol FotoRepositorio: Sendable {
+    func crearPendiente(_ f: Foto) async throws
+    func marcarLista(id: String, en tripId: String) async throws -> Bool
+    func foto(id: String, en tripId: String) async throws -> Foto?
+    func listar(_ tripId: String, soloListas: Bool) async throws -> [Foto]
+    /// Etiqueta `fotoId` (no `id`) a propósito: `RepositorioEnMemoria` ya
+    /// implementa `ItinerarioRepositorio.borrar(id:en:)` con la misma forma
+    /// `(String, String) async throws`; un selector idéntico sería una
+    /// redeclaración inválida en el mismo tipo conformante.
+    func borrar(fotoId: String, en tripId: String) async throws
+}
+
+/// Puerto de storage de binarios (M7 Task 1, ADR-0022 borrador). La ÚNICA
+/// frontera con el mundo externo de este módulo: el dominio y los casos de
+/// uso no saben si detrás hay R2, Supabase Storage o un stub. El adaptador
+/// real (proveedor por decidir, `docs/design/fotos-scope.md`) es un swap-in
+/// sin tocar dominio ni rutas.
+public protocol FotoStorage: Sendable {
+    /// URL prefirmada de SUBIDA (PUT directo del cliente al storage).
+    func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String
+    /// URL prefirmada de LECTURA (temporal).
+    func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String
+    func borrar(storageKey: String) async throws
+}
