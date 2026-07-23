@@ -1,12 +1,5 @@
 import TripSquadDomain
 
-/// Resultado de sugerir liquidación (ADR-0016 a). Autorizado: la sugerencia es privada
-/// del viaje, así que un no-miembro se rechaza (la ruta lo mapea a 403).
-public enum ResultadoSugerencia: Equatable, Sendable {
-    case ok([Transferencia])
-    case rechazado(razon: String)
-}
-
 public struct ComandoRegistrarPago: Sendable {
     public let tripId: String
     public let settlementId: String
@@ -36,10 +29,11 @@ public struct CasosDeUsoSettle: Sendable {
         liquidar(saldos)
     }
 
-    /// Concepto (a) autorizado: solo un miembro del viaje puede ver la sugerencia.
-    public func sugerirPago(tripId: String, actor: MiembroId, saldos: [MiembroId: Int64]) async throws -> ResultadoSugerencia {
-        guard try await membresia.esMiembro(actor, de: tripId) else { return .rechazado(razon: "not_member") }
-        return .ok(liquidar(saldos))
+    /// Autorización de la sugerencia (finding D de la revisión multi-modelo): debe
+    /// comprobarse ANTES de leer gastos, para no filtrar lectura de un viaje ajeno ni
+    /// devolver 5xx (si la BD falla al leer gastos) en vez del 403 que exige la invariante.
+    public func puedeSugerir(tripId: String, actor: MiembroId) async throws -> Bool {
+        try await membresia.esMiembro(actor, de: tripId)
     }
 
     /// Concepto (c): registra un pago real. Idempotente por settlementId.
