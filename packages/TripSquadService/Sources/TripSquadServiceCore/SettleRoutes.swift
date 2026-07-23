@@ -15,7 +15,7 @@ struct RegistrarPagoDTO: Codable {
 func montarSettle(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
 
     // GET sugerencia — lectura autorizada (ADR-0016 a).
-    router.get("trips/:tripId/settlement/suggestion") { req, ctx -> Response in
+    router.get("trips/:tripId/settlement/suggestion") { _, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let gastos = try await deps.repo.gastos(de: tripId).map(\.gasto)
         let saldos = try balances(gastos)
