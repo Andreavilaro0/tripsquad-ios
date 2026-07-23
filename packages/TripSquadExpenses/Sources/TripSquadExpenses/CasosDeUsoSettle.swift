@@ -1,5 +1,12 @@
 import TripSquadDomain
 
+/// Resultado de sugerir liquidación (ADR-0016 a). Autorizado: la sugerencia es privada
+/// del viaje, así que un no-miembro se rechaza (la ruta lo mapea a 403).
+public enum ResultadoSugerencia: Equatable, Sendable {
+    case ok([Transferencia])
+    case rechazado(razon: String)
+}
+
 public struct ComandoRegistrarPago: Sendable {
     public let tripId: String
     public let settlementId: String
@@ -27,6 +34,12 @@ public struct CasosDeUsoSettle: Sendable {
     /// Concepto (a): sugiere las transferencias que dejan los saldos a cero. Pura.
     public func sugerir(saldos: [MiembroId: Int64]) -> [Transferencia] {
         liquidar(saldos)
+    }
+
+    /// Concepto (a) autorizado: solo un miembro del viaje puede ver la sugerencia.
+    public func sugerirPago(tripId: String, actor: MiembroId, saldos: [MiembroId: Int64]) async throws -> ResultadoSugerencia {
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .rechazado(razon: "not_member") }
+        return .ok(liquidar(saldos))
     }
 
     /// Concepto (c): registra un pago real. Idempotente por settlementId.

@@ -283,3 +283,21 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         return out
     }
 }
+
+// MARK: - SettlementRepositorio
+
+extension RepositorioPostgres: SettlementRepositorio {
+    /// Dedupe estructural (ADR-0015 §5): la primera vez registra; los reintentos con
+    /// la misma clave son `duplicado` (idempotente, no error).
+    public func registrar(_ settlement: Settlement) async throws -> ResultadoSettle {
+        let clave = settlement.idDeterminista
+        let ins = try await client.query("""
+            INSERT INTO settlements (settlement_id, trip_id, from_id, to_id, transfer_index, amount_minor)
+            VALUES (\(settlement.settlementId), \(settlement.tripId), \(settlement.from.raw), \(settlement.to.raw), \(settlement.transferIndex), \(settlement.amountMinor))
+            ON CONFLICT (settlement_id) DO NOTHING
+            RETURNING settlement_id
+            """, logger: logger)
+        for try await _ in ins.decode(String.self) { return .registrado }
+        return .duplicado
+    }
+}

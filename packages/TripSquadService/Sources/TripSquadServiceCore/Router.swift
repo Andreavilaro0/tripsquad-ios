@@ -11,17 +11,20 @@ import TripSquadExpenses
 /// en memoria y producción con Postgres, sin que las rutas conozcan la diferencia.
 public struct Dependencias: Sendable {
     public let casos: CasosDeUsoGastos
+    public let casosSettle: CasosDeUsoSettle
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
 
     public init(
         casos: CasosDeUsoGastos,
+        casosSettle: CasosDeUsoSettle,
         repo: GastoRepositorio,
         pingBD: @escaping @Sendable () async -> Bool,
         verificador: any VerificadorDeToken
     ) {
         self.casos = casos
+        self.casosSettle = casosSettle
         self.repo = repo
         self.pingBD = pingBD
         self.verificador = verificador
@@ -41,6 +44,13 @@ public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
     montarSalud(router, deps)
 
     montarGastos(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarSettle(
         router.group()
             .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
             .group(context: ContextoAutenticado.self),
