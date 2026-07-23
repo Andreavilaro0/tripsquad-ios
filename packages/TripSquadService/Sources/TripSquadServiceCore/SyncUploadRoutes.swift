@@ -39,7 +39,15 @@ func montarSyncUpload(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
         // Auth: el 401 (si el token no vale) ya lo devolvió AuthMiddleware; aquí el
         // actor viene garantizado. El connector re-autentica con ese 401 (contrato §0).
         let actor = ctx.actor
-        let batch = try await req.decode(as: SyncBatch.self, context: ctx)
+        // Un cuerpo ilegible NO puede salir como 400: `req.decode` lanza HTTPError(.badRequest)
+        // y un 4xx congelaría la cola de PowerSync para siempre (ADR-0012 §4, gate G1). Se
+        // trata como transitorio (5xx) para que el SDK reintente en vez de congelar.
+        let batch: SyncBatch
+        do {
+            batch = try await req.decode(as: SyncBatch.self, context: ctx)
+        } catch {
+            return json(.internalServerError, #"{"error":"transient"}"#)
+        }
 
         var results: [SyncResult] = []
         for op in batch.ops {

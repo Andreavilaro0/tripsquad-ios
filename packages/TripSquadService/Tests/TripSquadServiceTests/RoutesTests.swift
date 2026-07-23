@@ -246,4 +246,156 @@ struct RoutesTests {
             }
         }
     }
+
+    // MARK: - G1 (bead 9hz): el camino de la cola NUNCA devuelve 4xx salvo 409
+    //
+    // ADR-0012 §4: un 4xx congela la cola de PowerSync para siempre. Por eso el
+    // conflicto viaja en 200 (write_conflicts), el rechazo permanente en 200
+    // (rejected), y lo transitorio (in_flight, BD caída, body ilegible) en 5xx.
+    // Este test enumera TODAS las ramas de error y falla si alguna es 4xx != 409.
+
+    /// Invariante del contrato: prohibido cualquier 4xx salvo 409.
+    func no4xxSalvo409(_ code: Int, _ etiqueta: String) {
+        let prohibido = (400..<500).contains(code) && code != 409
+        #expect(!prohibido, "\(etiqueta): status \(code) — un 4xx≠409 congela la cola (ADR-0012 §4)")
+    }
+
+    func gastoStr(id: String, amount: String = "30.00") -> String {
+        #"{"id":"\#(id)","paidBy":"ana","amount":"\#(amount)","currency":"EUR","split":{"kind":"equal","among":["ana","ivan"]}}"#
+    }
+    func batchG1(_ op: String) -> ByteBuffer {
+        ByteBuffer(string: #"{"deviceId":"dev-A","ops":[\#(op)]}"#)
+    }
+    func appCon(_ repo: some GastoRepositorio & Membresia) -> any ApplicationProtocol {
+        let deps = Dependencias(
+            casos: CasosDeUsoGastos(repo: repo, membresia: repo),
+            repo: repo,
+            pingBD: { true },
+            verificador: VerificadorSupabase(
+                fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba)
+        )
+        return Application(router: construirRouter(deps))
+    }
+
+    @Test("G1: toda rama de rechazo/conflicto viaja en 200, nunca 4xx")
+    func g1_rechazosYConflictoVanEn200() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            // baseline: crear g1 para poder provocar un conflicto de ETag después.
+            _ = try await client.execute(
+                uri: "/sync/upload", method: .post,
+                headers: [.authorization: try await bearer("ana")],
+                body: batchG1(#"{"crudId":"1","op":"PUT","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"ana|1","data":\#(gastoStr(id: "g1"))}"#)
+            ) { _ in }
+
+            let casos: [(String, String)] = [
+                ("PUT sin data",       #"{"crudId":"2","op":"PUT","table":"expenses","rowId":"g2","tripId":"\#(trip)","idempotencyKey":"ana|2"}"#),
+                ("PUT data inválida",  #"{"crudId":"3","op":"PUT","table":"expenses","rowId":"g3","tripId":"\#(trip)","idempotencyKey":"ana|3","data":\#(gastoStr(id: "g3", amount: "no-es-numero"))}"#),
+                ("PATCH sin ifMatch",  #"{"crudId":"4","op":"PATCH","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"ana|4","data":\#(gastoStr(id: "g1"))}"#),
+                ("DELETE sin ifMatch", #"{"crudId":"5","op":"DELETE","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"ana|5"}"#),
+                ("op desconocida",     #"{"crudId":"6","op":"FOO","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"ana|6"}"#),
+                ("conflicto ETag",     #"{"crudId":"7","op":"PATCH","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"ana|7","ifMatch":"etag-viejo","data":\#(gastoStr(id: "g1", amount: "40.00"))}"#),
+            ]
+            for (etiqueta, op) in casos {
+                try await client.execute(
+                    uri: "/sync/upload", method: .post,
+                    headers: [.authorization: try await bearer("ana")],
+                    body: batchG1(op)
+                ) { res in
+                    no4xxSalvo409(Int(res.status.code), etiqueta)
+                    #expect(res.status == .ok, "\(etiqueta): debe ser 200 con desenlace por-op")
+                }
+            }
+        }
+    }
+
+    @Test("G1: un no-miembro se rechaza dentro de un 200, no con 401/403")
+    func g1_noMiembroEn200() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/sync/upload", method: .post,
+                headers: [.authorization: try await bearer("sara")],   // sara NO es miembro
+                body: batchG1(#"{"crudId":"1","op":"PUT","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"sara|1","data":\#(gastoStr(id: "g1"))}"#)
+            ) { res in
+                no4xxSalvo409(Int(res.status.code), "no-miembro")
+                #expect(res.status == .ok)
+                #expect(String(buffer: res.body).contains("rejected"))
+            }
+        }
+    }
+
+    @Test("G1: un body ilegible NO es 4xx (un 400 congelaría la cola)")
+    func g1_bodyMalformadoNoEs4xx() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/sync/upload", method: .post,
+                headers: [.authorization: try await bearer("ana")],
+                body: ByteBuffer(string: "esto no es json { {")
+            ) { res in
+                no4xxSalvo409(Int(res.status.code), "body ilegible")
+                #expect(res.status.code >= 500)
+            }
+        }
+    }
+
+    @Test("G1: in_flight es 503 (transitorio), nunca 409")
+    func g1_inFlightEs503() async throws {
+        let app = appCon(RepoInFlight())
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/sync/upload", method: .post,
+                headers: [.authorization: try await bearer("ana")],
+                body: batchG1(#"{"crudId":"1","op":"PUT","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"ana|1","data":\#(gastoStr(id: "g1"))}"#)
+            ) { res in
+                no4xxSalvo409(Int(res.status.code), "in_flight")
+                #expect(res.status.code >= 500)
+            }
+        }
+    }
+
+    @Test("G1: BD caída es 5xx (transitorio), nunca 4xx")
+    func g1_bdCaidaEs5xx() async throws {
+        let app = appCon(RepoQueLanza())
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/sync/upload", method: .post,
+                headers: [.authorization: try await bearer("ana")],
+                body: batchG1(#"{"crudId":"1","op":"PUT","table":"expenses","rowId":"g1","tripId":"\#(trip)","idempotencyKey":"ana|1","data":\#(gastoStr(id: "g1"))}"#)
+            ) { res in
+                no4xxSalvo409(Int(res.status.code), "BD caída")
+                #expect(res.status.code >= 500)
+            }
+        }
+    }
+}
+
+// MARK: - Dobles para G1 (ramas que el repo en memoria no produce por sí solo)
+
+/// Simula la BD caída: todo lanza. El endpoint debe responder 5xx (transitorio),
+/// jamás 4xx (ADR-0012 §4).
+struct RepoQueLanza: GastoRepositorio, Membresia {
+    struct BDCaida: Error {}
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? { throw BDCaida() }
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura { throw BDCaida() }
+    func gastos(de tripId: String) async throws -> [GastoConEtag] { throw BDCaida() }
+    func gasto(id: String, en tripId: String) async throws -> GastoConEtag? { throw BDCaida() }
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw BDCaida() }
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw BDCaida() }
+    func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { throw BDCaida() }
+    func viajeCerrado(_ tripId: String) async throws -> Bool { throw BDCaida() }
+}
+
+/// Simula la carrera con otro dispositivo del mismo usuario: `in_flight`. El endpoint
+/// debe responder 503 (transitorio), nunca 409 (contrato §0).
+struct RepoInFlight: GastoRepositorio, Membresia {
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? { nil }
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
+    func gastos(de tripId: String) async throws -> [GastoConEtag] { [] }
+    func gasto(id: String, en tripId: String) async throws -> GastoConEtag? { nil }
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
+    func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { true }
+    func viajeCerrado(_ tripId: String) async throws -> Bool { false }
 }
