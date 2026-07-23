@@ -78,6 +78,9 @@ public struct CasosDeUsoVotacion: Sendable {
     /// carga la votación primero: si no existe (o pertenece a otro tripId),
     /// `.noAutorizado` — mismo criterio sin fuga que el resto del archivo,
     /// aplicado también aquí aunque el plan no lo pida explícito.
+    /// Política (Codex M4 P1): cerrar una votación SÍ se permite aunque el viaje esté cerrado
+    /// — es una acción terminal de limpieza, inofensiva, no una mutación de contenido. Solo
+    /// crear/votar se bloquean en viaje cerrado.
     public func cerrar(pollId: String, tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorVotacion> {
         guard let votacion = try await repo.votacion(id: pollId, en: tripId) else { return .failure(.noAutorizado) }
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)

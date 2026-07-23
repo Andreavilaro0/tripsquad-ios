@@ -7,7 +7,8 @@ create table polls (
     id          text primary key,
     trip_id     text not null references trips(id),
     question    text not null,
-    options     jsonb not null,               -- array de strings, ≥2
+    options     jsonb not null
+                check (jsonb_typeof(options) = 'array' and jsonb_array_length(options) >= 2),  -- defensa en BD (Codex P2)
     created_by  text not null,
     created_at  timestamptz not null default now(),
     closed_at   timestamptz

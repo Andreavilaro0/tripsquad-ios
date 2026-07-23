@@ -73,17 +73,26 @@ extension RepositorioPostgres: VotacionRepositorio {
     /// que después se escribe el voto.
     public func votar(pollId: String, tripId: String, member: MiembroId, choice: String, ahora: Date) async throws -> ResultadoVotar {
         try await client.withTransaction(logger: logger) { conn in
-            let rows = try await conn.query(
-                "SELECT options::text, closed_at FROM polls WHERE id = \(pollId) AND trip_id = \(tripId)",
-                logger: self.logger)
+            // JOIN trips + FOR UPDATE OF t cierra el TOCTOU (Codex P1): bloquea la fila del
+            // viaje durante la transacción, así un cierre concurrente del viaje se serializa
+            // y no puede colar un voto tras el cierre. Revalidamos trip.closed_at aquí dentro.
+            let rows = try await conn.query("""
+                SELECT p.options::text, p.closed_at, t.closed_at
+                FROM polls p JOIN trips t ON t.id = p.trip_id
+                WHERE p.id = \(pollId) AND p.trip_id = \(tripId)
+                FOR UPDATE OF t
+                """, logger: self.logger)
             var options: [String]?
-            var closedAt: Date?
-            for try await (optionsJSON, c) in rows.decode((String, Date?).self) {
+            var pollCerrada: Date?
+            var viajeCerrado: Date?
+            for try await (optionsJSON, pc, tc) in rows.decode((String, Date?, Date?).self) {
                 options = try VotacionOptionsCodec.desdeJSON(optionsJSON)
-                closedAt = c
+                pollCerrada = pc
+                viajeCerrado = tc
             }
             guard let options else { return .rechazado(razon: "poll_not_found") }
-            guard closedAt == nil else { return .rechazado(razon: "poll_closed") }
+            guard viajeCerrado == nil else { return .rechazado(razon: "trip_closed") }
+            guard pollCerrada == nil else { return .rechazado(razon: "poll_closed") }
             guard options.contains(choice) else { return .rechazado(razon: "invalid_option") }
 
             _ = try await conn.query("""
@@ -103,9 +112,14 @@ extension RepositorioPostgres: VotacionRepositorio {
     public func resultado(pollId: String, en tripId: String) async throws -> ResultadoVotacion? {
         guard let votacion = try await votacion(id: pollId, en: tripId) else { return nil }
 
-        let rows = try await client.query(
-            "SELECT member_id, choice FROM poll_votes WHERE poll_id = \(pollId) ORDER BY member_id",
-            logger: logger)
+        // JOIN polls + p.trip_id (Codex P2, defensa): aunque poll_id es PK global y ya se
+        // validó `votacion(id,en:)`, se filtra explícito por trip_id para no cruzar viajes.
+        let rows = try await client.query("""
+            SELECT pv.member_id, pv.choice FROM poll_votes pv
+            JOIN polls p ON p.id = pv.poll_id
+            WHERE pv.poll_id = \(pollId) AND p.trip_id = \(tripId)
+            ORDER BY pv.member_id
+            """, logger: logger)
         var conteo = Dictionary(uniqueKeysWithValues: votacion.options.map { ($0, 0) })
         var votos: [(MiembroId, String)] = []
         for try await (memberId, choice) in rows.decode((String, String).self) {
