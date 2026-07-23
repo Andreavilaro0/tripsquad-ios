@@ -6,7 +6,7 @@ create table messages (
     id          bigint generated always as identity primary key,   -- cursor monotónico
     trip_id     text not null references trips(id),
     member_id   text not null,
-    body        text not null,
+    body        text not null check (char_length(body) <= 4000),   -- defensa en BD (Codex M6 P3)
     deleted_at  timestamptz,
     created_at  timestamptz not null default now()
 );
