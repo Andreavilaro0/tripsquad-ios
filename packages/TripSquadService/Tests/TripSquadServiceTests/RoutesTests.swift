@@ -31,6 +31,7 @@ struct RoutesTests {
         await repo.anadirMiembro(MiembroId("ivan"), a: trip)
         let deps = Dependencias(
             casos: CasosDeUsoGastos(repo: repo, membresia: repo),
+            casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
             repo: repo,
             pingBD: { bdOk },
             verificador: VerificadorSupabase(
@@ -229,6 +230,7 @@ struct RoutesTests {
         await fuente.romper()
         let deps = Dependencias(
             casos: CasosDeUsoGastos(repo: repo, membresia: repo),
+            casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(fuente: fuente, issuer: issDePrueba, audiencia: audDePrueba)
@@ -266,9 +268,10 @@ struct RoutesTests {
     func batchG1(_ op: String) -> ByteBuffer {
         ByteBuffer(string: #"{"deviceId":"dev-A","ops":[\#(op)]}"#)
     }
-    func appCon(_ repo: some GastoRepositorio & Membresia) -> any ApplicationProtocol {
+    func appCon(_ repo: some GastoRepositorio & Membresia & SettlementRepositorio) -> any ApplicationProtocol {
         let deps = Dependencias(
             casos: CasosDeUsoGastos(repo: repo, membresia: repo),
+            casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(
@@ -398,4 +401,12 @@ struct RepoInFlight: GastoRepositorio, Membresia {
     func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { true }
     func viajeCerrado(_ tripId: String) async throws -> Bool { false }
+}
+
+extension RepoQueLanza: SettlementRepositorio {
+    func registrar(_ settlement: Settlement) async throws -> ResultadoSettle { throw BDCaida() }
+}
+
+extension RepoInFlight: SettlementRepositorio {
+    func registrar(_ settlement: Settlement) async throws -> ResultadoSettle { .rechazado(razon: "in_flight") }
 }

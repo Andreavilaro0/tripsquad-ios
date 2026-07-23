@@ -83,6 +83,7 @@ let client = PostgresClient(configuration: pgConfig)
 let repo = RepositorioPostgres(client: client, logger: logger)
 let deps = Dependencias(
     casos: CasosDeUsoGastos(repo: repo, membresia: repo),
+    casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
     repo: repo,
     pingBD: {
         do { _ = try await client.query("SELECT 1", logger: logger); return true }

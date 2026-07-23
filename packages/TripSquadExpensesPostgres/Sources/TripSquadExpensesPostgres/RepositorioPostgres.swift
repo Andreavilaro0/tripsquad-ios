@@ -283,3 +283,25 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         return out
     }
 }
+
+// MARK: - SettlementRepositorio
+
+extension RepositorioPostgres: SettlementRepositorio {
+    /// Dedupe estructural (ADR-0015 §5): el `id` (PK) es la clave determinista
+    /// (settlementId + from‖to‖transferIndex), igual que en `RepositorioEnMemoria`. La
+    /// primera vez registra; los reintentos con la misma clave son `duplicado`
+    /// (ON CONFLICT DO NOTHING, no error). `round` es ordinal de presentación (0 por
+    /// defecto), JAMÁS clave de dedupe (ver DDL de `settlements`).
+    public func registrar(_ settlement: Settlement) async throws -> ResultadoSettle {
+        let ins = try await client.query("""
+            INSERT INTO settlements
+                (id, trip_id, settlement_id, from_member, to_member, transfer_index, amount_minor, round)
+            VALUES (\(settlement.idDeterminista), \(settlement.tripId), \(settlement.settlementId),
+                \(settlement.from.raw), \(settlement.to.raw), \(settlement.transferIndex), \(settlement.amountMinor), 0)
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id
+            """, logger: logger)
+        for try await _ in ins.decode(String.self) { return .registrado }
+        return .duplicado
+    }
+}
