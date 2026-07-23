@@ -311,7 +311,9 @@ extension RepositorioPostgres: SettlementRepositorio {
               AND from_member = \(s.from.raw) AND to_member = \(s.to.raw) AND transfer_index = \(s.transferIndex)
             """, logger: logger)
         for try await (existente) in sel.decode(String.self) { return .duplicado(id: existente) }
-        return .duplicado(id: id)   // inalcanzable salvo carrera; el ON CONFLICT ya cubrió
+        // El ON CONFLICT no insertó pero la fila en conflicto ya no está (borrada en la
+        // carrera). NO devolvemos un id huérfano (Gemini P1): es un estado inconsistente.
+        throw SettlementInconsistente(tripId: s.tripId, settlementId: s.settlementId)
     }
 
     public func settlement(id: String, en tripId: String) async throws -> Settlement? {
@@ -322,9 +324,10 @@ extension RepositorioPostgres: SettlementRepositorio {
             """, logger: logger)
         for try await (sid, fromM, toM, idx, amount, createdBy, expires, status, rBy, rAt, reason)
             in rows.decode((String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {
+            // fail-safe (Kimi P2): un status corrupto en BD NO debe ser confirmable → .cancelled.
             return Settlement(settlementId: sid, tripId: tripId, from: MiembroId(fromM), to: MiembroId(toM),
                               transferIndex: idx, amountMinor: amount, createdBy: MiembroId(createdBy),
-                              expiresAt: expires, status: EstadoSettlement(rawValue: status) ?? .pending,
+                              expiresAt: expires, status: EstadoSettlement(rawValue: status) ?? .cancelled,
                               resolvedBy: rBy.map(MiembroId.init), resolvedAt: rAt, rejectReason: reason)
         }
         return nil
@@ -348,30 +351,38 @@ extension RepositorioPostgres: SettlementRepositorio {
         return .estadoInvalido
     }
 
-    public func confirmados(de tripId: String) async throws -> [Settlement] { try await porEstado(tripId, "confirmed") }
+    public func confirmados(de tripId: String) async throws -> [Settlement] {
+        try await filasPorEstado(tripId, "confirmed").map { $0.1 }
+    }
 
-    /// Pendientes CON id (Task 4): la lista HTTP necesita el id para poder confirmar
-    /// /rechazar/cancelar el settlement listado.
+    /// Pendientes CON id (Task 4): la lista HTTP necesita el id para confirmar/rechazar/cancelar.
     public func pendientes(de tripId: String) async throws -> [(String, Settlement)] {
-        let ids = try await idsPorEstado(tripId, "pending")
-        var out: [(String, Settlement)] = []
-        for idr in ids { if let s = try await settlement(id: idr, en: tripId) { out.append((idr, s)) } }
-        return out
+        try await filasPorEstado(tripId, "pending")
     }
 
-    private func porEstado(_ tripId: String, _ status: String) async throws -> [Settlement] {
-        let ids = try await idsPorEstado(tripId, status)
-        var out: [Settlement] = []
-        for idr in ids { if let s = try await settlement(id: idr, en: tripId) { out.append(s) } }
-        return out
-    }
-
-    private func idsPorEstado(_ tripId: String, _ status: String) async throws -> [String] {
+    /// UNA sola query por estado (Gemini P1: antes era N+1 — un SELECT de ids + un SELECT
+    /// por fila). Selecciona todas las columnas y decodifica el array completo.
+    private func filasPorEstado(_ tripId: String, _ status: String) async throws -> [(String, Settlement)] {
         let rows = try await client.query("""
-            SELECT id FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
+            SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                   expires_at, status, resolved_by, resolved_at, reject_reason
+            FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
             """, logger: logger)
-        var ids: [String] = []
-        for try await (idr) in rows.decode(String.self) { ids.append(idr) }
-        return ids
+        var out: [(String, Settlement)] = []
+        for try await (id, sid, fromM, toM, idx, amount, createdBy, expires, st, rBy, rAt, reason)
+            in rows.decode((String, String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {
+            out.append((id, Settlement(settlementId: sid, tripId: tripId, from: MiembroId(fromM), to: MiembroId(toM),
+                                       transferIndex: idx, amountMinor: amount, createdBy: MiembroId(createdBy),
+                                       expiresAt: expires, status: EstadoSettlement(rawValue: st) ?? .cancelled,
+                                       resolvedBy: rBy.map(MiembroId.init), resolvedAt: rAt, rejectReason: reason)))
+        }
+        return out
     }
+}
+
+/// Estado inconsistente al crear un settlement: el ON CONFLICT no insertó pero la fila en
+/// conflicto ya no existe (carrera con un borrado). Ver `crear` (Gemini P1).
+struct SettlementInconsistente: Error {
+    let tripId: String
+    let settlementId: String
 }

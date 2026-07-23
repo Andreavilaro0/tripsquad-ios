@@ -51,6 +51,7 @@ public struct CasosDeUsoSettle: Sendable {
 
     private func crearUno(_ c: ComandoCrearPago, ahora: Date) async throws -> ResultadoSettle {
         guard c.actor == c.from || c.actor == c.to else { return .rechazado(razon: "actor_not_party") }
+        guard c.from != c.to else { return .rechazado(razon: "self_payment") }   // no autopagos (Gemini P3)
         guard try await membresia.esMiembro(c.from, de: c.tripId),
               try await membresia.esMiembro(c.to, de: c.tripId) else { return .rechazado(razon: "payee_not_member") }
         if try await membresia.viajeCerrado(c.tripId) { return .rechazado(razon: "trip_closed") }
@@ -71,11 +72,12 @@ public struct CasosDeUsoSettle: Sendable {
         try await transicion(id: id, en: tripId, a: .cancelled, por: actor, ahora: ahora, esCreador: true, motivo: nil)
     }
 
-    /// Lista de pendientes, CON su id de almacenamiento (Task 4: la ruta HTTP la
-    /// necesita para poder confirmar/rechazar/cancelar los ítems listados). Delega
-    /// en el repo; no se expone otro puerto en `Dependencias` para esto.
-    public func pendientes(tripId: String) async throws -> [(String, Settlement)] {
-        try await repo.pendientes(de: tripId)
+    /// Lista de pendientes NO caducados, CON su id de almacenamiento (Task 4: la ruta HTTP
+    /// la necesita para confirmar/rechazar/cancelar los ítems). Excluye los vencidos
+    /// (`expiresAt < ahora`): un pending caducado ya no se puede confirmar, así que no debe
+    /// listarse ni marcarse como activo (Codex P3). Delega en el repo.
+    public func pendientes(tripId: String, ahora: Date) async throws -> [(String, Settlement)] {
+        try await repo.pendientes(de: tripId).filter { $0.1.expiresAt >= ahora }
     }
 
     /// Pagos CONFIRMADOS del viaje (ADR-0017): los únicos que descuentan saldo (Task 5).
@@ -87,7 +89,14 @@ public struct CasosDeUsoSettle: Sendable {
     /// cancel → el CREADOR. Luego delega la aplicación (sobre pending no caducado) al repo.
     private func transicion(id: String, en tripId: String, a nuevo: EstadoSettlement,
                             por actor: MiembroId, ahora: Date, esCreador: Bool, motivo: String?) async throws -> ResultadoTransicion {
+        // Membresía ACTUAL primero (Codex P2 / ADR-0014 + Kimi P2): así un no-miembro recibe
+        // 403 exista o no el settlement (no filtra su existencia), y un expulsado con JWT
+        // aún válido no puede seguir operando sobre sus settlements.
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .noAutorizado }
         guard let s = try await repo.settlement(id: id, en: tripId) else { return .noEncontrado }
+        // Guardia defensiva (Codex P2): `createdBy` siempre es parte en filas creadas por
+        // este código; si no lo fuera (fila legacy/corrupta), no es autorizable por nadie.
+        guard s.createdBy == s.from || s.createdBy == s.to else { return .noAutorizado }
         let contraparte = (s.createdBy == s.from) ? s.to : s.from
         let autorizado = esCreador ? (actor == s.createdBy) : (actor == contraparte)
         guard autorizado else { return .noAutorizado }

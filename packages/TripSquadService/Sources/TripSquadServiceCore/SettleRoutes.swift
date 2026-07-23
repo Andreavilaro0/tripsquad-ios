@@ -58,11 +58,12 @@ func montarSettle(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         let confirmados = try await deps.casosSettle.confirmados(tripId: tripId)
         let saldos = try balancesConLiquidaciones(gastos, confirmados: confirmados)
         let transfers = deps.casosSettle.sugerir(saldos: saldos)
-        // Aviso de pendientes: marca cada transferencia sugerida que ya tenga un pending
-        // en curso del mismo par from→to (Task 5).
-        let pend = try await deps.casosSettle.pendientes(tripId: tripId).map { $0.1 }
+        // Aviso de pendientes: Set de pares [from,to] con pending en curso → O(1) por
+        // transferencia en vez de O(N·M) (Gemini P2). El caso de uso ya excluye caducados.
+        let paresPending = Set(try await deps.casosSettle.pendientes(tripId: tripId, ahora: deps.ahora())
+            .map { [$0.1.from, $0.1.to] })
         let items = transfers.map { t -> TransferenciaDTO in
-            let hayPending = pend.contains { $0.from == t.de && $0.to == t.a }
+            let hayPending = paresPending.contains([t.de, t.a])
             return TransferenciaDTO(from: t.de.raw, to: t.a.raw, amountMinor: t.importeMinor, pending: hayPending)
         }
         return try jsonOK(SugerenciaDTO(transfers: items))
@@ -114,7 +115,7 @@ func montarSettle(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         guard try await deps.casosSettle.puedeSugerir(tripId: tripId, actor: ctx.actor) else {
             return errorJSON(.forbidden, "not_member")
         }
-        let pend = try await deps.casosSettle.pendientes(tripId: tripId)
+        let pend = try await deps.casosSettle.pendientes(tripId: tripId, ahora: deps.ahora())
         let items = pend.map { (id, s) in
             ItemListaDTO(id: id, from: s.from.raw, to: s.to.raw, amountMinor: s.amountMinor, status: s.status.rawValue)
         }

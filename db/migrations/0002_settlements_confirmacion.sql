@@ -12,3 +12,13 @@ alter table settlements
 
 -- `round` deja de pasarse a mano (fix E): default 0.
 alter table settlements alter column round set default 0;
+
+-- NOTA (Codex P1): la tabla `settlements` está VACÍA en todos los entornos (nunca hubo
+-- endpoint que escribiera antes de ADR-0017), así que el `default ''` de `created_by` no
+-- afecta a filas reales; toda fila nueva la escribe `crear` con un `created_by` válido. La
+-- capa de dominio, además, rechaza transicionar cualquier fila cuyo `created_by ∉ {from,to}`.
+
+-- Índices para las lecturas por estado (aviso de pendientes, descuento de confirmados) y la
+-- caducidad (Gemini P2): sin ellos, cada sugerencia haría un scan secuencial.
+create index if not exists idx_settlements_trip_status on settlements (trip_id, status);
+create index if not exists idx_settlements_expires_at  on settlements (expires_at) where status = 'pending';

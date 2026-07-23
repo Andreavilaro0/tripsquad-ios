@@ -100,4 +100,28 @@ struct CasosDeUsoSettleTests {
         _ = try await casos.confirmar(id: id, en: "t1", por: MiembroId("ana"), ahora: t0)
         #expect(try await r.confirmados(de: "t1").count == 1)  // confirmed sí
     }
+
+    // --- Arreglos de la revisión multi-modelo de M1 ---
+
+    @Test func autopagoSeRechaza() async throws {   // Gemini P3
+        let (_, casos) = await setup()
+        let res = try await casos.crearPagos([cmd(from: "ivan", to: "ivan", actor: "ivan")], ahora: t0)
+        #expect(res[0] == .rechazado(razon: "self_payment"))
+    }
+
+    @Test func expulsadoNoPuedeConfirmar() async throws {   // Codex P2 (ADR-0014)
+        let (r, casos) = await setup()
+        guard case .creado(let id) = try await casos.crearPagos([cmd()], ahora: t0)[0] else { return }
+        await r.expulsar(MiembroId("ana"), de: "t1")   // ana (contraparte) es expulsada del viaje
+        // Con JWT aún válido pero ya sin membresía, no puede confirmar.
+        #expect(try await casos.confirmar(id: id, en: "t1", por: MiembroId("ana"), ahora: t0) == .noAutorizado)
+    }
+
+    @Test func pendienteCaducadoNoSeLista() async throws {   // Codex P3
+        let (_, casos) = await setup()
+        _ = try await casos.crearPagos([cmd()], ahora: t0)
+        let futuro = t0.addingTimeInterval(31 * 24 * 3600)   // > 30 días
+        #expect(try await casos.pendientes(tripId: "t1", ahora: t0).count == 1)    // vigente: se lista
+        #expect(try await casos.pendientes(tripId: "t1", ahora: futuro).isEmpty)   // caducado: no se lista
+    }
 }

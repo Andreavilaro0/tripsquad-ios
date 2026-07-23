@@ -23,6 +23,7 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     // MARK: - Setup para tests
 
     public func anadirMiembro(_ m: MiembroId, a tripId: String) { miembros[tripId, default: []].insert(m) }
+    public func expulsar(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }
     public func cerrarViaje(_ tripId: String) { cerrados.insert(tripId) }
 
     // MARK: - Membresia
