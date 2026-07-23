@@ -21,4 +21,20 @@ services:
       #   postgresql://usuario:password@host:5432/postgres?sslmode=require
       - key: DATABASE_URL
         sync: false
+      # Autenticación (ADR-0014 §1). El servicio verifica cada Bearer JWT contra la
+      # JWKS de Supabase. SUPABASE_URL es obligatoria: sin ella el proceso no arranca.
+      #   https://<proyecto>.supabase.co
+      - key: SUPABASE_URL
+        sync: false
+      # Opcionales — por defecto se derivan de SUPABASE_URL:
+      #   SUPABASE_JWKS_URL = <SUPABASE_URL>/auth/v1/.well-known/jwks.json
+      #   JWT_ISS           = <SUPABASE_URL>/auth/v1
+      #   JWT_AUD           = authenticated
+      # Edad máxima del token (ADR-0014 §1: TTL ≤ 5 min). 330 = 5 min + margen.
+      # ⚠️ ACOPLE: solo funciona si el access-token TTL de Supabase está en ≤5 min
+      # (su defecto son 3600 s). Con Supabase a 1h y esto a 330, se rechazan TODOS
+      # los tokens. Pasos en Supabase: Authentication → Sessions → "Access token
+      # (JWT) expiry" → 300 s. Deja este valor SOLO tras hacer ese cambio.
+      - key: JWT_MAX_TTL_SECONDS
+        value: "330"
       # Render inyecta PORT automáticamente; el servicio escucha en 0.0.0.0:$PORT.

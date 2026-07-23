@@ -13,22 +13,46 @@ public struct Dependencias: Sendable {
     public let casos: CasosDeUsoGastos
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
+    public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
 
-    public init(casos: CasosDeUsoGastos, repo: GastoRepositorio, pingBD: @escaping @Sendable () async -> Bool) {
+    public init(
+        casos: CasosDeUsoGastos,
+        repo: GastoRepositorio,
+        pingBD: @escaping @Sendable () async -> Bool,
+        verificador: any VerificadorDeToken
+    ) {
         self.casos = casos
         self.repo = repo
         self.pingBD = pingBD
+        self.verificador = verificador
     }
 }
 
 /// Construye el router con todas las rutas montadas.
-public func construirRouter(_ deps: Dependencias) -> Router<BasicRequestContext> {
-    let router = Router()
+///
+/// Reparto de contextos: `/live` y `/health` son públicos y se quedan en el contexto
+/// base; todo lo demás pasa por `AuthMiddleware` y sube al contexto autenticado, donde
+/// el actor ya es no-opcional. Los dos grupos protegidos existen porque el 401 NO se
+/// escribe igual en la API directa que en la cola (contrato §0).
+public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
+    let router = Router(context: ContextoTripSquad.self)
     router.add(middleware: LogRequestsMiddleware(.info))
 
     montarSalud(router, deps)
-    montarGastos(router, deps)
-    montarSyncUpload(router, deps)
+
+    montarGastos(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarSyncUpload(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthCola))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
 
     return router
 }

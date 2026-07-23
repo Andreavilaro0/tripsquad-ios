@@ -7,11 +7,11 @@ import HTTPTypes
 import TripSquadDomain
 import TripSquadExpenses
 
-func montarGastos(_ router: Router<BasicRequestContext>, _ deps: Dependencias) {
+func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
 
     // POST /trips/:tripId/expenses — crear
     router.post("trips/:tripId/expenses") { req, ctx -> Response in
-        guard let actor = req.actor() else { return errorJSON(.unauthorized, "not_authenticated") }
+        let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: GastoDTO.self, context: ctx)
@@ -22,7 +22,7 @@ func montarGastos(_ router: Router<BasicRequestContext>, _ deps: Dependencias) {
 
     // PATCH /trips/:tripId/expenses/:id — editar (If-Match obligatorio)
     router.patch("trips/:tripId/expenses/:id") { req, ctx -> Response in
-        guard let actor = req.actor() else { return errorJSON(.unauthorized, "not_authenticated") }
+        let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")
@@ -37,7 +37,7 @@ func montarGastos(_ router: Router<BasicRequestContext>, _ deps: Dependencias) {
 
     // DELETE /trips/:tripId/expenses/:id — borrar (If-Match obligatorio, ADR-0013)
     router.delete("trips/:tripId/expenses/:id") { req, ctx -> Response in
-        guard let actor = req.actor() else { return errorJSON(.unauthorized, "not_authenticated") }
+        let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")

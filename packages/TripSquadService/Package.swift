@@ -14,6 +14,10 @@ let package = Package(
         .package(path: "../TripSquadExpensesPostgres"),
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.6.0"),
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.25.0"),
+        // Verificación de los JWT de Supabase (ADR-0014 §1). jwt-kit NO descarga la
+        // JWKS: eso lo hace AsyncHTTPClient desde el verificador (ver Auth.swift).
+        .package(url: "https://github.com/vapor/jwt-kit.git", from: "5.1.0"),
+        .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
     ],
     targets: [
         .target(
@@ -24,17 +28,24 @@ let package = Package(
                 .product(name: "TripSquadExpensesPostgres", package: "TripSquadExpensesPostgres"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "PostgresNIO", package: "postgres-nio"),
+                .product(name: "JWTKit", package: "jwt-kit"),
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
             ]
         ),
         .executableTarget(
             name: "TripSquadService",
-            dependencies: ["TripSquadServiceCore"]
+            dependencies: [
+                "TripSquadServiceCore",
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
+            ]
         ),
         .testTarget(
             name: "TripSquadServiceTests",
             dependencies: [
                 "TripSquadServiceCore",
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
+                // Los tests FIRMAN tokens ES256 de verdad (sin red, sin mocks de crypto).
+                .product(name: "JWTKit", package: "jwt-kit"),
             ]
         ),
     ]

@@ -3,7 +3,7 @@
 
 import Hummingbird
 
-func montarSalud(_ router: Router<BasicRequestContext>, _ deps: Dependencias) {
+func montarSalud(_ router: some RouterMethods<ContextoTripSquad>, _ deps: Dependencias) {
     // Liveness para el health check de Render: SIEMPRE 200 si el proceso está vivo.
     // No comprueba la BD — si lo hiciera, un fallo de Supabase tumbaría el deploy.
     router.get("live") { _, _ -> Response in
