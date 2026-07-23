@@ -34,11 +34,11 @@ struct SyncResult: Codable {
     var serverEtag: String?
 }
 
-func montarSyncUpload(_ router: Router<BasicRequestContext>, _ deps: Dependencias) {
+func montarSyncUpload(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
     router.post("sync/upload") { req, ctx -> Response in
-        // Auth: un 401 lo maneja el connector re-autenticando (contrato §0). Es la
-        // única 4xx admitida, y el cliente NO la trata como congelación de cola.
-        guard let actor = req.actor() else { return json(.unauthorized, #"{"error":"reauth"}"#) }
+        // Auth: el 401 (si el token no vale) ya lo devolvió AuthMiddleware; aquí el
+        // actor viene garantizado. El connector re-autentica con ese 401 (contrato §0).
+        let actor = ctx.actor
         let batch = try await req.decode(as: SyncBatch.self, context: ctx)
 
         var results: [SyncResult] = []
