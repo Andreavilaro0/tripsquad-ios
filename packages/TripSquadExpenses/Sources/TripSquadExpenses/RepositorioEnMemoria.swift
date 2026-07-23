@@ -141,4 +141,9 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         settlements[clave] = settlement
         return .registrado
     }
+
+    /// Helper de test (gate G4, bead 8hn): cuántos settlements hay para un settlementId.
+    public func contarSettlements(settlementId: String) -> Int {
+        settlements.values.filter { $0.settlementId == settlementId }.count
+    }
 }
