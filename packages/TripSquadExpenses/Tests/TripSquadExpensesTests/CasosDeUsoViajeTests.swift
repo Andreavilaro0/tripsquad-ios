@@ -22,10 +22,10 @@ struct CasosDeUsoViajeTests {
     /// para no repetir el mismo boilerplate en cada test.
     func viajeConInvitacion(_ casos: CasosDeUsoViaje) async throws -> (tripId: String, code: String) {
         let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
-        guard case .success(let code) = try await casos.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
+        guard case .success(let invitacion) = try await casos.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba invitar exitoso"); return (viaje.id, "")
         }
-        return (viaje.id, code)
+        return (viaje.id, invitacion.code)
     }
 
     // 1. crear → el creador es owner y miembro; aparece en misViajes.

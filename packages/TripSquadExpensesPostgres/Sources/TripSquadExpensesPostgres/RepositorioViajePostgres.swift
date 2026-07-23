@@ -96,9 +96,13 @@ extension RepositorioPostgres: ViajeRepositorio {
     }
 
     public func revocarInvitacion(code: String, en tripId: String, ahora: Date) async throws -> Bool {
+        // Idempotente (igual que RepositorioEnMemoria, hallazgo Codex P3): revoca si no lo
+        // estaba (coalesce conserva el revoked_at original), y devuelve true si la
+        // invitación existe en ESE viaje — ya revocada o recién revocada. false solo si el
+        // code no existe o es de otro viaje.
         let rows = try await client.query("""
-            UPDATE trip_invites SET revoked_at = \(ahora)
-            WHERE code = \(code) AND trip_id = \(tripId) AND revoked_at IS NULL
+            UPDATE trip_invites SET revoked_at = coalesce(revoked_at, \(ahora))
+            WHERE code = \(code) AND trip_id = \(tripId)
             RETURNING code
             """, logger: logger)
         for try await _ in rows { return true }
@@ -128,11 +132,19 @@ extension RepositorioPostgres: ViajeRepositorio {
             if revokedAt != nil { return .revocado }
             if expiresAt < ahora { return .caducado }
 
+            // FOR UPDATE bloquea la fila del viaje durante toda la transacción: los joins
+            // concurrentes al MISMO viaje se serializan aquí, así el conteo del tope y el
+            // insert son atómicos (Codex/Gemini P2: sin esto, dos joins leen activos<tope y
+            // ambos entran, superando el límite). Si el viaje no existe (invitación colgada,
+            // Codex P2), el code es inválido.
             let tripRows = try await conn.query(
-                "SELECT closed_at FROM trips WHERE id = \(tripId)", logger: self.logger)
-            for try await (closedAt) in tripRows.decode(Date?.self) where closedAt != nil {
-                return .viajeCerrado
+                "SELECT closed_at FROM trips WHERE id = \(tripId) FOR UPDATE", logger: self.logger)
+            var tripExiste = false
+            for try await (closedAt) in tripRows.decode(Date?.self) {
+                tripExiste = true
+                if closedAt != nil { return .viajeCerrado }
             }
+            guard tripExiste else { return .codigoInvalido }
 
             let activoRows = try await conn.query("""
                 SELECT 1 FROM trip_members

@@ -45,14 +45,16 @@ public struct CasosDeUsoViaje: Sendable {
     /// si el viaje está cerrado. El code es aleatorio de runtime real —
     /// `UUID().uuidString` da ≥122 bits de entropía, suficiente para no ser
     /// adivinable y es la PK de `trip_invites`.
-    public func invitar(tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<String, ErrorViaje> {
+    /// Devuelve la `Invitacion` COMPLETA (con `expiresAt`) — no solo el code — para que la
+    /// capa HTTP no tenga que recalcular la caducidad con una constante duplicada (Gemini P3).
+    public func invitar(tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<Invitacion, ErrorViaje> {
         guard try await repo.rol(de: actor, en: tripId) != nil else { return .failure(.noAutorizado) }
         guard let viaje = try await repo.viaje(id: tripId) else { return .failure(.noAutorizado) }
         guard viaje.closedAt == nil else { return .failure(.viajeCerrado) }
         let code = UUID().uuidString
         let expiresAt = ahora.addingTimeInterval(Self.duracionInvitacion)
-        _ = try await repo.crearInvitacion(tripId: tripId, por: actor, code: code, expiresAt: expiresAt)
-        return .success(code)
+        let invitacion = try await repo.crearInvitacion(tripId: tripId, por: actor, code: code, expiresAt: expiresAt)
+        return .success(invitacion)
     }
 
     /// SOLO el owner revoca (ADR-0018 §4).

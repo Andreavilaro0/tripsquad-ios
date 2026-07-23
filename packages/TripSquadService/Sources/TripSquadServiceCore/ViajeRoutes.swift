@@ -88,14 +88,8 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         let tripId = try ctx.parameters.require("tripId")
         let ahora = deps.ahora()
         switch try await deps.casosViaje.invitar(tripId: tripId, actor: ctx.actor, ahora: ahora) {
-        case .success(let code):
-            // `CasosDeUsoViaje.invitar` solo expone el code (no el `Invitacion`
-            // completo); recalculamos aquí el mismo `expiresAt` que fijó el caso de
-            // uso al crear la invitación. DEBE coincidir con
-            // `CasosDeUsoViaje.duracionInvitacion` (7 días, ADR-0018 §1) — decisión
-            // documentada en el report de este task, no es fuente de verdad propia.
-            let expiresAt = ahora.addingTimeInterval(durationInvitacionDTO)
-            return try respuestaJSON(.created, InviteDTO(code: code, expiresAt: expiresAt))
+        case .success(let invitacion):
+            return try respuestaJSON(.created, InviteDTO(code: invitacion.code, expiresAt: invitacion.expiresAt))
         case .failure(let error):
             return respuestaErrorViaje(error)
         }
@@ -137,9 +131,6 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         }
     }
 }
-
-/// Debe coincidir con `CasosDeUsoViaje.duracionInvitacion` (privada al dominio).
-private let durationInvitacionDTO: TimeInterval = 7 * 24 * 60 * 60
 
 // MARK: - Mapeo ErrorViaje -> HTTP
 
