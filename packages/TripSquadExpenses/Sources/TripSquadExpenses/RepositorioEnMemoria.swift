@@ -164,8 +164,9 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         settlements.values.filter { $0.tripId == tripId && $0.status == .confirmed }
     }
 
-    public func pendientes(de tripId: String) -> [Settlement] {
-        settlements.values.filter { $0.tripId == tripId && $0.status == .pending }
+    public func pendientes(de tripId: String) -> [(String, Settlement)] {
+        settlements.filter { $0.value.tripId == tripId && $0.value.status == .pending }
+            .map { ($0.key, $0.value) }
     }
 
     private func nuevoIdSettlement() -> String { contadorSettlement += 1; return "set-\(contadorSettlement)" }

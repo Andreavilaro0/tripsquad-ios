@@ -349,16 +349,29 @@ extension RepositorioPostgres: SettlementRepositorio {
     }
 
     public func confirmados(de tripId: String) async throws -> [Settlement] { try await porEstado(tripId, "confirmed") }
-    public func pendientes(de tripId: String) async throws -> [Settlement] { try await porEstado(tripId, "pending") }
+
+    /// Pendientes CON id (Task 4): la lista HTTP necesita el id para poder confirmar
+    /// /rechazar/cancelar el settlement listado.
+    public func pendientes(de tripId: String) async throws -> [(String, Settlement)] {
+        let ids = try await idsPorEstado(tripId, "pending")
+        var out: [(String, Settlement)] = []
+        for idr in ids { if let s = try await settlement(id: idr, en: tripId) { out.append((idr, s)) } }
+        return out
+    }
 
     private func porEstado(_ tripId: String, _ status: String) async throws -> [Settlement] {
+        let ids = try await idsPorEstado(tripId, status)
+        var out: [Settlement] = []
+        for idr in ids { if let s = try await settlement(id: idr, en: tripId) { out.append(s) } }
+        return out
+    }
+
+    private func idsPorEstado(_ tripId: String, _ status: String) async throws -> [String] {
         let rows = try await client.query("""
             SELECT id FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
             """, logger: logger)
         var ids: [String] = []
         for try await (idr) in rows.decode(String.self) { ids.append(idr) }
-        var out: [Settlement] = []
-        for idr in ids { if let s = try await settlement(id: idr, en: tripId) { out.append(s) } }
-        return out
+        return ids
     }
 }

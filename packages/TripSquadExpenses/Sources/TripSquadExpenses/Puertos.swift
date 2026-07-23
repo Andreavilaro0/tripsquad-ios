@@ -90,7 +90,10 @@ public protocol SettlementRepositorio: Sendable {
     func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
                       por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion
     func confirmados(de tripId: String) async throws -> [Settlement]
-    func pendientes(de tripId: String) async throws -> [Settlement]
+    /// Pendientes CON su id de almacenamiento (el dominio `Settlement` no lo lleva;
+    /// lo genera el repo al crear — ADR-0017, decisión Task 4). El id hace falta para
+    /// que el cliente pueda confirmar/rechazar/cancelar el settlement listado.
+    func pendientes(de tripId: String) async throws -> [(String, Settlement)]
     /// Lee un settlement por id (para autorizar la transición en el caso de uso).
     func settlement(id: String, en tripId: String) async throws -> Settlement?
 }

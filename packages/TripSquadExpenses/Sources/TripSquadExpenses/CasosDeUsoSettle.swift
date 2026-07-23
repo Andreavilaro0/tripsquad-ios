@@ -71,6 +71,13 @@ public struct CasosDeUsoSettle: Sendable {
         try await transicion(id: id, en: tripId, a: .cancelled, por: actor, ahora: ahora, esCreador: true, motivo: nil)
     }
 
+    /// Lista de pendientes, CON su id de almacenamiento (Task 4: la ruta HTTP la
+    /// necesita para poder confirmar/rechazar/cancelar los ítems listados). Delega
+    /// en el repo; no se expone otro puerto en `Dependencias` para esto.
+    public func pendientes(tripId: String) async throws -> [(String, Settlement)] {
+        try await repo.pendientes(de: tripId)
+    }
+
     /// Autoriza según quién puede: confirm/reject → la CONTRAPARTE (parte ≠ createdBy);
     /// cancel → el CREADOR. Luego delega la aplicación (sobre pending no caducado) al repo.
     private func transicion(id: String, en tripId: String, a nuevo: EstadoSettlement,
