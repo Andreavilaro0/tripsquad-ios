@@ -16,6 +16,7 @@ private struct TransferenciaDTO: Encodable {
     let from: String
     let to: String
     let amountMinor: Int64
+    let pending: Bool
 }
 private struct SugerenciaDTO: Encodable {
     let transfers: [TransferenciaDTO]
@@ -54,13 +55,17 @@ func montarSettle(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
             return errorJSON(.forbidden, "not_member")
         }
         let gastos = try await deps.repo.gastos(de: tripId).map(\.gasto)
-        let saldos = try balances(gastos)
-        let transfers = deps.casosSettle.sugerir(saldos: saldos).map {
-            TransferenciaDTO(from: $0.de.raw, to: $0.a.raw, amountMinor: $0.importeMinor)
+        let confirmados = try await deps.casosSettle.confirmados(tripId: tripId)
+        let saldos = try balancesConLiquidaciones(gastos, confirmados: confirmados)
+        let transfers = deps.casosSettle.sugerir(saldos: saldos)
+        // Aviso de pendientes: marca cada transferencia sugerida que ya tenga un pending
+        // en curso del mismo par from→to (Task 5).
+        let pend = try await deps.casosSettle.pendientes(tripId: tripId).map { $0.1 }
+        let items = transfers.map { t -> TransferenciaDTO in
+            let hayPending = pend.contains { $0.from == t.de && $0.to == t.a }
+            return TransferenciaDTO(from: t.de.raw, to: t.a.raw, amountMinor: t.importeMinor, pending: hayPending)
         }
-        let data = try JSONEncoder().encode(SugerenciaDTO(transfers: transfers))
-        return Response(status: .ok, headers: [.contentType: "application/json"],
-                        body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        return try jsonOK(SugerenciaDTO(transfers: items))
     }
 
     // POST crear-lote — afirmaciones de pago en estado pending (ADR-0017).

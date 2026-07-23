@@ -46,6 +46,59 @@ struct SettleRoutesTests {
         }
     }
 
+    /// Crea un gasto vía HTTP para sembrar deuda (40.00 EUR pagados por ana, split
+    /// equal ana/ivan → ivan debe 2000 a ana). Es el mismo camino que usan los tests de
+    /// `RoutesTests`; más simple que sembrar el repo en memoria a mano.
+    func sembrarDeuda(_ app: any ApplicationProtocol) async throws {
+        try await app.test(.router) { client in
+            let body = ByteBuffer(string: #"{"id":"g1","paidBy":"ana","amount":"40.00","currency":"EUR","split":{"kind":"equal","among":["ana","ivan"]}}"#)
+            try await client.execute(
+                uri: "/trips/\(trip)/expenses", method: .post,
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-deuda"],
+                body: body
+            ) { res in
+                #expect(res.status == .created)
+            }
+        }
+    }
+
+    // MARK: - Task 5: confirmados descuentan + aviso de pendientes
+
+    @Test func confirmadoReduceLaSugerencia() async throws {
+        let (app, _) = await app()
+        try await sembrarDeuda(app)
+        // ivan debe 2000 a ana; ivan afirma el pago y ana (contraparte) lo confirma.
+        let id = try await crearId(app, actor: "ivan", from: "ivan", to: "ana", settlementId: "s-confirma", amountMinor: 2000)
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/trips/\(trip)/settlements/\(id)/confirm", method: .post,
+                headers: [.authorization: try await bearer("ana")]) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: "/trips/\(trip)/settlement/suggestion", method: .get,
+                headers: [.authorization: try await bearer("ana")]) { res in
+                #expect(res.status == .ok)
+                let decoded = try JSONDecoder().decode(RespSugerenciaTest.self, from: Data(buffer: res.body))
+                #expect(decoded.transfers.isEmpty)
+            }
+        }
+    }
+
+    @Test func avisoDePendienteEnLaSugerencia() async throws {
+        let (app, _) = await app()
+        try await sembrarDeuda(app)
+        // ivan afirma el pago pero NADIE lo confirma todavía: sigue pending.
+        _ = try await crearId(app, actor: "ivan", from: "ivan", to: "ana", settlementId: "s-pend", amountMinor: 2000)
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/trips/\(trip)/settlement/suggestion", method: .get,
+                headers: [.authorization: try await bearer("ana")]) { res in
+                #expect(res.status == .ok)
+                let decoded = try JSONDecoder().decode(RespSugerenciaTest.self, from: Data(buffer: res.body))
+                let t = try #require(decoded.transfers.first { $0.from == "ivan" && $0.to == "ana" })
+                #expect(t.pending == true)
+            }
+        }
+    }
+
     @Test func sugerenciaGET200() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
@@ -250,6 +303,10 @@ struct SettleRoutesTests {
 /// reales de `SettleRoutes.swift` son `private` al módulo, no visibles desde fuera).
 private struct ItemCreadoTest: Decodable { let id: String? }
 private struct RespCrearLoteTest: Decodable { let created: [ItemCreadoTest] }
+
+/// DTO mínimo para decodificar el GET suggestion en los tests (Task 5: campo `pending`).
+private struct TransferenciaTest: Decodable { let from: String; let to: String; let amountMinor: Int64; let pending: Bool }
+private struct RespSugerenciaTest: Decodable { let transfers: [TransferenciaTest] }
 
 /// Repo de prueba para el finding D: NO miembro, y `gastos()` LANZA. Sirve para verificar
 /// que la ruta autoriza antes de tocar gastos. El resto de métodos no se ejercitan aquí.
