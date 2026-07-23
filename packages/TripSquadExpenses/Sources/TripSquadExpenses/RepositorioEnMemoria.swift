@@ -13,6 +13,7 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // "actor|key" -> resultado
     private var miembros: [String: Set<MiembroId>] = [:]
     private var cerrados: Set<String> = []
+    private var settlements: [String: Settlement] = [:]   // idDeterminista -> settlement
     private var version = 0
 
     public init() {}
@@ -128,5 +129,16 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
         case .creado(let e), .actualizado(let e): return .reproducido(etag: e)
         case .reproducido, .eliminado, .conflicto, .rechazado: return r
         }
+    }
+}
+
+extension RepositorioEnMemoria: SettlementRepositorio {
+    /// Dedupe estructural (ADR-0015 §5): la primera vez registra; los reintentos con
+    /// la misma clave son `duplicado` (idempotente, no error).
+    public func registrar(_ settlement: Settlement) -> ResultadoSettle {
+        let clave = settlement.idDeterminista
+        if settlements[clave] != nil { return .duplicado }
+        settlements[clave] = settlement
+        return .registrado
     }
 }
