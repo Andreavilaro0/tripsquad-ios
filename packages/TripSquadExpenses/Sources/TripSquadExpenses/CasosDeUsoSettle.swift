@@ -78,6 +78,11 @@ public struct CasosDeUsoSettle: Sendable {
         try await repo.pendientes(de: tripId)
     }
 
+    /// Pagos CONFIRMADOS del viaje (ADR-0017): los únicos que descuentan saldo (Task 5).
+    public func confirmados(tripId: String) async throws -> [Settlement] {
+        try await repo.confirmados(de: tripId)
+    }
+
     /// Autoriza según quién puede: confirm/reject → la CONTRAPARTE (parte ≠ createdBy);
     /// cancel → el CREADOR. Luego delega la aplicación (sobre pending no caducado) al repo.
     private func transicion(id: String, en tripId: String, a nuevo: EstadoSettlement,
