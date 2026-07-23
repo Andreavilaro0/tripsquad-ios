@@ -109,3 +109,15 @@ public protocol VotacionRepositorio: Sendable {
     func resultado(pollId: String, en tripId: String) async throws -> ResultadoVotacion?
     func cerrar(pollId: String, en tripId: String, ahora: Date) async throws
 }
+
+/// Puerto de persistencia de itinerario (M5, ADR-0020 borrador). Firma
+/// copiada literal de `docs/design/itinerario-scope-y-plan.md`. `listar`
+/// devuelve las actividades ordenadas por `(day, orderIndex)` — el cliente
+/// ordena además por `startTime` (plan §4), fuera del alcance del dominio.
+public protocol ItinerarioRepositorio: Sendable {
+    func crear(_ a: ActividadItinerario, ahora: Date) async throws
+    func listar(_ tripId: String) async throws -> [ActividadItinerario]   // ordenado por day, orderIndex
+    func item(id: String, en tripId: String) async throws -> ActividadItinerario?
+    func actualizar(_ a: ActividadItinerario, ahora: Date) async throws
+    func borrar(id: String, en tripId: String) async throws
+}

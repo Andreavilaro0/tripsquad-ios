@@ -33,6 +33,10 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     private var votaciones: [String: [String: Votacion]] = [:]  // tripId -> pollId -> Votacion
     private var votos: [String: [MiembroId: String]] = [:]      // pollId -> member -> choice (upsert)
 
+    // MARK: - Almacén de itinerario (M5, ADR-0020 borrador)
+
+    private var actividades: [String: [String: ActividadItinerario]] = [:]  // tripId -> itemId -> Actividad
+
     public init() {}
 
     // MARK: - Setup para tests
@@ -277,5 +281,32 @@ extension RepositorioEnMemoria: VotacionRepositorio {
     public func cerrar(pollId: String, en tripId: String, ahora: Date) {
         guard let v = votaciones[tripId]?[pollId] else { return }
         votaciones[tripId]![pollId] = Votacion(id: v.id, tripId: v.tripId, question: v.question, options: v.options, createdBy: v.createdBy, closedAt: ahora)
+    }
+}
+
+extension RepositorioEnMemoria: ItinerarioRepositorio {
+
+    public func crear(_ a: ActividadItinerario, ahora: Date) {
+        actividades[a.tripId, default: [:]][a.id] = a
+    }
+
+    /// Ordenado por `(day, orderIndex)` (plan §4) — `day` es 'YYYY-MM-DD', que
+    /// ordena igual como string ISO que como fecha real.
+    public func listar(_ tripId: String) -> [ActividadItinerario] {
+        (actividades[tripId] ?? [:]).values
+            .sorted { ($0.day, $0.orderIndex) < ($1.day, $1.orderIndex) }
+    }
+
+    public func item(id: String, en tripId: String) -> ActividadItinerario? {
+        actividades[tripId]?[id]
+    }
+
+    public func actualizar(_ a: ActividadItinerario, ahora: Date) {
+        guard actividades[a.tripId]?[a.id] != nil else { return }
+        actividades[a.tripId]![a.id] = a
+    }
+
+    public func borrar(id: String, en tripId: String) {
+        actividades[tripId]?[id] = nil
     }
 }
