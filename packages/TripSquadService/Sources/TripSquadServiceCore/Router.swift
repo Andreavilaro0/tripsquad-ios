@@ -15,19 +15,22 @@ public struct Dependencias: Sendable {
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
+    public let ahora: @Sendable () -> Date   // reloj inyectable (para caducidad testeable)
 
     public init(
         casos: CasosDeUsoGastos,
         casosSettle: CasosDeUsoSettle,
         repo: GastoRepositorio,
         pingBD: @escaping @Sendable () async -> Bool,
-        verificador: any VerificadorDeToken
+        verificador: any VerificadorDeToken,
+        ahora: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.casos = casos
         self.casosSettle = casosSettle
         self.repo = repo
         self.pingBD = pingBD
         self.verificador = verificador
+        self.ahora = ahora
     }
 }
 

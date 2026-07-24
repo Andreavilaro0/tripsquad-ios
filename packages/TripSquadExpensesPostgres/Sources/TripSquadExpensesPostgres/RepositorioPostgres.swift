@@ -287,21 +287,102 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
 // MARK: - SettlementRepositorio
 
 extension RepositorioPostgres: SettlementRepositorio {
-    /// Dedupe estructural (ADR-0015 §5): el `id` (PK) es la clave determinista
-    /// (settlementId + from‖to‖transferIndex), igual que en `RepositorioEnMemoria`. La
-    /// primera vez registra; los reintentos con la misma clave son `duplicado`
-    /// (ON CONFLICT DO NOTHING, no error). `round` es ordinal de presentación (0 por
-    /// defecto), JAMÁS clave de dedupe (ver DDL de `settlements`).
-    public func registrar(_ settlement: Settlement) async throws -> ResultadoSettle {
+    /// Dedupe estructural (ADR-0015 §5, ADR-0017): la clave natural es
+    /// `(trip_id, settlement_id, from_member, to_member, transfer_index)` — la UNIQUE
+    /// de `settlements` — NO el `id` (que ahora es un surrogate UUID de cliente). La
+    /// primera vez crea con `status='pending'`; los reintentos con la misma clave
+    /// natural son `duplicado` (ON CONFLICT DO NOTHING, no error) y devuelven el id ya
+    /// existente. `round` no se pasa: tiene default 0 desde la migración 0002.
+    public func crear(_ s: Settlement) async throws -> ResultadoSettle {
+        let id = UUID().uuidString
         let ins = try await client.query("""
             INSERT INTO settlements
-                (id, trip_id, settlement_id, from_member, to_member, transfer_index, amount_minor, round)
-            VALUES (\(settlement.idDeterminista), \(settlement.tripId), \(settlement.settlementId),
-                \(settlement.from.raw), \(settlement.to.raw), \(settlement.transferIndex), \(settlement.amountMinor), 0)
-            ON CONFLICT (id) DO NOTHING
+                (id, trip_id, settlement_id, from_member, to_member, transfer_index, amount_minor, status, created_by, expires_at)
+            VALUES (\(id), \(s.tripId), \(s.settlementId), \(s.from.raw), \(s.to.raw), \(s.transferIndex),
+                    \(s.amountMinor), 'pending', \(s.createdBy.raw), \(s.expiresAt))
+            ON CONFLICT (trip_id, settlement_id, from_member, to_member, transfer_index) DO NOTHING
             RETURNING id
             """, logger: logger)
-        for try await _ in ins.decode(String.self) { return .registrado }
-        return .duplicado
+        for try await (nuevoId) in ins.decode(String.self) { return .creado(id: nuevoId) }
+        // Choque: leer el id existente por la clave natural.
+        let sel = try await client.query("""
+            SELECT id FROM settlements
+            WHERE trip_id = \(s.tripId) AND settlement_id = \(s.settlementId)
+              AND from_member = \(s.from.raw) AND to_member = \(s.to.raw) AND transfer_index = \(s.transferIndex)
+            """, logger: logger)
+        for try await (existente) in sel.decode(String.self) { return .duplicado(id: existente) }
+        // El ON CONFLICT no insertó pero la fila en conflicto ya no está (borrada en la
+        // carrera). NO devolvemos un id huérfano (Gemini P1): es un estado inconsistente.
+        throw SettlementInconsistente(tripId: s.tripId, settlementId: s.settlementId)
     }
+
+    public func settlement(id: String, en tripId: String) async throws -> Settlement? {
+        let rows = try await client.query("""
+            SELECT settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                   expires_at, status, resolved_by, resolved_at, reject_reason
+            FROM settlements WHERE id = \(id) AND trip_id = \(tripId)
+            """, logger: logger)
+        for try await (sid, fromM, toM, idx, amount, createdBy, expires, status, rBy, rAt, reason)
+            in rows.decode((String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {
+            // fail-safe (Kimi P2): un status corrupto en BD NO debe ser confirmable → .cancelled.
+            return Settlement(settlementId: sid, tripId: tripId, from: MiembroId(fromM), to: MiembroId(toM),
+                              transferIndex: idx, amountMinor: amount, createdBy: MiembroId(createdBy),
+                              expiresAt: expires, status: EstadoSettlement(rawValue: status) ?? .cancelled,
+                              resolvedBy: rBy.map(MiembroId.init), resolvedAt: rAt, rejectReason: reason)
+        }
+        return nil
+    }
+
+    /// UPDATE condicional atómico: solo transiciona si sigue `pending` y no ha
+    /// caducado (mismo patrón que el ETag condicional de `actualizar` en gastos). La
+    /// autorización de QUIÉN puede transicionar vive en el caso de uso, no aquí.
+    public func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
+                             por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion {
+        let rows = try await client.query("""
+            UPDATE settlements
+            SET status = \(nuevo.rawValue), resolved_by = \(actor.raw), resolved_at = \(ahora), reject_reason = \(rejectReason)
+            WHERE id = \(id) AND trip_id = \(tripId) AND status = 'pending' AND expires_at >= \(ahora)
+            RETURNING id
+            """, logger: logger)
+        for try await _ in rows.decode(String.self) { return .ok }
+        // No actualizó ninguna fila: distinguir por qué (no existe / caducado / ya resuelto).
+        guard let s = try await settlement(id: id, en: tripId) else { return .noEncontrado }
+        if s.status == .pending && s.expiresAt < ahora { return .caducado }
+        return .estadoInvalido
+    }
+
+    public func confirmados(de tripId: String) async throws -> [Settlement] {
+        try await filasPorEstado(tripId, "confirmed").map { $0.1 }
+    }
+
+    /// Pendientes CON id (Task 4): la lista HTTP necesita el id para confirmar/rechazar/cancelar.
+    public func pendientes(de tripId: String) async throws -> [(String, Settlement)] {
+        try await filasPorEstado(tripId, "pending")
+    }
+
+    /// UNA sola query por estado (Gemini P1: antes era N+1 — un SELECT de ids + un SELECT
+    /// por fila). Selecciona todas las columnas y decodifica el array completo.
+    private func filasPorEstado(_ tripId: String, _ status: String) async throws -> [(String, Settlement)] {
+        let rows = try await client.query("""
+            SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                   expires_at, status, resolved_by, resolved_at, reject_reason
+            FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
+            """, logger: logger)
+        var out: [(String, Settlement)] = []
+        for try await (id, sid, fromM, toM, idx, amount, createdBy, expires, st, rBy, rAt, reason)
+            in rows.decode((String, String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {
+            out.append((id, Settlement(settlementId: sid, tripId: tripId, from: MiembroId(fromM), to: MiembroId(toM),
+                                       transferIndex: idx, amountMinor: amount, createdBy: MiembroId(createdBy),
+                                       expiresAt: expires, status: EstadoSettlement(rawValue: st) ?? .cancelled,
+                                       resolvedBy: rBy.map(MiembroId.init), resolvedAt: rAt, rejectReason: reason)))
+        }
+        return out
+    }
+}
+
+/// Estado inconsistente al crear un settlement: el ON CONFLICT no insertó pero la fila en
+/// conflicto ya no existe (carrera con un borrado). Ver `crear` (Gemini P1).
+struct SettlementInconsistente: Error {
+    let tripId: String
+    let settlementId: String
 }

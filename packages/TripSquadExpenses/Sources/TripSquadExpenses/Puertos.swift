@@ -7,6 +7,7 @@
 // conflictos por ETag (ADR-0013) y los tombstones. El caso de uso no las conoce:
 // solo ve el resultado tipado `ResultadoEscritura`.
 
+import Foundation
 import TripSquadDomain
 
 /// Resultado de una escritura mutante. Modela lo que la capa de contrato traduce a
@@ -64,16 +65,35 @@ public protocol Membresia: Sendable {
     func viajeCerrado(_ tripId: String) async throws -> Bool
 }
 
-/// Resultado de registrar un pago (ADR-0016). `duplicado` = mismo settlementId ya
-/// registrado (idempotencia estructural, ADR-0015 §5), NO es un error.
+/// Resultado de CREAR una afirmación de pago (ADR-0017).
 public enum ResultadoSettle: Equatable, Sendable {
-    case registrado
-    case duplicado
+    case creado(id: String)
+    case duplicado(id: String)
     case rechazado(razon: String)
 }
 
-/// Puerto de persistencia de pagos. La idempotencia es por la clave estructural del
-/// Settlement (settlementId + from||to||transferIndex), no por (actor, key).
+/// Resultado de una transición (confirm/reject/cancel).
+public enum ResultadoTransicion: Equatable, Sendable {
+    case ok
+    case noAutorizado    // el actor no puede hacer esta transición
+    case noEncontrado
+    case estadoInvalido  // no está en `pending`
+    case caducado        // pending vencido (expiresAt < ahora)
+}
+
 public protocol SettlementRepositorio: Sendable {
-    func registrar(_ settlement: Settlement) async throws -> ResultadoSettle
+    /// Crea si la clave natural (tripId+settlementId+from+to+transferIndex) es nueva;
+    /// si ya existe → `duplicado` con el id existente (dedupe ADR-0015 §5).
+    func crear(_ settlement: Settlement) async throws -> ResultadoSettle
+    /// Transición autorizada de `pending` a un estado terminal. La autorización (quién puede)
+    /// la decide el CASO DE USO; el repo solo aplica sobre `pending` no caducado.
+    func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
+                      por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion
+    func confirmados(de tripId: String) async throws -> [Settlement]
+    /// Pendientes CON su id de almacenamiento (el dominio `Settlement` no lo lleva;
+    /// lo genera el repo al crear — ADR-0017, decisión Task 4). El id hace falta para
+    /// que el cliente pueda confirmar/rechazar/cancelar el settlement listado.
+    func pendientes(de tripId: String) async throws -> [(String, Settlement)]
+    /// Lee un settlement por id (para autorizar la transición en el caso de uso).
+    func settlement(id: String, en tripId: String) async throws -> Settlement?
 }
