@@ -416,9 +416,19 @@ struct RepoInFlight: GastoRepositorio, Membresia {
 }
 
 extension RepoQueLanza: SettlementRepositorio {
-    func registrar(_ settlement: Settlement) async throws -> ResultadoSettle { throw BDCaida() }
+    func crear(_ settlement: Settlement) async throws -> ResultadoSettle { throw BDCaida() }
+    func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
+                      por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion { throw BDCaida() }
+    func confirmados(de tripId: String) async throws -> [Settlement] { throw BDCaida() }
+    func pendientes(de tripId: String) async throws -> [(String, Settlement)] { throw BDCaida() }
+    func settlement(id: String, en tripId: String) async throws -> Settlement? { throw BDCaida() }
 }
 
 extension RepoInFlight: SettlementRepositorio {
-    func registrar(_ settlement: Settlement) async throws -> ResultadoSettle { .rechazado(razon: "in_flight") }
+    func crear(_ settlement: Settlement) async throws -> ResultadoSettle { .rechazado(razon: "in_flight") }
+    func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
+                      por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion { .estadoInvalido }
+    func confirmados(de tripId: String) async throws -> [Settlement] { [] }
+    func pendientes(de tripId: String) async throws -> [(String, Settlement)] { [] }
+    func settlement(id: String, en tripId: String) async throws -> Settlement? { nil }
 }

@@ -14,7 +14,8 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // "actor|key" -> resultado
     private var miembros: [String: Set<MiembroId>] = [:]
     private var cerrados: Set<String> = []
-    private var settlements: [String: Settlement] = [:]   // idDeterminista -> settlement
+    private var settlements: [String: Settlement] = [:]   // id generado -> settlement
+    private var contadorSettlement = 0
     private var version = 0
 
     // MARK: - Almacenes de onboarding (ADR-0018)
@@ -42,7 +43,8 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     // MARK: - Setup para tests
 
     public func anadirMiembro(_ m: MiembroId, a tripId: String) { miembros[tripId, default: []].insert(m) }
-    public func quitarDeMembresia(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }   // helper de test
+    public func quitarDeMembresia(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }   // helper de test (M5)
+    public func expulsar(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }              // helper de test (M1)
     public func cerrarViaje(_ tripId: String) { cerrados.insert(tripId) }
 
     // MARK: - Membresia
@@ -155,14 +157,41 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 }
 
 extension RepositorioEnMemoria: SettlementRepositorio {
-    /// Dedupe estructural (ADR-0015 §5): la primera vez registra; los reintentos con
-    /// la misma clave son `duplicado` (idempotente, no error).
-    public func registrar(_ settlement: Settlement) -> ResultadoSettle {
-        let clave = settlement.idDeterminista
-        if settlements[clave] != nil { return .duplicado }
-        settlements[clave] = settlement
-        return .registrado
+    /// Dedupe estructural (ADR-0015 §5): la primera vez crea; los reintentos con la misma
+    /// clave natural son `duplicado` (idempotente, no error) y devuelven el id existente.
+    public func crear(_ settlement: Settlement) -> ResultadoSettle {
+        if let existente = settlements.first(where: { $0.value.clave == settlement.clave }) {
+            return .duplicado(id: existente.key)
+        }
+        let id = nuevoIdSettlement()
+        settlements[id] = settlement
+        return .creado(id: id)
     }
+
+    public func settlement(id: String, en tripId: String) -> Settlement? {
+        settlements[id].flatMap { $0.tripId == tripId ? $0 : nil }
+    }
+
+    public func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
+                             por actor: MiembroId, ahora: Date, rejectReason: String?) -> ResultadoTransicion {
+        guard var s = settlements[id], s.tripId == tripId else { return .noEncontrado }
+        if s.status == .pending && s.expiresAt < ahora { return .caducado }
+        guard s.status == .pending else { return .estadoInvalido }
+        s.status = nuevo; s.resolvedBy = actor; s.resolvedAt = ahora; s.rejectReason = rejectReason
+        settlements[id] = s
+        return .ok
+    }
+
+    public func confirmados(de tripId: String) -> [Settlement] {
+        settlements.values.filter { $0.tripId == tripId && $0.status == .confirmed }
+    }
+
+    public func pendientes(de tripId: String) -> [(String, Settlement)] {
+        settlements.filter { $0.value.tripId == tripId && $0.value.status == .pending }
+            .map { ($0.key, $0.value) }
+    }
+
+    private func nuevoIdSettlement() -> String { contadorSettlement += 1; return "set-\(contadorSettlement)" }
 }
 
 extension RepositorioEnMemoria: ViajeRepositorio {
