@@ -318,6 +318,33 @@ struct SettleRoutesTests {
             }
         }
     }
+
+    /// GET /trips/:id/settlements?limit= — el tope llega desde el query, y un `limit`
+    /// basura NO se rechaza con 4xx (mismo criterio que ChatRoutes: el clamp [1,200] lo
+    /// hace `CasosDeUsoSettle.pendientes`, no la ruta).
+    @Test func limitDelQuerySeAplicaYUnValorInvalidoNoEs4xx() async throws {
+        let (app, _) = await app()
+        for i in 0..<3 {
+            _ = try await crearId(app, actor: "ana", from: "ana", to: "ivan", settlementId: "s-lim-\(i)", transferIndex: i)
+        }
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/trips/\(trip)/settlements?limit=1", method: .get,
+                headers: [.authorization: try await bearer("ana")]) { res in
+                #expect(res.status == .ok)
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"id\":\"") == 1)
+            }
+            for basura in ["abc", "0", "-1", ""] {
+                try await client.execute(uri: "/trips/\(trip)/settlements?limit=\(basura)", method: .get,
+                    headers: [.authorization: try await bearer("ana")]) { res in
+                    #expect(res.status == .ok, "limit='\(basura)' no debe dar 4xx")
+                }
+            }
+            try await client.execute(uri: "/trips/\(trip)/settlements", method: .get,
+                headers: [.authorization: try await bearer("ana")]) { res in
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"id\":\"") == 3)
+            }
+        }
+    }
 }
 
 /// DTO mínimo para decodificar la respuesta de POST crear-lote en los tests (los DTOs
@@ -345,6 +372,6 @@ private struct RepoNoMiembroQueLanzaEnGastos: GastoRepositorio, Membresia, Settl
     func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
                       por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion { throw Boom() }
     func confirmados(de tripId: String) async throws -> [Settlement] { throw Boom() }
-    func pendientes(de tripId: String) async throws -> [(String, Settlement)] { throw Boom() }
+    func pendientes(de tripId: String, limit: Int) async throws -> [(String, Settlement)] { throw Boom() }
     func settlement(id: String, en tripId: String) async throws -> Settlement? { throw Boom() }
 }

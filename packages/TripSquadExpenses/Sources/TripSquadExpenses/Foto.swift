@@ -53,5 +53,8 @@ public struct Foto: Equatable, Sendable {
 public enum ErrorFoto: Error, Equatable, Sendable {
     case noAutorizado
     case noEncontrado
+    /// El viaje está cerrado: no se sube contenido nuevo (revisión integrada — fotos
+    /// era el único módulo mutante sin este gate y sin documentar por qué).
+    case viajeCerrado
     case reglaViolada(String)
 }

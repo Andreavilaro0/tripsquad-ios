@@ -60,9 +60,13 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         return try respuestaJSON(.created, ViajeCreadoDTO(id: viaje.id, name: viaje.name, baseCurrency: viaje.baseCurrency))
     }
 
-    // GET /trips — los viajes de los que el actor es miembro activo.
-    router.get("trips") { _, ctx -> Response in
-        let viajes = try await deps.casosViaje.misViajes(actor: ctx.actor)
+    // GET /trips?limit= — los viajes de los que el actor es miembro activo.
+    // `limit` ausente o no parseable cae al default del caso de uso (50) y el clamp
+    // [1,200] lo hace `CasosDeUsoViaje.misViajes`, no esta ruta — mismo criterio que
+    // ChatRoutes: un valor de query inválido NO se rechaza con 4xx.
+    router.get("trips") { req, ctx -> Response in
+        let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
+        let viajes = try await deps.casosViaje.misViajes(actor: ctx.actor, limit: limit)
         let dto = MisViajesDTO(trips: viajes.map {
             ViajeResumenDTO(id: $0.id, name: $0.name, baseCurrency: $0.baseCurrency, closed: $0.closedAt != nil)
         })

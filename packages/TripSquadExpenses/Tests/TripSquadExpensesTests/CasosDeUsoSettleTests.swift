@@ -124,4 +124,49 @@ struct CasosDeUsoSettleTests {
         #expect(try await casos.pendientes(tripId: "t1", ahora: t0).count == 1)    // vigente: se lista
         #expect(try await casos.pendientes(tripId: "t1", ahora: futuro).isEmpty)   // caducado: no se lista
     }
+
+    // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
+
+    /// Un `limit` fuera de rango NUNCA se rechaza: se ajusta en silencio. 0 sube a 1,
+    /// 999 baja a 200 (y con 3 pendientes, 200 los devuelve todos).
+    @Test func pendientesClampaElLimiteEnVezDeRechazarlo() async throws {
+        let (_, casos) = await setup()
+        _ = try await casos.crearPagos([cmd("s1"), cmd("s2"), cmd("s3")], ahora: t0)
+
+        #expect(try await casos.pendientes(tripId: "t1", ahora: t0, limit: 0).count == 1)     // 0 -> 1
+        #expect(try await casos.pendientes(tripId: "t1", ahora: t0, limit: -5).count == 1)    // negativo -> 1
+        #expect(try await casos.pendientes(tripId: "t1", ahora: t0, limit: 999).count == 3)   // 999 -> 200 (caben los 3)
+        #expect(try await casos.pendientes(tripId: "t1", ahora: t0).count == 3)               // default 50
+    }
+
+    /// El orden debe ser TOTAL y repetible: sin él, `limit` devolvería una página
+    /// distinta en cada llamada y paginar no significaría nada. En memoria el criterio
+    /// es el orden de creación (= `ORDER BY created_at, id` de Postgres).
+    @Test func pendientesTieneOrdenEstableYLaPaginaEsPrefijo() async throws {
+        let (_, casos) = await setup()
+        _ = try await casos.crearPagos([cmd("s1"), cmd("s2"), cmd("s3")], ahora: t0)
+
+        let completa = try await casos.pendientes(tripId: "t1", ahora: t0, limit: 200).map(\.0)
+        #expect(completa.count == 3)
+        // Repetir la consulta da EXACTAMENTE la misma secuencia.
+        #expect(try await casos.pendientes(tripId: "t1", ahora: t0, limit: 200).map(\.0) == completa)
+        // Y la página corta es el PREFIJO de la completa, no un subconjunto al azar.
+        #expect(try await casos.pendientes(tripId: "t1", ahora: t0, limit: 2).map(\.0) == Array(completa.prefix(2)))
+    }
+
+    /// `confirmados` alimenta los saldos, NO es un listado paginable: no lleva tope
+    /// (truncarlo corrompería el cálculo). Sí lleva orden estable.
+    @Test func confirmadosNoLlevaTopeYVaOrdenado() async throws {
+        let (r, casos) = await setup()
+        let res = try await casos.crearPagos([cmd("s1"), cmd("s2"), cmd("s3")], ahora: t0)
+        for caso in res {
+            guard case .creado(let id) = caso else { Issue.record("esperaba creado"); return }
+            #expect(try await casos.confirmar(id: id, en: "t1", por: MiembroId("ana"), ahora: t0) == .ok)
+        }
+        // Los TRES confirmados salen, y el orden se repite igual entre llamadas.
+        let confirmados = try await casos.confirmados(tripId: "t1")
+        #expect(confirmados.count == 3)
+        #expect(confirmados.map(\.settlementId) == ["s1", "s2", "s3"])   // orden de creación
+        #expect(try await r.confirmados(de: "t1").map(\.settlementId) == ["s1", "s2", "s3"])
+    }
 }

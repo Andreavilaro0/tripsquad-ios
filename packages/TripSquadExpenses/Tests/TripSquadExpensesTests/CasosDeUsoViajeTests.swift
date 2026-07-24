@@ -246,4 +246,35 @@ struct CasosDeUsoViajeTests {
         }
         #expect(error == .viajeCerrado)
     }
+
+    // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
+
+    /// Un `limit` fuera de rango NUNCA se rechaza: se ajusta en silencio. 0 sube a 1,
+    /// 999 baja a 200 (y con 3 viajes, 200 los devuelve todos).
+    @Test func misViajesClampaElLimiteEnVezDeRechazarlo() async throws {
+        let (casos, _) = entorno()
+        for nombre in ["Roma", "Lisboa", "Oslo"] {
+            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora)
+        }
+
+        #expect(try await casos.misViajes(actor: ana, limit: 0).count == 1)      // 0 -> 1
+        #expect(try await casos.misViajes(actor: ana, limit: -5).count == 1)     // negativo -> 1
+        #expect(try await casos.misViajes(actor: ana, limit: 999).count == 3)    // 999 -> 200 (caben los 3)
+        #expect(try await casos.misViajes(actor: ana).count == 3)                // default 50
+    }
+
+    /// El orden debe ser TOTAL y repetible (por `id`, el mismo criterio que usa el
+    /// adaptador Postgres desde este cambio): sin él, la página nº2 podría repetir u
+    /// omitir viajes.
+    @Test func misViajesTieneOrdenEstableYLaPaginaEsPrefijo() async throws {
+        let (casos, _) = entorno()
+        for nombre in ["Roma", "Lisboa", "Oslo"] {
+            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora)
+        }
+
+        let completa = try await casos.misViajes(actor: ana, limit: 200).map(\.id)
+        #expect(completa == completa.sorted())                                   // orden por id
+        #expect(try await casos.misViajes(actor: ana, limit: 200).map(\.id) == completa)   // repetible
+        #expect(try await casos.misViajes(actor: ana, limit: 2).map(\.id) == Array(completa.prefix(2)))
+    }
 }

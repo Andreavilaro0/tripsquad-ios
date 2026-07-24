@@ -178,4 +178,80 @@ struct CasosDeUsoItinerarioTests {
         }
         #expect(eBorrar == .noAutorizado)
     }
+
+    // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
+
+    /// Siembra 3 actividades EN EL MISMO día y con el MISMO `orderIndex`: así el único
+    /// desempate posible es el `id`, que es justo lo que se acaba de añadir al orden.
+    private func conActividadesEmpatadas() async throws -> (RepositorioEnMemoria, CasosDeUsoItinerario) {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        for titulo in ["Coliseo", "Foro", "Vaticano"] {
+            guard case .success = try await casos.crear(
+                tripId: "t1", title: titulo, day: "2026-08-01", orderIndex: 0, actor: ana, ahora: ahora) else {
+                Issue.record("esperaba crear exitoso"); break
+            }
+        }
+        return (r, casos)
+    }
+
+    /// Un `limit` fuera de rango NUNCA se rechaza: se ajusta en silencio. 0 sube a 1,
+    /// 999 baja a 200 (y con 3 actividades, 200 las devuelve todas).
+    @Test func listarClampaElLimiteEnVezDeRechazarlo() async throws {
+        let (_, casos) = try await conActividadesEmpatadas()
+
+        guard case .success(let cero) = try await casos.listar(tripId: "t1", actor: ana, limit: 0),
+              case .success(let negativo) = try await casos.listar(tripId: "t1", actor: ana, limit: -5),
+              case .success(let enorme) = try await casos.listar(tripId: "t1", actor: ana, limit: 999),
+              case .success(let porDefecto) = try await casos.listar(tripId: "t1", actor: ana) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(cero.count == 1)         // 0 -> 1
+        #expect(negativo.count == 1)     // negativo -> 1
+        #expect(enorme.count == 3)       // 999 -> 200 (caben las 3)
+        #expect(porDefecto.count == 3)   // default 50
+    }
+
+    /// `(day, orderIndex)` NO desempata: con tres actividades del mismo día e igual
+    /// índice, sin el `id` final el orden sería arbitrario y `limit` devolvería una
+    /// página distinta cada vez.
+    @Test func listarDesempataPorIdYLaPaginaEsPrefijo() async throws {
+        let (_, casos) = try await conActividadesEmpatadas()
+
+        guard case .success(let completa) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let repetida) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let pagina) = try await casos.listar(tripId: "t1", actor: ana, limit: 2) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(completa.map(\.id) == completa.map(\.id).sorted())   // el id es el desempate
+        #expect(repetida.map(\.id) == completa.map(\.id))            // repetible
+        #expect(pagina.map(\.id) == Array(completa.map(\.id).prefix(2)))
+    }
+
+    /// `detalle` (la carga que usa el PATCH de la ruta) NO depende del tope: encuentra
+    /// una actividad que se cae fuera de la primera página, y mantiene el mismo
+    /// `.noAutorizado` sin fuga para el no-miembro.
+    @Test func detalleEncuentraFueraDeLaPrimeraPaginaYNoFiltraExistencia() async throws {
+        let (_, casos) = try await conActividadesEmpatadas()
+        guard case .success(let completa) = try await casos.listar(tripId: "t1", actor: ana, limit: 200) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        let ultima = completa[2].id   // fuera de una página de tamaño 1
+
+        guard case .success(let item) = try await casos.detalle(itemId: ultima, tripId: "t1", actor: ana) else {
+            Issue.record("detalle debe encontrarla aunque no esté en la primera página"); return
+        }
+        #expect(item.id == ultima)
+
+        guard case .failure(let errorSara) = try await casos.detalle(itemId: ultima, tripId: "t1", actor: sara) else {
+            Issue.record("un no-miembro no ve el detalle"); return
+        }
+        #expect(errorSara == .noAutorizado)
+
+        guard case .failure(let errorInexistente) = try await casos.detalle(itemId: "no-existe", tripId: "t1", actor: ana) else {
+            Issue.record("una actividad inexistente es noAutorizado, sin fuga"); return
+        }
+        #expect(errorInexistente == .noAutorizado)
+    }
 }

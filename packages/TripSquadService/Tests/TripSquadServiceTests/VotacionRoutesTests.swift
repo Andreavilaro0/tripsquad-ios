@@ -249,4 +249,41 @@ struct VotacionRoutesTests {
             }
         }
     }
+
+    /// GET /trips/:id/polls?limit= — el tope llega desde el query, y un `limit` basura
+    /// NO se rechaza con 4xx (mismo criterio que ChatRoutes).
+    @Test func limitDelQuerySeAplicaYUnValorInvalidoNoEs4xx() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            for i in 0..<3 {
+                try await client.execute(
+                    uri: "/trips/\(trip)/polls", method: .post,
+                    headers: [.authorization: try await bearer("ana")],
+                    body: crearPollJSON(question: "pregunta \(i)")
+                ) { res in #expect(res.status == .created) }
+            }
+
+            try await client.execute(
+                uri: "/trips/\(trip)/polls?limit=1", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(res.status == .ok)
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"question\":") == 1)
+            }
+            for basura in ["abc", "0", "-1", ""] {
+                try await client.execute(
+                    uri: "/trips/\(trip)/polls?limit=\(basura)", method: .get,
+                    headers: [.authorization: try await bearer("ana")]
+                ) { res in
+                    #expect(res.status == .ok, "limit='\(basura)' no debe dar 4xx")
+                }
+            }
+            try await client.execute(
+                uri: "/trips/\(trip)/polls", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"question\":") == 3)
+            }
+        }
+    }
 }

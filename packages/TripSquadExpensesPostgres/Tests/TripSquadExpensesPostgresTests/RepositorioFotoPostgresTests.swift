@@ -52,18 +52,18 @@ struct RepositorioFotoPostgresTests {
             try await repo.crearPendiente(b)
 
             // Ambas pending: listar(soloListas: false) las ve, soloListas: true no ve ninguna.
-            #expect(try await repo.listar(trip, soloListas: false).map(\.id) == ["foto-a", "foto-b"])
-            #expect(try await repo.listar(trip, soloListas: true).isEmpty)
+            #expect(try await repo.listar(trip, soloListas: false, limit: 200).map(\.id) == ["foto-a", "foto-b"])
+            #expect(try await repo.listar(trip, soloListas: true, limit: 200).isEmpty)
 
             let marcada = try await repo.marcarLista(id: "foto-a", en: trip)
             #expect(marcada == true)
 
-            let listas = try await repo.listar(trip, soloListas: true)
+            let listas = try await repo.listar(trip, soloListas: true, limit: 200)
             #expect(listas.map(\.id) == ["foto-a"])
             #expect(listas.first?.status == .ready)
 
             // La todavía-pending sigue fuera del filtro soloListas.
-            let todas = try await repo.listar(trip, soloListas: false)
+            let todas = try await repo.listar(trip, soloListas: false, limit: 200)
             #expect(todas.map(\.id) == ["foto-a", "foto-b"])
         }
     }
@@ -113,11 +113,37 @@ struct RepositorioFotoPostgresTests {
             try await repo.borrar(fotoId: "foto-borrar", en: trip)
             #expect(try await repo.foto(id: "foto-borrar", en: trip) == nil)
 
-            let lista = try await repo.listar(trip, soloListas: false)
+            let lista = try await repo.listar(trip, soloListas: false, limit: 200)
             #expect(!lista.contains { $0.id == "foto-borrar" })
 
             // Borrar algo que no existe es un no-op silencioso, sin lanzar.
             try await repo.borrar(fotoId: "no-existe", en: trip)
+        }
+    }
+
+    // MARK: - Tope + orden estable
+
+    /// `listar` respeta el `LIMIT` y el orden `(created_at, id)` es total: aquí las
+    /// tres fotos comparten `created_at` a propósito, así que el desempate lo tiene que
+    /// poner el `id`. Es el tope que más pesa del proyecto: cada foto devuelta cuesta
+    /// una URL prefirmada contra el proveedor de storage.
+    @Test func listarRespetaElLimitYDesempataPorId() async throws {
+        try await conRepo { repo, trip in
+            let mismoInstante = Date()
+            let ids = ["foto-z-orden", "foto-a-orden", "foto-m-orden"]
+            for id in ids {
+                try await repo.crearPendiente(nuevaFoto(id, tripId: trip, createdAt: mismoInstante))
+            }
+
+            let completa = try await repo.listar(trip, soloListas: false, limit: 200).map(\.id)
+            #expect(completa == ids.sorted(), "mismo created_at -> el orden lo fija el id")
+            #expect(try await repo.listar(trip, soloListas: false, limit: 200).map(\.id) == completa)
+            #expect(try await repo.listar(trip, soloListas: false, limit: 2).map(\.id) == Array(completa.prefix(2)))
+            #expect(try await repo.listar(trip, soloListas: false, limit: 1).count == 1)
+
+            // La rama `soloListas: true` es OTRA query: también lleva su LIMIT.
+            for id in ids { #expect(try await repo.marcarLista(id: id, en: trip)) }
+            #expect(try await repo.listar(trip, soloListas: true, limit: 2).map(\.id) == Array(completa.prefix(2)))
         }
     }
 }

@@ -13,10 +13,12 @@
 // PARCIAL — cualquier campo ausente conserva el valor actual de la actividad. El
 // dominio (`CasosDeUsoItinerario.editar`) exige un replace completo (title/day
 // no-opcionales), así que aquí se carga la actividad actual ANTES de editar y se
-// fusionan encima solo los campos presentes en el body. Se reutiliza `listar` (ya
-// exige membresía, 403 sin fuga si no lo es) para esa carga en vez de exponer el
+// fusionan encima solo los campos presentes en el body. Se usa `detalle` (ya exige
+// membresía, 403 sin fuga si no lo es) para esa carga en vez de exponer el
 // `ItinerarioRepositorio` crudo en `Dependencias` — no añade una fuente de
-// autorización nueva. Limitación conocida y aceptada: un campo opcional enviado
+// autorización nueva. (Antes se reutilizaba `listar`; desde que `listar` tiene tope,
+// eso habría roto el PATCH de cualquier actividad fuera de la primera página.)
+// Limitación conocida y aceptada: un campo opcional enviado
 // explícitamente como `null` no se distingue de un campo ausente (ambos decodifican a
 // `nil`); el plan no exige "borrar" un campo opcional, así que no se resuelve aquí.
 
@@ -93,11 +95,15 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
         }
     }
 
-    // GET /trips/:tripId/itinerary — SOLO miembros (plan §3, "403 sin fuga").
-    // Orden (day, orderIndex) lo garantiza el repo (`listar`, plan §4).
-    router.get("trips/:tripId/itinerary") { _, ctx -> Response in
+    // GET /trips/:tripId/itinerary?limit= — SOLO miembros (plan §3, "403 sin fuga").
+    // Orden (day, orderIndex, id) lo garantiza el repo (`listar`, plan §4). `limit`
+    // ausente o no parseable cae al default del caso de uso (50); el clamp [1,200] lo
+    // hace `CasosDeUsoItinerario.listar`, no esta ruta. Mismo criterio que ChatRoutes:
+    // un valor de query inválido NO se rechaza con 4xx.
+    router.get("trips/:tripId/itinerary") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
-        switch try await deps.casosItinerario.listar(tripId: tripId, actor: ctx.actor) {
+        let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
+        switch try await deps.casosItinerario.listar(tripId: tripId, actor: ctx.actor, limit: limit) {
         case .success(let actividades):
             return try respuestaJSON(.ok, ItemsListDTO(items: actividades.map(dtoDe)))
         case .failure(let error):
@@ -112,15 +118,16 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
         let itemId = try ctx.parameters.require("itemId")
         let dto = try await req.decode(as: EditarItinerarioDTO.self, context: ctx)
 
-        let actuales: [ActividadItinerario]
-        switch try await deps.casosItinerario.listar(tripId: tripId, actor: ctx.actor) {
-        case .success(let items): actuales = items
+        // Carga la actividad actual para fusionar el body parcial. Usa `detalle` (no
+        // `listar`) desde que `listar` tiene tope: buscar el item dentro de la primera
+        // página habría hecho que un PATCH sobre la actividad nº 51 devolviera 403 por
+        // no encontrarla. `detalle` tiene el MISMO gate (solo miembros) y el mismo
+        // `.noAutorizado` sin fuga si no existe en este viaje — no se distingue de "no
+        // eres el creador/owner".
+        let existente: ActividadItinerario
+        switch try await deps.casosItinerario.detalle(itemId: itemId, tripId: tripId, actor: ctx.actor) {
+        case .success(let item): existente = item
         case .failure(let error): return respuestaErrorItinerario(error)
-        }
-        // No existe en este viaje (para este miembro): mismo 403 sin fuga que
-        // `.noAutorizado` — no se distingue de "no eres el creador/owner".
-        guard let existente = actuales.first(where: { $0.id == itemId }) else {
-            return respuestaErrorItinerario(.noAutorizado)
         }
 
         switch try await deps.casosItinerario.editar(

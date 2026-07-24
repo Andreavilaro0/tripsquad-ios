@@ -57,7 +57,7 @@ struct RepositorioItinerarioPostgresTests {
             try await repo.crear(a, ahora: ahora)
             try await repo.crear(b, ahora: ahora)
 
-            let lista = try await repo.listar(trip)
+            let lista = try await repo.listar(trip, limit: 200)
             #expect(lista.map(\.title) == ["Coliseo", "Foro Romano", "Vaticano"])
             #expect(lista.map(\.day) == ["2026-08-01", "2026-08-01", "2026-08-02"])
             #expect(lista.first?.startTime == "10:00")
@@ -112,8 +112,33 @@ struct RepositorioItinerarioPostgresTests {
             try await repo.borrar(id: id, en: trip)
             #expect(try await repo.item(id: id, en: trip) == nil)
 
-            let lista = try await repo.listar(trip)
+            let lista = try await repo.listar(trip, limit: 200)
             #expect(!lista.contains { $0.id == id })
+        }
+    }
+
+    // MARK: - Tope + desempate por id
+
+    /// `limit` recorta y el orden es TOTAL: tres actividades del MISMO día con el MISMO
+    /// `order_index` sólo se pueden ordenar por `id`. Sin ese desempate (que es lo que
+    /// había antes), Postgres podía devolver cualquiera de las tres como "primera" y la
+    /// página nº2 repetía u omitía ítems.
+    @Test func listarRespetaElLimitYDesempataPorId() async throws {
+        try await conRepo { repo, trip in
+            let ahora = Date()
+            var ids: [String] = []
+            for i in 0..<3 {
+                let id = nuevoId()
+                ids.append(id)
+                try await repo.crear(actividad(id, tripId: trip, day: "2026-09-01", orderIndex: 0, title: "act-\(i)"),
+                                     ahora: ahora)
+            }
+
+            let completa = try await repo.listar(trip, limit: 200).map(\.id)
+            #expect(completa == ids.sorted(), "mismo day y order_index -> el orden lo fija el id")
+            #expect(try await repo.listar(trip, limit: 200).map(\.id) == completa)   // repetible
+            #expect(try await repo.listar(trip, limit: 2).map(\.id) == Array(completa.prefix(2)))
+            #expect(try await repo.listar(trip, limit: 1).count == 1)
         }
     }
 }

@@ -272,4 +272,53 @@ struct ViajeRoutesTests {
             }
         }
     }
+
+    /// GET /trips?limit= — el tope llega desde el query, y un `limit` basura NO se
+    /// rechaza con 4xx (mismo criterio que ChatRoutes: no hay validación de query en
+    /// los GET; el clamp [1,200] lo hace el caso de uso).
+    @Test func limitDelQuerySeAplicaYUnValorInvalidoNoEs4xx() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            for nombre in ["Roma", "Lisboa", "Oslo"] {
+                try await client.execute(
+                    uri: "/trips", method: .post,
+                    headers: [.authorization: try await bearer("ana")], body: crearViajeJSON(name: nombre)
+                ) { res in #expect(res.status == .created) }
+            }
+
+            try await client.execute(
+                uri: "/trips?limit=1", method: .get, headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(res.status == .ok)
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"id\":\"") == 1)
+            }
+            // No parseable, 0 y negativo: 200 con la lista clampada, JAMÁS 4xx.
+            for basura in ["abc", "0", "-1", ""] {
+                try await client.execute(
+                    uri: "/trips?limit=\(basura)", method: .get, headers: [.authorization: try await bearer("ana")]
+                ) { res in
+                    #expect(res.status == .ok, "limit='\(basura)' no debe dar 4xx")
+                }
+            }
+            // Y sin `limit` salen los tres (default 50).
+            try await client.execute(
+                uri: "/trips", method: .get, headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"id\":\"") == 3)
+            }
+        }
+    }
+}
+
+/// Cuenta cuántas veces aparece `de` en `texto` — para contar ítems de una lista JSON
+/// sin montar un decoder por cada DTO privado de las rutas.
+func contarOcurrencias(_ texto: String, de aguja: String) -> Int {
+    guard !aguja.isEmpty else { return 0 }
+    var n = 0
+    var desde = texto.startIndex
+    while let r = texto.range(of: aguja, range: desde..<texto.endIndex) {
+        n += 1
+        desde = r.upperBound
+    }
+    return n
 }

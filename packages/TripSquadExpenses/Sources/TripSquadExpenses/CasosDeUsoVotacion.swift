@@ -47,10 +47,13 @@ public struct CasosDeUsoVotacion: Sendable {
         return .success(votacion)
     }
 
-    /// SOLO miembros listan (plan §5).
-    public func listar(tripId: String, actor: MiembroId) async throws -> Result<[Votacion], ErrorVotacion> {
+    /// SOLO miembros listan (plan §5). `limit` se clampa a [1, 200] (mismo patrón que
+    /// `CasosDeUsoChat.listar`): un límite fuera de rango NUNCA se rechaza, se ajusta
+    /// en silencio. El orden estable (por `id`) es responsabilidad del repo.
+    public func listar(tripId: String, actor: MiembroId, limit: Int = 50) async throws -> Result<[Votacion], ErrorVotacion> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
-        return .success(try await repo.votacionesDe(tripId))
+        let limiteClamp = min(max(limit, 1), 200)
+        return .success(try await repo.votacionesDe(tripId, limit: limiteClamp))
     }
 
     /// SOLO miembros ven el detalle (con resultados). Un no-miembro recibe

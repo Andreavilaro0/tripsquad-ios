@@ -84,10 +84,14 @@ func montarVotaciones(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
         }
     }
 
-    // GET /trips/:tripId/polls — SOLO miembros (plan §5).
-    router.get("trips/:tripId/polls") { _, ctx -> Response in
+    // GET /trips/:tripId/polls?limit= — SOLO miembros (plan §5). `limit` ausente o no
+    // parseable cae al default del caso de uso (50); el clamp [1,200] lo hace
+    // `CasosDeUsoVotacion.listar`, no esta ruta. Mismo criterio que ChatRoutes: un
+    // valor de query inválido NO se rechaza con 4xx.
+    router.get("trips/:tripId/polls") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
-        switch try await deps.casosVotacion.listar(tripId: tripId, actor: ctx.actor) {
+        let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
+        switch try await deps.casosVotacion.listar(tripId: tripId, actor: ctx.actor, limit: limit) {
         case .success(let votaciones):
             return try respuestaJSON(.ok, PollsListDTO(polls: votaciones.map(dtoDe)))
         case .failure(let error):

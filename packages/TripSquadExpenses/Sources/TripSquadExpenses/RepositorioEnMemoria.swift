@@ -16,6 +16,10 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     // `viajeCerrado` derivan de `miembrosDeViaje` y `viajes` (los de onboarding), que
     // son la única fuente de verdad — ver el bloque de helpers de test más abajo.
     private var settlements: [String: Settlement] = [:]   // id generado -> settlement
+    /// Ids en ORDEN DE CREACIÓN. `Settlement` (dominio) no lleva `createdAt`, así que
+    /// este array es lo único que puede reproducir aquí el `ORDER BY created_at, id`
+    /// de Postgres: el orden de inserción ES el orden de `created_at`.
+    private var ordenSettlements: [String] = []
     private var contadorSettlement = 0
     private var version = 0
 
@@ -227,6 +231,7 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         }
         let id = nuevoIdSettlement()
         settlements[id] = settlement
+        ordenSettlements.append(id)
         return .creado(id: id)
     }
 
@@ -244,13 +249,24 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         return .ok
     }
 
+    /// SIN tope (entrada de saldos, ver el puerto), pero SÍ con orden estable: antes
+    /// iteraba `settlements.values`, es decir el orden arbitrario de un diccionario.
     public func confirmados(de tripId: String) -> [Settlement] {
-        settlements.values.filter { $0.tripId == tripId && $0.status == .confirmed }
+        porEstado(tripId, .confirmed).map { $0.1 }
     }
 
-    public func pendientes(de tripId: String) -> [(String, Settlement)] {
-        settlements.filter { $0.value.tripId == tripId && $0.value.status == .pending }
-            .map { ($0.key, $0.value) }
+    public func pendientes(de tripId: String, limit: Int) -> [(String, Settlement)] {
+        Array(porEstado(tripId, .pending).prefix(limit))
+    }
+
+    /// Recorre `ordenSettlements` (orden de creación) en vez de `settlements.values`
+    /// (orden de diccionario, no determinista): así memoria y Postgres devuelven la
+    /// MISMA secuencia y el `limit` recorta la misma página en los dos.
+    private func porEstado(_ tripId: String, _ estado: EstadoSettlement) -> [(String, Settlement)] {
+        ordenSettlements.compactMap { id in
+            guard let s = settlements[id], s.tripId == tripId, s.status == estado else { return nil }
+            return (id, s)
+        }
     }
 
     private func nuevoIdSettlement() -> String { contadorSettlement += 1; return "set-\(contadorSettlement)" }
@@ -269,10 +285,12 @@ extension RepositorioEnMemoria: ViajeRepositorio {
 
     public func viaje(id: String) -> Viaje? { viajes[id] }
 
-    public func viajesDe(_ actor: MiembroId) -> [Viaje] {
+    public func viajesDe(_ actor: MiembroId, limit: Int) -> [Viaje] {
         viajes.values
             .filter { miembrosDeViaje[$0.id]?[actor]?.leftAt == nil && miembrosDeViaje[$0.id]?[actor] != nil }
-            .sorted { $0.id < $1.id }   // orden estable
+            .sorted { $0.id < $1.id }   // orden estable — el MISMO que Postgres (ORDER BY t.id)
+            .prefix(limit)
+            .map { $0 }
     }
 
     public func miembros(de tripId: String) -> [(MiembroId, RolMiembro)] {
@@ -348,8 +366,11 @@ extension RepositorioEnMemoria: VotacionRepositorio {
         votaciones[tripId]?[id]
     }
 
-    public func votacionesDe(_ tripId: String) -> [Votacion] {
-        (votaciones[tripId] ?? [:]).values.sorted { $0.id < $1.id }   // orden estable
+    public func votacionesDe(_ tripId: String, limit: Int) -> [Votacion] {
+        (votaciones[tripId] ?? [:]).values
+            .sorted { $0.id < $1.id }   // orden estable — el MISMO que Postgres (ORDER BY id)
+            .prefix(limit)
+            .map { $0 }
     }
 
     /// UPSERT por `(pollId, member)` — dedupe estructural, mismo criterio que
@@ -385,11 +406,15 @@ extension RepositorioEnMemoria: ItinerarioRepositorio {
         actividades[a.tripId, default: [:]][a.id] = a
     }
 
-    /// Ordenado por `(day, orderIndex)` (plan §4) — `day` es 'YYYY-MM-DD', que
-    /// ordena igual como string ISO que como fecha real.
-    public func listar(_ tripId: String) -> [ActividadItinerario] {
+    /// Ordenado por `(day, orderIndex, id)` (plan §4) — `day` es 'YYYY-MM-DD', que
+    /// ordena igual como string ISO que como fecha real. El `id` es el desempate que
+    /// faltaba: sin él, dos actividades del mismo día con el mismo `orderIndex`
+    /// quedaban en orden arbitrario y la página nº2 podía repetir u omitir ítems.
+    public func listar(_ tripId: String, limit: Int) -> [ActividadItinerario] {
         (actividades[tripId] ?? [:]).values
-            .sorted { ($0.day, $0.orderIndex) < ($1.day, $1.orderIndex) }
+            .sorted { ($0.day, $0.orderIndex, $0.id) < ($1.day, $1.orderIndex, $1.id) }
+            .prefix(limit)
+            .map { $0 }
     }
 
     public func item(id: String, en tripId: String) -> ActividadItinerario? {
@@ -463,10 +488,12 @@ extension RepositorioEnMemoria: FotoRepositorio {
 
     /// `soloListas: true` filtra a `status == .ready` (plan §Tareas: las
     /// `pending` no se muestran).
-    public func listar(_ tripId: String, soloListas: Bool) -> [Foto] {
+    public func listar(_ tripId: String, soloListas: Bool, limit: Int) -> [Foto] {
         (fotos[tripId] ?? [:]).values
             .filter { !soloListas || $0.status == .ready }
             .sorted { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt }
+            .prefix(limit)
+            .map { $0 }
     }
 
     public func borrar(fotoId: String, en tripId: String) {

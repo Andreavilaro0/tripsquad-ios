@@ -59,4 +59,49 @@ struct SettlementPostgresTests {
             #expect(try await repo.confirmados(de: tripId).count == 1)
         }
     }
+
+    // MARK: - Tope + orden estable
+
+    private func sembrarPendientes(_ repo: RepositorioPostgres, _ tripId: String, _ n: Int) async throws -> [String] {
+        var ids: [String] = []
+        for i in 0..<n {
+            let s = Settlement(settlementId: "s-orden-\(i)", tripId: tripId, from: ivan, to: ana,
+                               transferIndex: i, amountMinor: 1000, createdBy: ivan,
+                               expiresAt: Date().addingTimeInterval(3600))
+            guard case .creado(let id) = try await repo.crear(s) else { Issue.record("esperaba .creado"); break }
+            ids.append(id)
+        }
+        return ids
+    }
+
+    /// `pendientes` respeta el `LIMIT` y devuelve el MISMO prefijo entre llamadas.
+    /// Sin el `ORDER BY created_at, id` que se acaba de añadir, Postgres devolvía el
+    /// orden físico del heap y la "página" era una lotería.
+    @Test func pendientesRespetaElLimitYTieneOrdenEstable() async throws {
+        try await conBD { repo, tripId in
+            _ = try await sembrarPendientes(repo, tripId, 5)
+
+            let completa = try await repo.pendientes(de: tripId, limit: 200).map(\.0)
+            #expect(completa.count == 5)
+            #expect(try await repo.pendientes(de: tripId, limit: 200).map(\.0) == completa)   // repetible
+            let pagina = try await repo.pendientes(de: tripId, limit: 2).map(\.0)
+            #expect(pagina == Array(completa.prefix(2)))                                      // prefijo, no azar
+        }
+    }
+
+    /// `confirmados` NO lleva tope (alimenta los saldos): aunque haya muchos, salen
+    /// todos — y en orden estable.
+    @Test func confirmadosNoSeTruncaYVaOrdenado() async throws {
+        try await conBD { repo, tripId in
+            let ids = try await sembrarPendientes(repo, tripId, 5)
+            for id in ids {
+                #expect(try await repo.transicionar(id: id, en: tripId, a: .confirmed, por: ana,
+                                                    ahora: Date(), rejectReason: nil) == .ok)
+            }
+            let confirmados = try await repo.confirmados(de: tripId)
+            #expect(confirmados.count == 5, "confirmados no debe truncarse: son la entrada de los saldos")
+            let repetida = try await repo.confirmados(de: tripId)
+            #expect(confirmados.map(\.settlementId) == repetida.map(\.settlementId))   // orden repetible
+        }
+    }
 }

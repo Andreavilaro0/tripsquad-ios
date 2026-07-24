@@ -60,7 +60,14 @@ func montarSettle(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         let transfers = deps.casosSettle.sugerir(saldos: saldos)
         // Aviso de pendientes: Set de pares [from,to] con pending en curso → O(1) por
         // transferencia en vez de O(N·M) (Gemini P2). El caso de uso ya excluye caducados.
-        let paresPending = Set(try await deps.casosSettle.pendientes(tripId: tripId, ahora: deps.ahora())
+        // Aquí los pendientes NO son la página que se devuelve, son la fuente de un flag
+        // derivado, así que se pide el tope MÁXIMO (200) en vez del default de 50: con 50
+        // un viaje con muchos pendientes empezaría a mostrar `pending: false` en
+        // transferencias que sí lo tienen. Sigue siendo un tope (nunca un scan sin
+        // límite), y lo que se pierde por encima de 200 es un aviso visual, jamás un
+        // saldo — los saldos los calcula `confirmados`, que no lleva tope.
+        let paresPending = Set(try await deps.casosSettle.pendientes(
+            tripId: tripId, ahora: deps.ahora(), limit: CasosDeUsoSettle.limiteMaximo)
             .map { [$0.1.from, $0.1.to] })
         let items = transfers.map { t -> TransferenciaDTO in
             let hayPending = paresPending.contains([t.de, t.a])
@@ -108,14 +115,18 @@ func montarSettle(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         return transicionResp(try await deps.casosSettle.cancelar(id: id, en: tripId, por: ctx.actor, ahora: deps.ahora()))
     }
 
-    // GET lista de pendientes — expuesta a través del caso de uso (no otro puerto en
-    // Dependencias, decisión Task 4).
-    router.get("trips/:tripId/settlements") { _, ctx -> Response in
+    // GET lista de pendientes ?limit= — expuesta a través del caso de uso (no otro
+    // puerto en Dependencias, decisión Task 4). `limit` ausente o no parseable cae al
+    // default del caso de uso (50); el clamp [1,200] lo hace `CasosDeUsoSettle
+    // .pendientes`, no esta ruta. Mismo criterio que ChatRoutes: un valor de query
+    // inválido NO se rechaza con 4xx.
+    router.get("trips/:tripId/settlements") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         guard try await deps.casosSettle.puedeSugerir(tripId: tripId, actor: ctx.actor) else {
             return errorJSON(.forbidden, "not_member")
         }
-        let pend = try await deps.casosSettle.pendientes(tripId: tripId, ahora: deps.ahora())
+        let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
+        let pend = try await deps.casosSettle.pendientes(tripId: tripId, ahora: deps.ahora(), limit: limit)
         let items = pend.map { (id, s) in
             ItemListaDTO(id: id, from: s.from.raw, to: s.to.raw, amountMinor: s.amountMinor, status: s.status.rawValue)
         }

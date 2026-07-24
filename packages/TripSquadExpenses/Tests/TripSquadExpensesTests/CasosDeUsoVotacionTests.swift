@@ -272,4 +272,52 @@ struct CasosDeUsoVotacionTests {
         }
         #expect(resultado.votacion.closedAt == nil)
     }
+
+    // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
+
+    /// Siembra `n` votaciones en `t1` con ana de miembro.
+    private func conVotaciones(_ n: Int) async throws -> (RepositorioEnMemoria, CasosDeUsoVotacion) {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoVotacion(repo: r, membresia: r, viajes: r)
+        for i in 0..<n {
+            guard case .success = try await casos.crear(
+                tripId: "t1", question: "pregunta \(i)", options: ["a", "b"], actor: ana, ahora: ahora) else {
+                Issue.record("esperaba crear exitoso"); break
+            }
+        }
+        return (r, casos)
+    }
+
+    /// Un `limit` fuera de rango NUNCA se rechaza: se ajusta en silencio. 0 sube a 1,
+    /// 999 baja a 200 (y con 3 votaciones, 200 las devuelve todas).
+    @Test func listarClampaElLimiteEnVezDeRechazarlo() async throws {
+        let (_, casos) = try await conVotaciones(3)
+
+        guard case .success(let cero) = try await casos.listar(tripId: "t1", actor: ana, limit: 0),
+              case .success(let negativo) = try await casos.listar(tripId: "t1", actor: ana, limit: -5),
+              case .success(let enorme) = try await casos.listar(tripId: "t1", actor: ana, limit: 999),
+              case .success(let porDefecto) = try await casos.listar(tripId: "t1", actor: ana) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(cero.count == 1)         // 0 -> 1
+        #expect(negativo.count == 1)     // negativo -> 1
+        #expect(enorme.count == 3)       // 999 -> 200 (caben las 3)
+        #expect(porDefecto.count == 3)   // default 50
+    }
+
+    /// El orden debe ser TOTAL y repetible (por `id`, igual que `ORDER BY id` en
+    /// Postgres): sin él, la página nº2 podría repetir u omitir votaciones.
+    @Test func listarTieneOrdenEstableYLaPaginaEsPrefijo() async throws {
+        let (_, casos) = try await conVotaciones(3)
+
+        guard case .success(let completa) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let repetida) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let pagina) = try await casos.listar(tripId: "t1", actor: ana, limit: 2) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(completa.map(\.id) == completa.map(\.id).sorted())
+        #expect(repetida.map(\.id) == completa.map(\.id))
+        #expect(pagina.map(\.id) == Array(completa.map(\.id).prefix(2)))
+    }
 }
