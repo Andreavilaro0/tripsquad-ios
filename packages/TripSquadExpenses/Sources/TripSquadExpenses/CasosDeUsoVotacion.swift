@@ -85,6 +85,15 @@ public struct CasosDeUsoVotacion: Sendable {
     /// — es una acción terminal de limpieza, inofensiva, no una mutación de contenido. Solo
     /// crear/votar se bloquean en viaje cerrado.
     public func cerrar(pollId: String, tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorVotacion> {
+        // Miembro ACTUAL, y ANTES de leer nada (P1 de la revisión integrada). Sin este
+        // guard, la rama `createdBy == actor` dejaba que un EXPULSADO siguiera cerrando
+        // las votaciones que creó: exactamente el agujero que ya se tapó en
+        // CasosDeUsoItinerario (Codex M5 P1) y en CasosDeUsoFoto (M7), y que aquí quedó
+        // pendiente. (La rama `.owner` sí era segura: `rol` filtra left_at IS NULL.)
+        // Va PRIMERO, antes de cargar la poll, mismo orden que CasosDeUsoSettle: leer
+        // antes de autorizar filtra trabajo sobre viajes ajenos y convierte un 403 en 5xx
+        // si la lectura falla.
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         guard let votacion = try await repo.votacion(id: pollId, en: tripId) else { return .failure(.noAutorizado) }
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)
         guard votacion.createdBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }

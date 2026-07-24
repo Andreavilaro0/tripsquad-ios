@@ -1,13 +1,13 @@
 // Tests de votaciones (M4, ADR-0019 borrador). El foco es la AUTORIZACIÓN y la
 // semántica de upsert del voto — mismo espíritu que CasosDeUsoViajeTests.
 //
-// NOTA sobre el repo en memoria: `Membresia.esMiembro` (almacén `miembros`) y
-// `ViajeRepositorio.rol` (almacén `miembrosDeViaje`) son DOS almacenes
-// separados en `RepositorioEnMemoria` (herencia de que M2 llegó después de
-// M1/M3; en Postgres real ambos leen la MISMA `trip_members`). La mayoría de
-// estos tests solo necesitan `Membresia` (via `anadirMiembro`); el test de
-// `cerrar` necesita además el `rol` real de onboarding, así que monta el
-// viaje con `CasosDeUsoViaje` y sincroniza los dos almacenes a mano.
+// NOTA sobre el repo en memoria: `Membresia.esMiembro` y `ViajeRepositorio.rol` ya
+// derivan del MISMO almacén (`miembrosDeViaje`), igual que en Postgres ambos leen
+// `trip_members`. Antes eran dos almacenes desconectados y el doble mentía: unirse o
+// ser expulsado no afectaba a `esMiembro`, así que ningún test podía detectar
+// regresiones de "miembro ACTUAL" — que es exactamente cómo se coló el agujero de
+// `cerrar` que cubre `exMiembroNoCierraSuPropiaVotacion`. `anadirMiembro` sigue
+// existiendo como atajo para sembrar sin pasar por invitación.
 
 import Foundation
 import Testing
@@ -231,5 +231,45 @@ struct CasosDeUsoVotacionTests {
             Issue.record("esperaba failure"); return
         }
         #expect(errorVotar == .viajeCerrado)
+    }
+
+    // P1 de la revisión integrada: `cerrar` autorizaba por `createdBy == actor` SIN
+    // comprobar membresía actual, así que un EXPULSADO seguía cerrando las votaciones
+    // que creó. Es el mismo agujero que ya se tapó en itinerario (M5) y fotos (M7).
+    //
+    // El test recorre el flujo REAL (crear viaje -> invitar -> unirse -> expulsar con
+    // `quitarMiembro`), no los atajos de siembra: así prueba de verdad la autorización
+    // de extremo a extremo, que es lo que antes era imposible.
+    @Test func exMiembroNoCierraSuPropiaVotacion() async throws {
+        let r = repo()
+        let casosViaje = CasosDeUsoViaje(repo: r)
+        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        guard case .success(let invitacion) = try await casosViaje.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba invitar exitoso"); return
+        }
+        #expect(try await casosViaje.unirse(code: invitacion.code, actor: ivan, ahora: ahora) == .unido)
+
+        let casos = CasosDeUsoVotacion(repo: r, membresia: r, viajes: r)
+        guard case .success(let votacion) = try await casos.crear(
+            tripId: viaje.id, question: "¿Playa o montaña?", options: ["playa", "montaña"],
+            actor: ivan, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+
+        // ivan es expulsado por el camino real; su `createdBy` sigue apuntándole.
+        await r.quitarMiembro(ivan, de: viaje.id, ahora: ahora)
+
+        guard case .failure(let error) = try await casos.cerrar(
+            pollId: votacion.id, tripId: viaje.id, actor: ivan, ahora: ahora) else {
+            Issue.record("un ex-miembro NO debe poder cerrar su propia votación"); return
+        }
+        #expect(error == .noAutorizado)
+
+        // Y la votación sigue abierta (el cierre no llegó a ejecutarse).
+        guard case .success(let resultado) = try await casos.detalle(
+            pollId: votacion.id, tripId: viaje.id, actor: ana) else {
+            Issue.record("ana (owner y miembro) sí ve el detalle"); return
+        }
+        #expect(resultado.votacion.closedAt == nil)
     }
 }

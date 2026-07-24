@@ -5,8 +5,11 @@ import TripSquadDomain
 public func balancesConLiquidaciones(_ gastos: [Gasto], confirmados: [Settlement]) throws -> [MiembroId: Int64] {
     var neto = try balances(gastos)
     for s in confirmados {
-        neto[s.from, default: 0] += s.amountMinor
-        neto[s.to, default: 0] -= s.amountMinor
+        // Aritmética COMPROBADA, igual que `balances`: `amountMinor` solo se valida
+        // como `> 0` al crear el pago, así que un importe enorme confirmado trapearía
+        // aquí y mataría el proceso en cada consulta posterior de ese viaje.
+        try acumularSaldo(&neto, s.from, suma: s.amountMinor)
+        try acumularSaldo(&neto, s.to, resta: s.amountMinor)
     }
     return neto
 }

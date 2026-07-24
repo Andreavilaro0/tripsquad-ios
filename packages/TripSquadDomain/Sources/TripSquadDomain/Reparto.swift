@@ -22,7 +22,16 @@ public func cuotas(de gasto: Gasto) throws -> [MiembroId: Int64] {
     case .exacto(let exactas):
         guard !exactas.isEmpty else { throw DomainError.sinParticipantes }
         for v in exactas.values where v < 0 { throw DomainError.importeNegativo }
-        guard exactas.values.reduce(0, +) == gasto.importeMinor else {
+        // Suma COMPROBADA: `reduce(0, +)` trapea (SIGTRAP, mata el proceso) con cuotas
+        // grandes, y el `do/catch` de quien valida NO lo recoge. Con cuotas cercanas a
+        // `Int64.max` esto era alcanzable desde un solo POST de gasto.
+        var suma: Int64 = 0
+        for v in exactas.values {
+            let (parcial, overflow) = suma.addingReportingOverflow(v)
+            guard !overflow else { throw DomainError.saldoFueraDeRango }
+            suma = parcial
+        }
+        guard suma == gasto.importeMinor else {
             throw DomainError.cuotasNoCuadran
         }
         return exactas

@@ -12,8 +12,9 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     private var datos: [String: [String: Fila]] = [:]        // tripId -> gastoId -> fila
     private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // "actor|key" -> resultado
-    private var miembros: [String: Set<MiembroId>] = [:]
-    private var cerrados: Set<String> = []
+    // NOTA: no hay almacén propio de membresía ni de "cerrados". `esMiembro` y
+    // `viajeCerrado` derivan de `miembrosDeViaje` y `viajes` (los de onboarding), que
+    // son la única fuente de verdad — ver el bloque de helpers de test más abajo.
     private var settlements: [String: Settlement] = [:]   // id generado -> settlement
     private var contadorSettlement = 0
     private var version = 0
@@ -54,17 +55,66 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     // MARK: - Setup para tests
 
-    public func anadirMiembro(_ m: MiembroId, a tripId: String) { miembros[tripId, default: []].insert(m) }
-    public func quitarDeMembresia(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }   // helper de test (M5)
-    public func expulsar(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }              // helper de test (M1)
-    public func cerrarViaje(_ tripId: String) { cerrados.insert(tripId) }
+    // Estos helpers escriben en los almacenes REALES (`miembrosDeViaje`, `viajes`), los
+    // mismos que usa `ViajeRepositorio`. Antes escribían en dos almacenes paralelos
+    // (`miembros`, `cerrados`) que NADIE MÁS leía, así que el doble de test mentía:
+    // `unirsePorCodigo` no hacía miembro a nadie a ojos de `esMiembro`, `quitarMiembro`
+    // no desautorizaba, y `cerrar` no cerraba nada. Por eso ninguna prueba de extremo a
+    // extremo podía detectar regresiones de "miembro ACTUAL" ni de "viaje cerrado" — y
+    // por eso el agujero de `CasosDeUsoVotacion.cerrar` sobrevivió a ocho PRs
+    // (causa raíz identificada en la revisión integrada).
+
+    /// Alta directa sin pasar por invitación. PRESERVA el rol y reactiva a quien salió:
+    /// varios tests crean el viaje con `CasosDeUsoViaje` (que deja al creador como
+    /// `.owner`) y luego llaman aquí para sembrar el resto; sobrescribir la fila
+    /// degradaría al owner a `.member` y rompería la autorización que quieren probar.
+    public func anadirMiembro(_ m: MiembroId, a tripId: String) {
+        if var fila = miembrosDeViaje[tripId]?[m] {
+            fila.leftAt = nil
+            miembrosDeViaje[tripId]?[m] = fila
+        } else {
+            miembrosDeViaje[tripId, default: [:]][m] = FilaMiembro(rol: .member, leftAt: nil)
+        }
+    }
+
+    /// Marca la salida igual que `quitarMiembro` (deja `leftAt`, no borra la fila).
+    public func quitarDeMembresia(_ m: MiembroId, de tripId: String) { marcarSalida(m, tripId) }   // helper de test (M5)
+    public func expulsar(_ m: MiembroId, de tripId: String) { marcarSalida(m, tripId) }            // helper de test (M1)
+
+    private func marcarSalida(_ m: MiembroId, _ tripId: String) {
+        guard var fila = miembrosDeViaje[tripId]?[m] else { return }
+        fila.leftAt = fila.leftAt ?? Self.marcaDeTest
+        miembrosDeViaje[tripId]?[m] = fila
+    }
+
+    /// Cierra el viaje en el almacén real. Crea una ficha mínima si el test nunca llamó
+    /// a `crearViaje` (el caso habitual: sembrar con `anadirMiembro` y cerrar), porque
+    /// si no `viajeCerrado` seguiría devolviendo `false` y el cierre no probaría nada.
+    public func cerrarViaje(_ tripId: String) {
+        if let v = viajes[tripId] {
+            viajes[tripId] = Viaje(id: v.id, name: v.name, baseCurrency: v.baseCurrency,
+                                    createdBy: v.createdBy, closedAt: v.closedAt ?? Self.marcaDeTest)
+        } else {
+            viajes[tripId] = Viaje(id: tripId, name: "", baseCurrency: "EUR",
+                                    createdBy: MiembroId(""), closedAt: Self.marcaDeTest)
+        }
+    }
+
+    /// Fecha fija para los helpers: da igual cuál sea, solo importa que NO sea nil.
+    private static let marcaDeTest = Date(timeIntervalSince1970: 0)
 
     // MARK: - Membresia
 
+    /// Deriva del MISMO almacén que `ViajeRepositorio.rol`: miembro activo = existe la
+    /// fila y no tiene `leftAt`. Así unirse/salir/expulsar por el camino real afectan de
+    /// verdad a la autorización de los ocho módulos.
     public func esMiembro(_ m: MiembroId, de tripId: String) -> Bool {
-        miembros[tripId]?.contains(m) ?? false
+        guard let fila = miembrosDeViaje[tripId]?[m] else { return false }
+        return fila.leftAt == nil
     }
-    public func viajeCerrado(_ tripId: String) -> Bool { cerrados.contains(tripId) }
+
+    /// Deriva del MISMO almacén que `ViajeRepositorio.cerrar`.
+    public func viajeCerrado(_ tripId: String) -> Bool { viajes[tripId]?.closedAt != nil }
 
     // MARK: - GastoRepositorio
 
@@ -273,9 +323,12 @@ extension RepositorioEnMemoria: ViajeRepositorio {
         return .unido
     }
 
+    /// Idempotente, igual que el `UPDATE ... WHERE left_at IS NULL` de Postgres: repetir
+    /// la expulsión NO pisa la fecha de salida original (divergencia detectada en la
+    /// revisión integrada).
     public func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) {
         guard var fila = miembrosDeViaje[tripId]?[memberId] else { return }
-        fila.leftAt = ahora
+        fila.leftAt = fila.leftAt ?? ahora
         miembrosDeViaje[tripId]?[memberId] = fila
     }
 

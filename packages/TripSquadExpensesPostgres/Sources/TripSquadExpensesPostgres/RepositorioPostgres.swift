@@ -256,13 +256,24 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         return nil
     }
 
+    /// FUGA ENTRE VIAJES (P1 de la revisión integrada): esta consulta recibía `tripId`
+    /// y NO lo usaba. Como `expenses.id` es PK GLOBAL y lo elige el CLIENTE, el
+    /// `ON CONFLICT (id)` de `guardar` puede haber chocado con un gasto de OTRO viaje;
+    /// sin el filtro, se devolvía el `etag` y el estado de borrado de ese gasto ajeno
+    /// como si fuera del viaje del actor. Con el filtro, "no hay fila en ESTE viaje"
+    /// significa "el id está ocupado fuera": rechazo permanente y OPACO (`id_conflict`),
+    /// que no revela nada del otro viaje.
+    ///
+    /// Nota: antes del filtro, la rama `not_found` era inalcanzable — si el ON CONFLICT
+    /// no insertó, la fila existía necesariamente. Ahora esa rama es justo el caso de
+    /// colisión cruzada, y por eso cambia de razón.
     private func estadoDeExistente(_ conn: PostgresConnection, id: String, tripId: String) async throws -> ResultadoEscritura {
         let rows = try await conn.query(
-            "SELECT etag, deleted_at FROM expenses WHERE id = \(id)", logger: logger)
+            "SELECT etag, deleted_at FROM expenses WHERE id = \(id) AND trip_id = \(tripId)", logger: logger)
         for try await (etag, deletedAt) in rows.decode((String, Date?).self) {
             return deletedAt != nil ? .rechazado(razon: "deleted") : .reproducido(etag: etag)
         }
-        return .rechazado(razon: "not_found")
+        return .rechazado(razon: "id_conflict")
     }
 
     private func insertarShares(_ conn: PostgresConnection, expenseId: String, shares: [(String, Int64)]) async throws {
