@@ -140,3 +140,15 @@ public protocol ItinerarioRepositorio: Sendable {
     func actualizar(_ a: ActividadItinerario, ahora: Date) async throws
     func borrar(id: String, en tripId: String) async throws
 }
+
+/// Puerto de persistencia de chat (M6, ADR-0021 borrador). Firma copiada
+/// literal de `docs/design/chat-scope-y-plan.md`. `id` es un cursor
+/// monotónico creciente (identity en Postgres) que sirve de paginación:
+/// `mensajes` devuelve en orden cronológico, solo los que `id > since`
+/// (`since == nil` = desde el principio), respetando `limit`.
+public protocol ChatRepositorio: Sendable {
+    func enviar(tripId: String, autor: MiembroId, body: String, ahora: Date) async throws -> Mensaje
+    func mensajes(tripId: String, since: Int64?, limit: Int) async throws -> [Mensaje]   // cronológico, id > since
+    func mensaje(id: Int64, en tripId: String) async throws -> Mensaje?
+    func borrar(id: Int64, en tripId: String, ahora: Date) async throws
+}

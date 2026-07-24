@@ -15,6 +15,7 @@ public struct Dependencias: Sendable {
     public let casosViaje: CasosDeUsoViaje         // onboarding: viajes/invites/miembros (ADR-0018)
     public let casosVotacion: CasosDeUsoVotacion   // votaciones: polls/vote/close (M4, ADR-0019 borrador)
     public let casosItinerario: CasosDeUsoItinerario // itinerario: activities CRUD (M5, ADR-0020 borrador)
+    public let casosChat: CasosDeUsoChat           // chat: messages CRUD (M6, ADR-0021 borrador)
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
@@ -28,6 +29,7 @@ public struct Dependencias: Sendable {
         casosViaje: CasosDeUsoViaje,
         casosVotacion: CasosDeUsoVotacion,
         casosItinerario: CasosDeUsoItinerario,
+        casosChat: CasosDeUsoChat,
         repo: GastoRepositorio,
         pingBD: @escaping @Sendable () async -> Bool,
         verificador: any VerificadorDeToken,
@@ -38,6 +40,7 @@ public struct Dependencias: Sendable {
         self.casosViaje = casosViaje
         self.casosVotacion = casosVotacion
         self.casosItinerario = casosItinerario
+        self.casosChat = casosChat
         self.repo = repo
         self.pingBD = pingBD
         self.verificador = verificador
@@ -86,6 +89,13 @@ public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
     )
 
     montarItinerario(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarChat(
         router.group()
             .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
             .group(context: ContextoAutenticado.self),

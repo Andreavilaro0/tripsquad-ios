@@ -38,6 +38,14 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     private var actividades: [String: [String: ActividadItinerario]] = [:]  // tripId -> itemId -> Actividad
 
+    // MARK: - Almacén de chat (M6, ADR-0021 borrador)
+
+    private var mensajesPorViaje: [String: [Int64: Mensaje]] = [:]  // tripId -> msgId -> Mensaje
+    /// Contador GLOBAL (no por viaje, plan §Contrato de dominio): el cursor
+    /// `id` es monotónico creciente a través de todos los viajes, igual que
+    /// `generated always as identity` en la migración 0006.
+    private var proximoMensajeId: Int64 = 1
+
     public init() {}
 
     // MARK: - Setup para tests
@@ -338,5 +346,40 @@ extension RepositorioEnMemoria: ItinerarioRepositorio {
 
     public func borrar(id: String, en tripId: String) {
         actividades[tripId]?[id] = nil
+    }
+}
+
+extension RepositorioEnMemoria: ChatRepositorio {
+
+    public func enviar(tripId: String, autor: MiembroId, body: String, ahora: Date) -> Mensaje {
+        let id = proximoMensajeId
+        proximoMensajeId += 1
+        let mensaje = Mensaje(id: id, tripId: tripId, autor: autor, body: body, deletedAt: nil, createdAt: ahora)
+        mensajesPorViaje[tripId, default: [:]][id] = mensaje
+        return mensaje
+    }
+
+    /// Cronológico (por `id`, que es monotónico) y filtrado a `id > since`
+    /// (`since == nil` = desde el principio) — plan §Contrato de dominio.
+    /// Incluye los mensajes borrados (con su marcador): el soft-delete no
+    /// los saca del hilo (plan §Decisión 3).
+    public func mensajes(tripId: String, since: Int64?, limit: Int) -> [Mensaje] {
+        let umbral = since ?? 0
+        return (mensajesPorViaje[tripId] ?? [:]).values
+            .filter { $0.id > umbral }
+            .sorted { $0.id < $1.id }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    public func mensaje(id: Int64, en tripId: String) -> Mensaje? {
+        mensajesPorViaje[tripId]?[id]
+    }
+
+    /// Idempotente: borrar dos veces el mismo mensaje deja el `deletedAt` de
+    /// la primera vez (mismo criterio de tombstone que el resto del módulo).
+    public func borrar(id: Int64, en tripId: String, ahora: Date) {
+        guard let existente = mensajesPorViaje[tripId]?[id], existente.deletedAt == nil else { return }
+        mensajesPorViaje[tripId]![id] = Mensaje(id: existente.id, tripId: existente.tripId, autor: existente.autor, body: Mensaje.marcadorBorrado, deletedAt: ahora, createdAt: existente.createdAt)
     }
 }
