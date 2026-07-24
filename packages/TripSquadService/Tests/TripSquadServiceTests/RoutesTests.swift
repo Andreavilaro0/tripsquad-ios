@@ -37,7 +37,7 @@ struct RoutesTests {
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
             casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
-            casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, asistente: AsistenteStub()),
+            casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
             repo: repo,
             pingBD: { bdOk },
             verificador: VerificadorSupabase(
@@ -242,7 +242,7 @@ struct RoutesTests {
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
             casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
-            casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, asistente: AsistenteStub()),
+            casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(fuente: fuente, issuer: issDePrueba, audiencia: audDePrueba)
@@ -292,7 +292,7 @@ struct RoutesTests {
             casosItinerario: CasosDeUsoItinerario(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
             casosChat: CasosDeUsoChat(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria()),
             casosFoto: CasosDeUsoFoto(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria(), storage: FotoStorageStub()),
-            casosBrujula: CasosDeUsoBrujula(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), asistente: AsistenteStub()),
+            casosBrujula: CasosDeUsoBrujula(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), settlements: RepositorioEnMemoria(), asistente: AsistenteStub()),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(

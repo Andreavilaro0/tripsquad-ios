@@ -19,7 +19,7 @@ struct CasosDeUsoBrujulaTests {
         let repo = RepositorioEnMemoria()
         await repo.anadirMiembro(ana, a: trip)
         await repo.anadirMiembro(ivan, a: trip)
-        let casos = CasosDeUsoBrujula(repo: repo, membresia: repo, asistente: AsistenteStub())
+        let casos = CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub())
         return (casos, repo)
     }
 
@@ -33,6 +33,34 @@ struct CasosDeUsoBrujulaTests {
         }
         #expect(respuesta.contains("¿cómo vamos?"))
         #expect(respuesta.contains("todo saldado"))
+    }
+
+    // 1b. un pago CONFIRMADO se descuenta del resumen (bot GitHub M8 P2): la
+    // Brújula ve la MISMA foto que la sugerencia de settle, no deudas ya saldadas.
+    @Test func pagoConfirmadoSeDescuentaDelResumen() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        // ana paga 4000, split igual ana/ivan → ivan debe 2000 a ana.
+        _ = await repo.guardar(
+            Gasto(id: "g1", pagadoPor: ana, importeMinor: 4000, reparto: .igual(entre: [ana, ivan])),
+            en: trip, por: ana, idempotencyKey: "k1")
+
+        // Antes de confirmar el pago: la Brújula reporta la deuda.
+        guard case .success(let antes) = try await casos.consultar(tripId: trip, query: "¿quién debe?", actor: ana) else {
+            Issue.record("esperaba éxito"); return
+        }
+        #expect(antes.contains("ivan debe 2000"))
+
+        // ivan confirma el pago de 2000 a ana.
+        _ = await repo.crear(Settlement(settlementId: "s1", tripId: trip, from: ivan, to: ana,
+            transferIndex: 0, amountMinor: 2000, createdBy: ivan,
+            expiresAt: Date(timeIntervalSince1970: 0), status: .confirmed))
+
+        // Después: la deuda ya no aparece → "todo saldado".
+        guard case .success(let despues) = try await casos.consultar(tripId: trip, query: "¿quién debe?", actor: ana) else {
+            Issue.record("esperaba éxito"); return
+        }
+        #expect(despues.contains("todo saldado"))
+        #expect(!despues.contains("ivan debe"))
     }
 
     // 2. no-miembro no consulta: `.noAutorizado`, sin fuga de existencia.

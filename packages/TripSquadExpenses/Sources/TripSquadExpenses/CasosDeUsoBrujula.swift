@@ -4,11 +4,13 @@
 // sin migración, sin persistencia propia — cada consulta recalcula el
 // contexto a partir de los gastos vigentes del viaje.
 //
-// Composición del init: mismo patrón mínimo que `CasosDeUsoChat` — dos
-// fuentes de autorización/datos más el puerto del asistente:
-//   - `repo: GastoRepositorio` -> gastos del viaje, para calcular saldos.
-//   - `membresia: Membresia`   -> ¿el actor es miembro del viaje?
-//   - `asistente: AsistenteIA` -> el LLM (stub hoy, adaptador real cuando se
+// Composición del init:
+//   - `repo: GastoRepositorio`        -> gastos del viaje, para calcular saldos.
+//   - `membresia: Membresia`          -> ¿el actor es miembro del viaje?
+//   - `settlements: SettlementRepositorio` -> pagos CONFIRMADOS, para descontarlos
+//     de los saldos igual que la ruta de sugerencia (bot GitHub M8 P2): sin esto la
+//     Brújula reportaría deudas ya saldadas.
+//   - `asistente: AsistenteIA`        -> el LLM (stub hoy, adaptador real cuando se
 //     decida proveedor/presupuesto — ADR-0023).
 
 import Foundation
@@ -17,6 +19,7 @@ import TripSquadDomain
 public struct CasosDeUsoBrujula: Sendable {
     private let repo: GastoRepositorio
     private let membresia: Membresia
+    private let settlements: SettlementRepositorio
     private let asistente: AsistenteIA
 
     /// Límite de longitud de la query (plan §Dominio): por encima se rechaza
@@ -24,17 +27,21 @@ public struct CasosDeUsoBrujula: Sendable {
     /// de la pregunta llegó al asistente.
     private static let longitudMaximaQuery = 500
 
-    public init(repo: GastoRepositorio, membresia: Membresia, asistente: AsistenteIA) {
+    public init(repo: GastoRepositorio, membresia: Membresia, settlements: SettlementRepositorio, asistente: AsistenteIA) {
         self.repo = repo
         self.membresia = membresia
+        self.settlements = settlements
         self.asistente = asistente
     }
 
     /// Solo miembros consultan (plan §Dominio, "403 sin fuga"). `query` es
     /// obligatoria: vacía (tras recortar espacios) o >500 caracteres se
     /// rechaza. Arma el `ContextoViaje` a partir de los saldos vigentes
-    /// (`balances`, ADR-0011 §1) y delega la respuesta al `asistente`
-    /// (stub o adaptador real, transparente para este caso de uso).
+    /// DESCONTANDO los pagos confirmados (`balancesConLiquidaciones`, ADR-0011 §1
+    /// + ADR-0017) — EXACTAMENTE la misma foto que la ruta de sugerencia de
+    /// settle, para que "¿quién debe?" no reporte deudas ya saldadas (bot M8 P2).
+    /// Delega la respuesta al `asistente` (stub o adaptador real, transparente
+    /// para este caso de uso).
     public func consultar(tripId: String, query: String, actor: MiembroId) async throws -> Result<String, ErrorBrujula> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
 
@@ -47,7 +54,8 @@ public struct CasosDeUsoBrujula: Sendable {
         guard queryRecortada.utf8.count <= Self.longitudMaximaQuery else { return .failure(.reglaViolada("query_muy_larga")) }
 
         let gastos = try await repo.gastos(de: tripId).map(\.gasto)
-        let saldos = try balances(gastos)
+        let confirmados = try await settlements.confirmados(de: tripId)
+        let saldos = try balancesConLiquidaciones(gastos, confirmados: confirmados)
         let contexto = ContextoViaje(tripId: tripId, resumenSaldos: Self.formatearResumenSaldos(saldos))
 
         let respuesta = try await asistente.responder(query: queryRecortada, contexto: contexto)

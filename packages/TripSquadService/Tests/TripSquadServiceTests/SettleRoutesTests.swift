@@ -30,7 +30,7 @@ struct SettleRoutesTests {
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
             casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
-            casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, asistente: AsistenteStub()),
+            casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
             repo: repo, pingBD: { true },
             verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba))
         return (Application(router: construirRouter(deps)), repo)
@@ -142,7 +142,7 @@ struct SettleRoutesTests {
             casosItinerario: CasosDeUsoItinerario(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
             casosChat: CasosDeUsoChat(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria()),
             casosFoto: CasosDeUsoFoto(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria(), storage: FotoStorageStub()),
-            casosBrujula: CasosDeUsoBrujula(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), asistente: AsistenteStub()),
+            casosBrujula: CasosDeUsoBrujula(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), settlements: RepositorioEnMemoria(), asistente: AsistenteStub()),
             repo: repo, pingBD: { true },
             verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba))
         let app = Application(router: construirRouter(deps))
@@ -286,7 +286,7 @@ struct SettleRoutesTests {
                 casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
                 casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
                 casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
-                casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, asistente: AsistenteStub()),
+                casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
                 repo: repo, pingBD: { true },
                 verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba),
                 ahora: ahora)
