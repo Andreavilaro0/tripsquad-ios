@@ -36,6 +36,7 @@ struct VotacionRoutesTests {
             casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
+            casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
             repo: repo, pingBD: { true },
             verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba))
         return (Application(router: construirRouter(deps)), repo)

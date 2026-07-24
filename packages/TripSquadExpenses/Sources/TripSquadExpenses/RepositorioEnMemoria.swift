@@ -46,6 +46,10 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     /// `generated always as identity` en la migración 0006.
     private var proximoMensajeId: Int64 = 1
 
+    // MARK: - Almacén de fotos (M7 Task 1, ADR-0022 borrador)
+
+    private var fotos: [String: [String: Foto]] = [:]  // tripId -> fotoId -> Foto
+
     public init() {}
 
     // MARK: - Setup para tests
@@ -381,5 +385,38 @@ extension RepositorioEnMemoria: ChatRepositorio {
     public func borrar(id: Int64, en tripId: String, ahora: Date) {
         guard let existente = mensajesPorViaje[tripId]?[id], existente.deletedAt == nil else { return }
         mensajesPorViaje[tripId]![id] = Mensaje(id: existente.id, tripId: existente.tripId, autor: existente.autor, body: Mensaje.marcadorBorrado, deletedAt: ahora, createdAt: existente.createdAt)
+    }
+}
+
+extension RepositorioEnMemoria: FotoRepositorio {
+
+    public func crearPendiente(_ f: Foto) {
+        fotos[f.tripId, default: [:]][f.id] = f
+    }
+
+    /// Idempotente (plan §Tareas): marcar lista una foto ya `ready` sigue
+    /// devolviendo `true`. `false` solo si la foto no existe (o es de otro
+    /// tripId) — mismo criterio "sin fuga" que el resto del módulo.
+    public func marcarLista(id: String, en tripId: String) -> Bool {
+        guard let existente = fotos[tripId]?[id] else { return false }
+        guard existente.status != .ready else { return true }
+        fotos[tripId]![id] = Foto(id: existente.id, tripId: existente.tripId, uploadedBy: existente.uploadedBy, storageKey: existente.storageKey, contentType: existente.contentType, sizeBytes: existente.sizeBytes, caption: existente.caption, status: .ready, createdAt: existente.createdAt)
+        return true
+    }
+
+    public func foto(id: String, en tripId: String) -> Foto? {
+        fotos[tripId]?[id]
+    }
+
+    /// `soloListas: true` filtra a `status == .ready` (plan §Tareas: las
+    /// `pending` no se muestran).
+    public func listar(_ tripId: String, soloListas: Bool) -> [Foto] {
+        (fotos[tripId] ?? [:]).values
+            .filter { !soloListas || $0.status == .ready }
+            .sorted { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt }
+    }
+
+    public func borrar(fotoId: String, en tripId: String) {
+        fotos[tripId]?[fotoId] = nil
     }
 }
