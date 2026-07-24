@@ -286,6 +286,7 @@ struct SettleRoutesTests {
                 casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
                 casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
                 casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
+                casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, asistente: AsistenteStub()),
                 repo: repo, pingBD: { true },
                 verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba),
                 ahora: ahora)
