@@ -39,6 +39,9 @@ public struct CasosDeUsoVotacion: Sendable {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard options.count >= 2 else { return .failure(.reglaViolada("min_2_options")) }
+        // Rechaza opciones duplicadas (bot Codex P1): con `["a","a"]` el conteo colapsa y el
+        // voto es ambiguo. La opción es la clave lógica del recuento, debe ser única.
+        guard Set(options).count == options.count else { return .failure(.reglaViolada("duplicate_options")) }
         let votacion = Votacion(id: UUID().uuidString, tripId: tripId, question: question, options: options, createdBy: actor, closedAt: nil)
         try await repo.crear(votacion)
         return .success(votacion)
