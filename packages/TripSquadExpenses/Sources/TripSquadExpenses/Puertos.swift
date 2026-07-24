@@ -97,3 +97,21 @@ public protocol SettlementRepositorio: Sendable {
     /// Lee un settlement por id (para autorizar la transición en el caso de uso).
     func settlement(id: String, en tripId: String) async throws -> Settlement?
 }
+
+/// Puerto de persistencia de viajes/miembros/invitaciones (ADR-0018). Firma
+/// copiada literal del plan (`docs/superpowers/plans/2026-07-24-M2-onboarding.md`).
+/// `rol(de:en:) -> RolMiembro?` es la ÚNICA fuente de verdad de autorización de
+/// este dominio: `nil` significa "no es miembro" y es indistinguible, desde
+/// fuera, de "el viaje no existe" (evita fuga de existencia).
+public protocol ViajeRepositorio: Sendable {
+    func crearViaje(id: String, name: String, baseCurrency: String, creador: MiembroId, ahora: Date) async throws -> Viaje
+    func viaje(id: String) async throws -> Viaje?
+    func viajesDe(_ actor: MiembroId) async throws -> [Viaje]
+    func miembros(de tripId: String) async throws -> [(MiembroId, RolMiembro)]
+    func rol(de actor: MiembroId, en tripId: String) async throws -> RolMiembro?   // nil = no miembro
+    func crearInvitacion(tripId: String, por: MiembroId, code: String, expiresAt: Date) async throws -> Invitacion
+    func revocarInvitacion(code: String, en tripId: String, ahora: Date) async throws -> Bool
+    func unirsePorCodigo(code: String, actor: MiembroId, ahora: Date, tope: Int) async throws -> ResultadoUnirse
+    func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) async throws
+    func cerrar(tripId: String, ahora: Date) async throws
+}
