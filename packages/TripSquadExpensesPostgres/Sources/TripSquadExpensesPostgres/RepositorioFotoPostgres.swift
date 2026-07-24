@@ -70,10 +70,11 @@ extension RepositorioPostgres: FotoRepositorio {
             FROM photos
             WHERE id = \(id) AND trip_id = \(tripId)
             """, logger: logger)
-        for try await row in rows.decode(
-            (String, String, String, String, String, Int64?, String?, String, Date).self
-        ) {
-            return foto(de: row)
+        for try await (rid, rtrip, uploadedBy, storageKey, contentType, sizeBytes, caption, status, createdAt)
+            in rows.decode((String, String, String, String, String, Int64?, String?, String, Date).self) {
+            return Foto(id: rid, tripId: rtrip, uploadedBy: MiembroId(uploadedBy), storageKey: storageKey,
+                        contentType: contentType, sizeBytes: sizeBytes, caption: caption,
+                        status: EstadoFoto(rawValue: status) ?? .pending, createdAt: createdAt)
         }
         return nil
     }
@@ -99,10 +100,11 @@ extension RepositorioPostgres: FotoRepositorio {
                 """, logger: logger)
         }
         var out: [Foto] = []
-        for try await row in rows.decode(
-            (String, String, String, String, String, Int64?, String?, String, Date).self
-        ) {
-            out.append(foto(de: row))
+        for try await (rid, rtrip, uploadedBy, storageKey, contentType, sizeBytes, caption, status, createdAt)
+            in rows.decode((String, String, String, String, String, Int64?, String?, String, Date).self) {
+            out.append(Foto(id: rid, tripId: rtrip, uploadedBy: MiembroId(uploadedBy), storageKey: storageKey,
+                            contentType: contentType, sizeBytes: sizeBytes, caption: caption,
+                            status: EstadoFoto(rawValue: status) ?? .pending, createdAt: createdAt))
         }
         return out
     }
@@ -118,15 +120,4 @@ extension RepositorioPostgres: FotoRepositorio {
             logger: logger)
     }
 
-    // MARK: - Helper
-
-    private func foto(
-        de row: (String, String, String, String, String, Int64?, String?, String, Date)
-    ) -> Foto {
-        let (id, tripId, uploadedBy, storageKey, contentType, sizeBytes, caption, status, createdAt) = row
-        return Foto(
-            id: id, tripId: tripId, uploadedBy: MiembroId(uploadedBy), storageKey: storageKey,
-            contentType: contentType, sizeBytes: sizeBytes, caption: caption,
-            status: EstadoFoto(rawValue: status) ?? .pending, createdAt: createdAt)
-    }
 }
