@@ -191,4 +191,36 @@ struct CasosDeUsoFotoTests {
         #expect(error == .noAutorizado)
         #expect(try await r.foto(id: presign.fotoId, en: "t1") != nil)   // sigue existiendo
     }
+
+    // Orden de borrado (bot GitHub M7 P2): PRIMERO el binario, DESPUÉS el metadato.
+    // Con un storage que lanza al borrar el binario, el metadato NO debe borrarse:
+    // la operación queda reintentable y no se pierde el puntero a un binario que sigue
+    // existiendo. (Si el orden fuese metadato→binario, aquí el metadato ya no estaría
+    // y el binario quedaría huérfano.)
+    @Test func siElStorageFallaAlBorrarElMetadatoSeConserva() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoFoto(repo: r, membresia: r, viajes: r, storage: StorageQueLanzaAlBorrar())
+
+        guard case .success(let presign) = try await casos.presignSubida(tripId: "t1", contentType: "image/jpeg", sizeBytes: 1024, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba presign exitoso"); return
+        }
+        await confirmError { try await _ = casos.borrar(fotoId: presign.fotoId, tripId: "t1", actor: ana) }
+        // El binario falló al borrarse → el metadato DEBE seguir (reintentable, sin huérfano).
+        #expect(try await r.foto(id: presign.fotoId, en: "t1") != nil)
+    }
+}
+
+/// Storage que sube/lee como el stub pero LANZA al borrar el binario — para
+/// probar el orden binario→metadato de `CasosDeUsoFoto.borrar`.
+private struct StorageQueLanzaAlBorrar: FotoStorage {
+    struct BorradoFallido: Error {}
+    func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String { "stub://subida/\(storageKey)" }
+    func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String { "stub://lectura/\(storageKey)" }
+    func borrar(storageKey: String) async throws { throw BorradoFallido() }
+}
+
+/// Espera que el bloque lance; falla el test si no lanza.
+private func confirmError(_ body: () async throws -> Void) async {
+    do { try await body(); Issue.record("esperaba que lanzara") } catch { /* esperado */ }
 }

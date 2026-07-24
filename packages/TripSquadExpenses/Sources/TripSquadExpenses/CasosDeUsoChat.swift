@@ -37,7 +37,12 @@ public struct CasosDeUsoChat: Sendable {
     public func enviar(tripId: String, body: String, actor: MiembroId, ahora: Date) async throws -> Result<Mensaje, ErrorChat> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.reglaViolada("body_vacio")) }
-        guard body.count <= 4000 else { return .failure(.reglaViolada("body_muy_largo")) }
+        // El límite se mide en la MISMA unidad que la BD (bot GitHub M6 P2): Postgres
+        // `char_length` cuenta code points (Unicode scalars), no grapheme clusters. Si
+        // aquí usáramos `body.count` (grapheme clusters), un body de 4000 emojis bandera
+        // (1 grapheme = 2 scalars) pasaría el dominio y REVENTARÍA el CHECK de la BD como
+        // 5xx en vez de un 422 limpio. `unicodeScalars.count` == `char_length` de Postgres.
+        guard body.unicodeScalars.count <= 4000 else { return .failure(.reglaViolada("body_muy_largo")) }
         let mensaje = try await repo.enviar(tripId: tripId, autor: actor, body: body, ahora: ahora)
         return .success(mensaje)
     }

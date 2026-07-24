@@ -126,8 +126,15 @@ public struct CasosDeUsoFoto: Sendable {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }   // miembro ACTUAL
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)
         guard existente.uploadedBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }
-        try await repo.borrar(fotoId: fotoId, en: tripId)
+        // Orden: PRIMERO el binario, DESPUÉS el metadato (bot GitHub M7 P2). Con un
+        // FotoStorage real que puede lanzar, si borrásemos el metadato primero y el
+        // binario fallase, el binario quedaría HUÉRFANO — fuga de storage sin puntero
+        // para encontrarlo ni reintentar. Al revés, si falla el binario el metadato
+        // sigue apuntando y la operación es reintentable; y si tras borrar el binario
+        // falla el metadato, queda un puntero colgante (detectable y limpiable), nunca
+        // un binario invisible que cuesta dinero para siempre.
         try await storage.borrar(storageKey: existente.storageKey)
+        try await repo.borrar(fotoId: fotoId, en: tripId)
         return .success(())
     }
 }

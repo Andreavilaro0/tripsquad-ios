@@ -67,6 +67,25 @@ struct CasosDeUsoChatTests {
         #expect(m.body.count == 4000)
     }
 
+    // 2d. El límite se mide en code points (Unicode scalars), no en grapheme clusters —
+    // misma unidad que el CHECK char_length de Postgres (bot GitHub M6 P2). 2001 emojis
+    // bandera = 2001 grapheme clusters PERO 4002 scalars: el dominio DEBE rechazarlo con
+    // 422 antes de llegar a la BD, aunque `body.count` (2001) esté muy por debajo de 4000.
+    @Test func bodyQueExcedeEnScalarsPeroNoEnGraphemesSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoChat(repo: r, membresia: r)
+
+        let bandera = "\u{1F1EA}\u{1F1F8}"          // 🇪🇸 = 1 grapheme, 2 scalars
+        let body = String(repeating: bandera, count: 2001)  // 2001 graphemes, 4002 scalars
+        #expect(body.count == 2001)
+        #expect(body.unicodeScalars.count == 4002)
+        guard case .failure(let error) = try await casos.enviar(tripId: "t1", body: body, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure: excede 4000 scalars aunque no en graphemes"); return
+        }
+        #expect(error == .reglaViolada("body_muy_largo"))
+    }
+
     // 3. no-miembro no envía ni lista: mismo error, sin fuga de existencia.
     @Test func noMiembroNoEnviaNiListaSinFugaDeExistencia() async throws {
         let r = repo()
