@@ -17,7 +17,7 @@ public struct Dependencias: Sendable {
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
-    /// Reloj inyectable (tests deterministas). Default = reloj real; no rompe
+    /// Reloj inyectable (tests deterministas de caducidad). Default = reloj real; no rompe
     /// los call sites existentes que no lo pasan explícitamente.
     public let ahora: @Sendable () -> Date
 
