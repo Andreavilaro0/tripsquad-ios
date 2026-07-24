@@ -73,14 +73,15 @@ extension RepositorioPostgres: VotacionRepositorio {
     /// que después se escribe el voto.
     public func votar(pollId: String, tripId: String, member: MiembroId, choice: String, ahora: Date) async throws -> ResultadoVotar {
         try await client.withTransaction(logger: logger) { conn in
-            // JOIN trips + FOR UPDATE OF t cierra el TOCTOU (Codex P1): bloquea la fila del
-            // viaje durante la transacción, así un cierre concurrente del viaje se serializa
-            // y no puede colar un voto tras el cierre. Revalidamos trip.closed_at aquí dentro.
+            // FOR UPDATE OF p, t cierra el TOCTOU en AMBOS ejes (Codex P1 + bot GitHub P1):
+            // bloquea la fila de la POLL y del VIAJE durante la transacción, así un cierre
+            // concurrente de la poll (POST .../close) O del viaje se serializa y no puede colar
+            // un voto tras el cierre. Revalidamos poll.closed_at y trip.closed_at aquí dentro.
             let rows = try await conn.query("""
                 SELECT p.options::text, p.closed_at, t.closed_at
                 FROM polls p JOIN trips t ON t.id = p.trip_id
                 WHERE p.id = \(pollId) AND p.trip_id = \(tripId)
-                FOR UPDATE OF t
+                FOR UPDATE OF p, t
                 """, logger: self.logger)
             var options: [String]?
             var pollCerrada: Date?
