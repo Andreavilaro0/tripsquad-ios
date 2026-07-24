@@ -273,6 +273,7 @@ struct SettleRoutesTests {
                 casos: CasosDeUsoGastos(repo: repo, membresia: repo),
                 casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
                 casosViaje: CasosDeUsoViaje(repo: repo),
+                casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
                 repo: repo, pingBD: { true },
                 verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba),
                 ahora: ahora)
