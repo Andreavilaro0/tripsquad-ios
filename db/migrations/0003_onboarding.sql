@@ -5,15 +5,17 @@
 -- NOTA: `trips`/`trip_members` están vacías (no prod), así que los `default ''`
 -- no afectan filas reales.
 
+-- NOTA: `trips` ya trae `created_at` y `currency_reference` de 0001 — NO se re-añaden.
+-- `base_currency` se añade como alias explícito para el onboarding (redundante con
+-- `currency_reference`; unificar es un cleanup, bead).
 alter table trips
     add column name text not null default '',
     add column base_currency text not null default 'EUR',
-    add column created_by text not null default '',
-    add column created_at timestamptz not null default now();
+    add column created_by text not null default '';
 
+-- `joined_at` ya existe en 0001; solo `role` es nuevo.
 alter table trip_members
-    add column role text not null default 'member' check (role in ('owner', 'member')),
-    add column joined_at timestamptz not null default now();
+    add column role text not null default 'member' check (role in ('owner', 'member'));
 
 -- Invitaciones por código (ADR-0018 §1/§4): multi-uso, caducan a 7 días,
 -- revocables por el owner. `code` es la PK: debe generarse aleatorio y
