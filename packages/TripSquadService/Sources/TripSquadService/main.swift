@@ -86,6 +86,7 @@ let deps = Dependencias(
     casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
     casosViaje: CasosDeUsoViaje(repo: repo),
     casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
+    casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
     repo: repo,
     pingBD: {
         do { _ = try await client.query("SELECT 1", logger: logger); return true }

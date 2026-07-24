@@ -34,6 +34,7 @@ struct RoutesTests {
             casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
             casosViaje: CasosDeUsoViaje(repo: repo),
             casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
+            casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             repo: repo,
             pingBD: { bdOk },
             verificador: VerificadorSupabase(
@@ -235,6 +236,7 @@ struct RoutesTests {
             casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
             casosViaje: CasosDeUsoViaje(repo: repo),
             casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
+            casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(fuente: fuente, issuer: issDePrueba, audiencia: audDePrueba)
@@ -277,10 +279,11 @@ struct RoutesTests {
             casos: CasosDeUsoGastos(repo: repo, membresia: repo),
             casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
             // Los dobles G1 (RepoQueLanza/RepoInFlight) no conforman ViajeRepositorio/
-            // VotacionRepositorio y estos tests no ejercitan /trips ni /polls: un repo
-            // en memoria aparte basta.
+            // VotacionRepositorio/ItinerarioRepositorio y estos tests no ejercitan
+            // /trips ni /polls ni /itinerary: un repo en memoria aparte basta.
             casosViaje: CasosDeUsoViaje(repo: RepositorioEnMemoria()),
             casosVotacion: CasosDeUsoVotacion(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
+            casosItinerario: CasosDeUsoItinerario(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(
