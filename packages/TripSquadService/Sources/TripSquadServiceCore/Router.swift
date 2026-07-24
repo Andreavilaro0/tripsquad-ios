@@ -17,6 +17,7 @@ public struct Dependencias: Sendable {
     public let casosItinerario: CasosDeUsoItinerario // itinerario: activities CRUD (M5, ADR-0020 borrador)
     public let casosChat: CasosDeUsoChat           // chat: messages CRUD (M6, ADR-0021 borrador)
     public let casosFoto: CasosDeUsoFoto           // fotos: presign/confirm/list/delete (M7, ADR-0022 borrador)
+    public let casosBrujula: CasosDeUsoBrujula     // brújula IA: consulta con contexto de saldos (M8, ADR-0023 borrador)
     public let repo: GastoRepositorio
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
@@ -32,6 +33,7 @@ public struct Dependencias: Sendable {
         casosItinerario: CasosDeUsoItinerario,
         casosChat: CasosDeUsoChat,
         casosFoto: CasosDeUsoFoto,
+        casosBrujula: CasosDeUsoBrujula,
         repo: GastoRepositorio,
         pingBD: @escaping @Sendable () async -> Bool,
         verificador: any VerificadorDeToken,
@@ -44,6 +46,7 @@ public struct Dependencias: Sendable {
         self.casosItinerario = casosItinerario
         self.casosChat = casosChat
         self.casosFoto = casosFoto
+        self.casosBrujula = casosBrujula
         self.repo = repo
         self.pingBD = pingBD
         self.verificador = verificador
@@ -106,6 +109,13 @@ public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
     )
 
     montarFotos(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarBrujula(
         router.group()
             .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
             .group(context: ContextoAutenticado.self),
