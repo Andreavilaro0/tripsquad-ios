@@ -19,6 +19,25 @@
   multi-uso 7d revocables, salir con deudas permitido+aviso, viaje MVP name+base_currency,
   solo cerrar (no borrar), tope 50 miembros.
 
+### 2026-07-24 — M2 onboarding construido + revisado
+- Dominio+Postgres+HTTP (7 endpoints). PR **#33** (draft). Dominio 34, servicio 46.
+- Revisión 3 modelos (Codex/Gemini/Kimi) foco seguridad: autorización/IDOR/inyección/fuga LIMPIO.
+  Arreglado: race del tope (FOR UPDATE), invitación→trip inexistente, revoke idempotente, desync constante.
+- Bead nuevo: owner puede salir y dejar viaje sin owner (decisión de Andrea).
+
+### 2026-07-24 — M4 votaciones construido (apilado sobre M2)
+- Dominio+Postgres+HTTP (5 endpoints: crear/listar/detalle+resultados/votar/cerrar). PR **#34** (draft, base=M2).
+- Dominio 43, servicio 53. Gates limpios. Migración 0004 (tabla polls). Revisión seguridad en curso.
+- Provisional: votos visibles, cierre manual. Wart anotado: RepositorioEnMemoria tiene 2 stores de membresía sin sincronizar (solo afecta tests, no prod).
+
+### Ramas/PRs abiertos (NINGUNO mergeado — esperan firma de Andrea)
+- #32 M1 settle-confirmación (rama feat/settle-confirmacion) — READY, revisado 3 modelos.
+- #33 M2 onboarding (design/m2-onboarding) — draft, revisado.
+- #34 M4 votaciones (feat/m4-votaciones, apilado sobre M2) — draft.
+- Orden de merge sugerido: M1 → M2 → M4 (migraciones 0002→0003→0004; resolver conflicto de `Dependencias.ahora` entre M1 y M2 al mergear).
+
+### En progreso: M5 itinerario (apilado sobre M4)
+
 ## Muros duros (requieren a Andrea; NO los cruzo en autónomo)
 - **Fotos (M7):** storage externo (S3/R2/Supabase) = dependencia + credenciales. Solo diseño.
 - **Chat realtime (M6):** decisión realtime propio vs 3rd-party. MVP posible = mensajes + polling sin dep; realtime aparte.
