@@ -27,6 +27,7 @@ struct SettleRoutesTests {
             casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
+            casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
             repo: repo, pingBD: { true },
             verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba))
         return (Application(router: construirRouter(deps)), repo)
@@ -68,6 +69,7 @@ struct SettleRoutesTests {
             casosVotacion: CasosDeUsoVotacion(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
             casosItinerario: CasosDeUsoItinerario(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
             casosChat: CasosDeUsoChat(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria()),
+            casosFoto: CasosDeUsoFoto(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria(), storage: FotoStorageStub()),
             repo: repo, pingBD: { true },
             verificador: VerificadorSupabase(fuente: FuenteFalsa(jwks(Self.clave)), issuer: issDePrueba, audiencia: audDePrueba))
         let app = Application(router: construirRouter(deps))

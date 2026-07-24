@@ -36,6 +36,7 @@ struct RoutesTests {
             casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
+            casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
             repo: repo,
             pingBD: { bdOk },
             verificador: VerificadorSupabase(
@@ -239,6 +240,7 @@ struct RoutesTests {
             casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
+            casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(fuente: fuente, issuer: issDePrueba, audiencia: audDePrueba)
@@ -287,6 +289,7 @@ struct RoutesTests {
             casosVotacion: CasosDeUsoVotacion(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
             casosItinerario: CasosDeUsoItinerario(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria()),
             casosChat: CasosDeUsoChat(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria()),
+            casosFoto: CasosDeUsoFoto(repo: RepositorioEnMemoria(), membresia: RepositorioEnMemoria(), viajes: RepositorioEnMemoria(), storage: FotoStorageStub()),
             repo: repo,
             pingBD: { true },
             verificador: VerificadorSupabase(
