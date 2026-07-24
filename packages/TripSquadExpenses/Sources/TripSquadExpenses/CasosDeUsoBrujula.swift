@@ -40,7 +40,11 @@ public struct CasosDeUsoBrujula: Sendable {
 
         let queryRecortada = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !queryRecortada.isEmpty else { return .failure(.reglaViolada("query_vacia")) }
-        guard queryRecortada.count <= Self.longitudMaximaQuery else { return .failure(.reglaViolada("query_muy_larga")) }
+        // Se valida por BYTES (utf8), no por Characters (Codex M8 P2): un grapheme puede tener
+        // muchos escalares; acotar por bytes evita que un cliente pase el límite lógico y dispare
+        // coste/DoS en el adaptador LLM real. (Un límite de tamaño de body en middleware es la
+        // otra mitad — bead del adaptador real.)
+        guard queryRecortada.utf8.count <= Self.longitudMaximaQuery else { return .failure(.reglaViolada("query_muy_larga")) }
 
         let gastos = try await repo.gastos(de: tripId).map(\.gasto)
         let saldos = try balances(gastos)
