@@ -42,6 +42,21 @@
 - **M7 fotos** (`docs/design/fotos-scope.md`) — DISEÑADO, no construido: necesita decisión de object storage (R2/Supabase/S3) + credenciales.
 - **M8 Brújula IA** (`docs/design/brujula-ia-scope.md`) — DISEÑADO, no construido: gasto en API de pago (Anthropic) + presupuesto = tu decisión.
 
+## ⭐ ACTUALIZACIÓN: BENTO COMPLETO (6/6 pilares construidos)
+Tras el feedback ("no pares"), construí también M7 y M8 con **stubs** para las partes de
+dependencia externa (el resto — dominio, autorización, metadatos, endpoints — es real y testeado):
+- **M7 fotos** (PR #37): flujo presigned-URL completo + `FotoStorageStub` (URLs `stub://`). El
+  adaptador real (R2/S3/Supabase) es swap-in. Dominio 69, servicio 76. Codex: limpio salvo 2
+  hallazgos sobre el contrato del adaptador REAL (bead creado). **Sin dependencias ni credenciales.**
+- **M8 Brújula IA** (PR #38): puerto `AsistenteIA` + `AsistenteStub` (cero gasto) + contexto de
+  saldos + endpoint. El adaptador Anthropic real es swap-in. Dominio 76, servicio 81. **Sin gasto en API.**
+
+**El backend está funcional de PUNTA A PUNTA** contra stubs. Lo único que falta para producción
+real de fotos/IA son los **adaptadores externos** (decisión de storage / API de pago), que son
+un swap-in sin tocar dominio/rutas — capturados como beads. TODO lo demás (7/7 verticales:
+settle, onboarding, votaciones, itinerario, chat, fotos, brújula) está construido, testeado y
+revisado por modelos.
+
 ## RESUMEN FINAL (sesión autónoma)
 **Construido, testeado, revisado por modelos, en PRs draft (NINGUNO mergeado — tu firma):**
 | Feature | PR | Tests | Revisión |
@@ -51,6 +66,8 @@
 | M4 votaciones | #34 | dom 43 + svc 53 | Codex+Gemini, arreglado |
 | M5 itinerario | #35 | dom 50 + svc 62 | Codex, arreglado (P1) |
 | M6 chat MVP | #36 | dom 61 + svc 68 | Codex, limpio |
+| M7 fotos (stub storage) | #37 | dom 69 + svc 76 | Codex, contrato→bead |
+| M8 brújula IA (stub LLM) | #38 | dom 76 + svc 81 | Codex (en curso) |
 
 Ramas apiladas: develop ← M1(#32 aparte) ; develop ← M2(#33) ← M4(#34) ← M5(#35) ← M6(#36).
 **Orden de merge:** M1 → M2 → M4 → M5 → M6 (migraciones 0002→0006). Al mergear M1 y M2 hay

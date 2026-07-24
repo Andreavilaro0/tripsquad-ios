@@ -89,6 +89,7 @@ let deps = Dependencias(
     casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
     casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
     casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
+    casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
     repo: repo,
     pingBD: {
         do { _ = try await client.query("SELECT 1", logger: logger); return true }
