@@ -48,6 +48,16 @@ struct CasosDeUsoVotacionTests {
         #expect(error == .reglaViolada("min_2_options"))
     }
 
+    @Test func crearConOpcionesDuplicadasSeRechaza() async throws {   // bot Codex P1
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoVotacion(repo: r, membresia: r, viajes: r)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", question: "¿?", options: ["a", "a"], actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("duplicate_options"))
+    }
+
     // 2. votar feliz: se registra y aparece en el conteo del detalle.
     @Test func votarFeliz() async throws {
         let r = repo()
