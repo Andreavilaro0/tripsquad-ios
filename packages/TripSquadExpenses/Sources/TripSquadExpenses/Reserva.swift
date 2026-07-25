@@ -1,5 +1,5 @@
 // Modelos de "quién ya reservó" (wedge reserva por persona, spec
-// docs/design/wedge-reserva-por-persona-scope.md). Mismo patrón que
+// docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md). Mismo patrón que
 // `Itinerario.swift`: tipos puros, la autorización vive en
 // `CasosDeUsoReserva`, no aquí.
 

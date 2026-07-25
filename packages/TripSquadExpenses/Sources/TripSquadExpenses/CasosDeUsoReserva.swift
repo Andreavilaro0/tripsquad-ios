@@ -1,5 +1,5 @@
 // Caso de uso del wedge "quién ya reservó" (spec
-// docs/design/wedge-reserva-por-persona-scope.md). La AUTORIZACIÓN calca el
+// docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md). La AUTORIZACIÓN calca el
 // gate de `CasosDeUsoItinerario.editar/borrar`: se carga primero la
 // actividad (sin fuga de existencia si no está), luego se exige miembro
 // ACTUAL, y solo el creador de la actividad o el owner del viaje pueden

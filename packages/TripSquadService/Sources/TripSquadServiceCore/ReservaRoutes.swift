@@ -1,5 +1,5 @@
 // Endpoints HTTP del wedge "quién ya reservó" (spec
-// docs/design/wedge-reserva-por-persona-scope.md). Mismo patrón que
+// docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md). Mismo patrón que
 // ItinerarioRoutes: el grupo AUTENTICADO, el actor SIEMPRE sale de
 // `ctx.actor` (JWT verificado), nunca del body.
 //
