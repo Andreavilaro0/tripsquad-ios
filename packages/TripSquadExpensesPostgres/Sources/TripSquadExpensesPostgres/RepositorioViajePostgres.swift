@@ -43,13 +43,20 @@ extension RepositorioPostgres: ViajeRepositorio {
         return nil
     }
 
-    public func viajesDe(_ actor: MiembroId) async throws -> [Viaje] {
+    /// `ORDER BY t.id` (antes `t.created_at`): el adaptador en memoria ordenaba por
+    /// `id` y este por `created_at` — dos órdenes distintos para el mismo listado, y
+    /// además `created_at` no es único (dos viajes creados en el mismo tick empatan sin
+    /// desempate). Se unifica al `id` porque `Viaje` (dominio) NO lleva `createdAt`:
+    /// ordenar por fecha aquí sería un criterio que memoria no puede reproducir.
+    /// `limit` llega ya clampado de `CasosDeUsoViaje.misViajes`.
+    public func viajesDe(_ actor: MiembroId, limit: Int) async throws -> [Viaje] {
         let rows = try await client.query("""
             SELECT t.id, t.name, t.base_currency, t.created_by, t.closed_at
             FROM trips t
             JOIN trip_members m ON m.trip_id = t.id
             WHERE m.member_id = \(actor.raw) AND m.left_at IS NULL
-            ORDER BY t.created_at
+            ORDER BY t.id
+            LIMIT \(limit)
             """, logger: logger)
         var out: [Viaje] = []
         for try await (id, name, baseCurrency, createdBy, closedAt) in rows.decode((String, String, String, String, Date?).self) {
@@ -60,9 +67,13 @@ extension RepositorioPostgres: ViajeRepositorio {
 
     // MARK: - Miembros / roles
 
+    /// `ORDER BY member_id`: sin él Postgres devolvía el orden físico del heap
+    /// (cambia con cada UPDATE de `left_at`) mientras memoria sí ordenaba — la lista de
+    /// miembros del mismo viaje salía distinta según el adaptador. Sin `LIMIT`: el
+    /// tamaño ya está acotado por el tope de 50 miembros (ADR-0018 §8).
     public func miembros(de tripId: String) async throws -> [(MiembroId, RolMiembro)] {
         let rows = try await client.query(
-            "SELECT member_id, role FROM trip_members WHERE trip_id = \(tripId) AND left_at IS NULL",
+            "SELECT member_id, role FROM trip_members WHERE trip_id = \(tripId) AND left_at IS NULL ORDER BY member_id",
             logger: logger)
         var out: [(MiembroId, RolMiembro)] = []
         for try await (memberId, role) in rows.decode((String, String).self) {
@@ -184,11 +195,22 @@ extension RepositorioPostgres: ViajeRepositorio {
 
     // MARK: - Salir / cerrar
 
+    /// Marca la salida Y revoca, EN LA MISMA TRANSACCIÓN, las invitaciones que ese
+    /// miembro emitió (ADR-0014 §2 — P1 de la revisión integrada). Sin esto, un
+    /// expulsado seguía teniendo su `code` vivo hasta 7 días y `unirsePorCodigo` lo
+    /// reactivaba (`left_at = NULL`): reingresaba con su propio código. Aplica a expulsar
+    /// Y a salir (quien ya no está en el viaje no debe tener códigos activos a su nombre).
     public func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) async throws {
-        _ = try await client.query("""
-            UPDATE trip_members SET left_at = \(ahora)
-            WHERE trip_id = \(tripId) AND member_id = \(memberId.raw) AND left_at IS NULL
-            """, logger: logger)
+        try await client.withTransaction(logger: logger) { conn in
+            _ = try await conn.query("""
+                UPDATE trip_members SET left_at = \(ahora)
+                WHERE trip_id = \(tripId) AND member_id = \(memberId.raw) AND left_at IS NULL
+                """, logger: self.logger)
+            _ = try await conn.query("""
+                UPDATE trip_invites SET revoked_at = \(ahora)
+                WHERE trip_id = \(tripId) AND created_by = \(memberId.raw) AND revoked_at IS NULL
+                """, logger: self.logger)
+        }
     }
 
     public func cerrar(tripId: String, ahora: Date) async throws {

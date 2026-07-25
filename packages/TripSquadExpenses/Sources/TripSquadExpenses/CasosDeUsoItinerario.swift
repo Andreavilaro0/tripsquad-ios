@@ -44,10 +44,26 @@ public struct CasosDeUsoItinerario: Sendable {
     }
 
     /// SOLO miembros listan (plan §3, "403 sin fuga"). El orden (day,
-    /// orderIndex) es responsabilidad del repo (`listar`).
-    public func listar(tripId: String, actor: MiembroId) async throws -> Result<[ActividadItinerario], ErrorItinerario> {
+    /// orderIndex, id) es responsabilidad del repo (`listar`). `limit` se clampa a
+    /// [1, 200] (mismo patrón que `CasosDeUsoChat.listar`): un límite fuera de rango
+    /// NUNCA se rechaza, se ajusta en silencio.
+    public func listar(tripId: String, actor: MiembroId, limit: Int = 50) async throws -> Result<[ActividadItinerario], ErrorItinerario> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
-        return .success(try await repo.listar(tripId))
+        let limiteClamp = min(max(limit, 1), 200)
+        return .success(try await repo.listar(tripId, limit: limiteClamp))
+    }
+
+    /// Una actividad concreta, con el MISMO gate que `listar` (solo miembros) y el
+    /// mismo `.noAutorizado` sin fuga si no existe en ese viaje — observable idéntico
+    /// a "buscarla dentro de `listar`", que es como lo hacía el PATCH de la ruta.
+    ///
+    /// Existe porque `listar` ya no devuelve el viaje entero: con tope, el PATCH de la
+    /// actividad nº 201 habría empezado a dar 403 al no encontrarla en la primera
+    /// página. Leer la fila directamente además quita un O(N) por PATCH.
+    public func detalle(itemId: String, tripId: String, actor: MiembroId) async throws -> Result<ActividadItinerario, ErrorItinerario> {
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
+        guard let existente = try await repo.item(id: itemId, en: tripId) else { return .failure(.noAutorizado) }
+        return .success(existente)
     }
 
     /// SOLO el creador de la actividad O el owner del viaje editan (plan §2,

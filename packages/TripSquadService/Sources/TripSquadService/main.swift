@@ -18,32 +18,52 @@ let port = Int(env["PORT"] ?? "8080") ?? 8080
 let host = env["HOST"] ?? "0.0.0.0"                 // Render enruta al 0.0.0.0:$PORT
 let logger = Logger(label: "tripsquad")
 
+/// Decide si la conexión a Postgres va cifrada. **Falla CERRADO** (P1 de la revisión
+/// integrada): antes, un host REMOTO sin `sslmode=require` iba en TEXTO PLANO en
+/// silencio — credenciales y todos los datos del viaje viajando sin cifrar a Supabase.
+/// Ahora el default es TLS y solo se baja a plano en tres casos EXPLÍCITOS:
+///   - `sslmode=disable` (el usuario lo pide a mano),
+///   - `PG_ALLOW_PLAINTEXT=1` (escape para desarrollo),
+///   - host local (localhost/127.0.0.1/::1): el Postgres de dev/CI no tiene TLS.
+/// Cualquier otra forma de `sslmode` (require/verify-ca/verify-full/prefer/allow) es
+/// "sí, cifra" — antes solo se reconocía `require`, así que `verify-full` caía a plano.
+func postgresTLS(host: String, sslmode: String?, _ env: [String: String]) -> PostgresClient.Configuration.TLS {
+    let plano = PostgresClient.Configuration.TLS.disable
+    let cifrado = PostgresClient.Configuration.TLS.require(.makeClientConfiguration())
+    if env["PG_ALLOW_PLAINTEXT"] == "1" { return plano }
+    if let m = sslmode?.lowercased() {
+        if m == "disable" { return plano }
+        if ["require", "verify-ca", "verify-full", "prefer", "allow"].contains(m) { return cifrado }
+    }
+    let locales: Set<String> = ["localhost", "127.0.0.1", "::1"]
+    return locales.contains(host) ? plano : cifrado   // remoto sin pistas -> cifra (falla cerrado)
+}
+
 /// Config de Postgres desde el entorno. Prioriza `DATABASE_URL` (la cadena única de
 /// Supabase: `postgresql://user:pass@host:port/db`), y si no está, cae a las
-/// variables `PG*` sueltas (hallazgo P2 de Codex). TLS se exige si la URL pide
-/// sslmode=require o si `PGSSL=require`.
+/// variables `PG*` sueltas (hallazgo P2 de Codex).
 func configPostgres(_ env: [String: String]) -> PostgresClient.Configuration {
     if let raw = env["DATABASE_URL"], let c = URLComponents(string: raw), let host = c.host {
-        let sslRequerido = c.queryItems?.contains { $0.name == "sslmode" && $0.value == "require" } ?? false
-        let tls: PostgresClient.Configuration.TLS = sslRequerido ? .require(.makeClientConfiguration()) : .disable
+        let sslmode = c.queryItems?.first { $0.name == "sslmode" }?.value
         return .init(
             host: host,
             port: c.port ?? 5432,
             username: c.user ?? "postgres",
             password: c.password ?? "",
             database: String(c.path.dropFirst()),   // quita la barra inicial
-            tls: tls
+            tls: postgresTLS(host: host, sslmode: sslmode, env)
         )
     }
-    let tls: PostgresClient.Configuration.TLS = (env["PGSSL"] == "require")
-        ? .require(.makeClientConfiguration()) : .disable
+    let host = env["PGHOST"] ?? "localhost"
+    // `PGSSL=require` se mantiene por compatibilidad; el resto lo decide postgresTLS.
+    let sslmode = env["PGSSL"]
     return .init(
-        host: env["PGHOST"] ?? "localhost",
+        host: host,
         port: Int(env["PGPORT"] ?? "5432") ?? 5432,
         username: env["PGUSER"] ?? "postgres",
         password: env["PGPASSWORD"] ?? "postgres",
         database: env["PGDATABASE"] ?? "tripsquad",
-        tls: tls
+        tls: postgresTLS(host: host, sslmode: sslmode, env)
     )
 }
 

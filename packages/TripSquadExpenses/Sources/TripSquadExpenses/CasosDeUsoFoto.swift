@@ -77,6 +77,11 @@ public struct CasosDeUsoFoto: Sendable {
     /// URL prefirmada de subida que da el `storage` (stub o adaptador real).
     public func presignSubida(tripId: String, contentType: String, sizeBytes: Int64?, caption: String? = nil, actor: MiembroId, ahora: Date) async throws -> Result<PresignSubida, ErrorFoto> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
+        // Viaje cerrado bloquea SUBIR (revisión integrada): fotos era el único módulo
+        // mutante sin este gate, y sin documentar si era deliberado. Se adopta el mismo
+        // criterio que itinerario — el contenido nuevo se bloquea, el borrado NO (es
+        // limpieza terminal, ver `borrar`).
+        guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard Self.tiposPermitidos.contains(contentType) else { return .failure(.reglaViolada("content_type_invalido")) }
         if let sizeBytes {
             guard sizeBytes > 0, sizeBytes <= Self.tamanoMaximoBytes else { return .failure(.reglaViolada("size_invalido")) }
@@ -96,6 +101,9 @@ public struct CasosDeUsoFoto: Sendable {
     /// — sin fuga de existencia.
     public func confirmar(fotoId: String, tripId: String, actor: MiembroId) async throws -> Result<Void, ErrorFoto> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
+        // Confirmar es la segunda mitad de SUBIR, así que se bloquea igual que el
+        // presign: si no, cerrar el viaje entre presign y confirm dejaría entrar la foto.
+        guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard try await repo.marcarLista(id: fotoId, en: tripId) else { return .failure(.noAutorizado) }
         return .success(())
     }
@@ -103,9 +111,16 @@ public struct CasosDeUsoFoto: Sendable {
     /// Solo miembros listan (plan §Endpoints, "403 sin fuga"). Solo devuelve
     /// fotos `ready` (las `pending`, sin binario confirmado, no se muestran),
     /// cada una con su URL prefirmada de LECTURA.
-    public func listar(tripId: String, actor: MiembroId) async throws -> Result<[FotoConUrl], ErrorFoto> {
+    ///
+    /// `limit` se clampa a [1, 200] (mismo patrón que `CasosDeUsoChat.listar`): un
+    /// límite fuera de rango NUNCA se rechaza, se ajusta en silencio. Aquí el tope no
+    /// es solo tamaño de respuesta: el bucle de abajo pide UNA URL prefirmada POR FOTO,
+    /// así que sin tope un viaje con miles de fotos eran miles de llamadas al
+    /// proveedor de storage en una sola petición HTTP.
+    public func listar(tripId: String, actor: MiembroId, limit: Int = 50) async throws -> Result<[FotoConUrl], ErrorFoto> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
-        let fotos = try await repo.listar(tripId, soloListas: true)
+        let limiteClamp = min(max(limit, 1), 200)
+        let fotos = try await repo.listar(tripId, soloListas: true, limit: limiteClamp)
         var resultado: [FotoConUrl] = []
         resultado.reserveCapacity(fotos.count)
         for foto in fotos {
@@ -121,6 +136,11 @@ public struct CasosDeUsoFoto: Sendable {
     /// borrándola tras salir del viaje, aunque `uploadedBy` coincida). Se
     /// carga la foto primero: si no existe (o pertenece a otro tripId),
     /// `.noAutorizado` — sin fuga de existencia. Borra metadato + binario.
+    ///
+    /// Política de viaje cerrado (decisión explícita, revisión integrada): borrar SÍ se
+    /// permite con el viaje cerrado — es limpieza terminal, no contenido nuevo, mismo
+    /// criterio que `CasosDeUsoItinerario.borrar` y `CasosDeUsoVotacion.cerrar`. Subir
+    /// (presign + confirmar) sí se bloquea.
     public func borrar(fotoId: String, tripId: String, actor: MiembroId) async throws -> Result<Void, ErrorFoto> {
         guard let existente = try await repo.foto(id: fotoId, en: tripId) else { return .failure(.noAutorizado) }
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }   // miembro ACTUAL

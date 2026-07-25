@@ -12,11 +12,37 @@ public func balances(_ gastos: [Gasto]) throws -> [MiembroId: Int64] {
     for gasto in gastos {
         let cuotasGasto = try cuotas(de: gasto)
         // El pagador adelantó el importe entero...
-        neto[gasto.pagadoPor, default: 0] += gasto.importeMinor
+        try acumularSaldo(&neto, gasto.pagadoPor, suma: gasto.importeMinor)
         // ...y cada participante (incluido el pagador) asume su cuota.
         for (miembro, cuota) in cuotasGasto {
-            neto[miembro, default: 0] -= cuota
+            try acumularSaldo(&neto, miembro, resta: cuota)
         }
     }
     return neto
+}
+
+// MARK: - Acumuladores con aritmética COMPROBADA
+
+// `+=` y `-=` de Swift TRAPEAN en overflow (SIGTRAP: el proceso muere, no hay `catch`
+// que lo recoja). Como el importe de un gasto puede llegar hasta `Int64.max` (ver el
+// guard de rango de `Dinero.minorUnits`), acumular saldos con los operadores normales
+// convierte un gasto en un arma: el gasto queda PERSISTIDO y a partir de ahí cualquier
+// cálculo de saldos de ese viaje mata el servicio. Estos dos helpers convierten el
+// overflow en un `DomainError` corriente. Son `public` porque `balancesConLiquidaciones`
+// (módulo TripSquadExpenses) acumula sobre el mismo vector y necesita la misma garantía.
+
+/// Suma `suma` al saldo de `miembro`, lanzando en vez de trapear si se sale de rango.
+public func acumularSaldo(_ neto: inout [MiembroId: Int64], _ miembro: MiembroId, suma: Int64) throws {
+    let (r, overflow) = neto[miembro, default: 0].addingReportingOverflow(suma)
+    guard !overflow else { throw DomainError.saldoFueraDeRango }
+    neto[miembro] = r
+}
+
+/// Resta `resta` del saldo de `miembro`, lanzando en vez de trapear si se sale de rango.
+/// Se usa `subtractingReportingOverflow` en vez de sumar el negado porque negar
+/// `Int64.min` también trapea.
+public func acumularSaldo(_ neto: inout [MiembroId: Int64], _ miembro: MiembroId, resta: Int64) throws {
+    let (r, overflow) = neto[miembro, default: 0].subtractingReportingOverflow(resta)
+    guard !overflow else { throw DomainError.saldoFueraDeRango }
+    neto[miembro] = r
 }

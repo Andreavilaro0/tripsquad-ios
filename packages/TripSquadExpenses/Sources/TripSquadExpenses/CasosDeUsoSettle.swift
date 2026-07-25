@@ -72,15 +72,33 @@ public struct CasosDeUsoSettle: Sendable {
         try await transicion(id: id, en: tripId, a: .cancelled, por: actor, ahora: ahora, esCreador: true, motivo: nil)
     }
 
+    /// Tope máximo de un listado paginado, idéntico al de chat (`CasosDeUsoChat.listar`).
+    /// Es `public` porque el `GET .../settlement/suggestion` lo pide explícitamente: ver
+    /// `SettleRoutes`, donde los pendientes no son la página que se devuelve sino la fuente
+    /// de un flag derivado.
+    public static let limiteMaximo = 200
+
     /// Lista de pendientes NO caducados, CON su id de almacenamiento (Task 4: la ruta HTTP
     /// la necesita para confirmar/rechazar/cancelar los ítems). Excluye los vencidos
     /// (`expiresAt < ahora`): un pending caducado ya no se puede confirmar, así que no debe
     /// listarse ni marcarse como activo (Codex P3). Delega en el repo.
-    public func pendientes(tripId: String, ahora: Date) async throws -> [(String, Settlement)] {
-        try await repo.pendientes(de: tripId).filter { $0.1.expiresAt >= ahora }
+    ///
+    /// `limit` se clampa a [1, 200] igual que en chat — nunca se rechaza un límite fuera
+    /// de rango, se ajusta en silencio. OJO al orden: el filtro de caducados se aplica
+    /// DESPUÉS del `LIMIT` del repo, así que una página puede venir con menos de `limit`
+    /// ítems si había caducados dentro. Es el mismo compromiso que ya existía (el repo
+    /// nunca ha sabido de caducidad) y se prefiere a mover la regla de negocio al SQL.
+    public func pendientes(tripId: String, ahora: Date, limit: Int = 50) async throws -> [(String, Settlement)] {
+        let limiteClamp = min(max(limit, 1), Self.limiteMaximo)
+        // La caducidad la filtra el repo ANTES del limit (bot GitHub P2): filtrarla aquí,
+        // después, dejaba que los pending caducados consumieran la página y ocultaba los
+        // activos más nuevos —tanto en GET /settlements como en los flags de la sugerencia.
+        return try await repo.pendientes(de: tripId, limit: limiteClamp, ahora: ahora)
     }
 
     /// Pagos CONFIRMADOS del viaje (ADR-0017): los únicos que descuentan saldo (Task 5).
+    /// SIN `limit` a propósito: alimenta `balancesConLiquidaciones`, no una página.
+    /// Truncarlo corrompería los saldos (ver `SettlementRepositorio.confirmados`).
     public func confirmados(tripId: String) async throws -> [Settlement] {
         try await repo.confirmados(de: tripId)
     }

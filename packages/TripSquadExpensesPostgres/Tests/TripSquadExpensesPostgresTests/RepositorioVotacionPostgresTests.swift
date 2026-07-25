@@ -55,7 +55,7 @@ struct RepositorioVotacionPostgresTests {
             #expect(leida?.createdBy == ana)
             #expect(leida?.closedAt == nil)
 
-            let lista = try await repo.votacionesDe(trip)
+            let lista = try await repo.votacionesDe(trip, limit: 200)
             #expect(lista.contains { $0.id == id })
         }
     }
@@ -145,6 +145,27 @@ struct RepositorioVotacionPostgresTests {
         try await conRepo { repo, trip in
             let resultado = try await repo.resultado(pollId: "no-existe", en: trip)
             #expect(resultado == nil)
+        }
+    }
+
+    // MARK: - Tope + orden estable
+
+    /// `votacionesDe` respeta el `LIMIT` y el `ORDER BY id` (total, `id` es PK):
+    /// la página corta es el PREFIJO de la completa, nunca un subconjunto al azar.
+    @Test func votacionesDeRespetaElLimitYTieneOrdenEstable() async throws {
+        try await conRepo { repo, trip in
+            var ids: [String] = []
+            for _ in 0..<3 {
+                let id = nuevoId()
+                ids.append(id)
+                try await repo.crear(votacion(id, tripId: trip))
+            }
+
+            let completa = try await repo.votacionesDe(trip, limit: 200).map(\.id)
+            #expect(completa == ids.sorted())
+            #expect(try await repo.votacionesDe(trip, limit: 200).map(\.id) == completa)   // repetible
+            #expect(try await repo.votacionesDe(trip, limit: 2).map(\.id) == Array(completa.prefix(2)))
+            #expect(try await repo.votacionesDe(trip, limit: 1).count == 1)
         }
     }
 }

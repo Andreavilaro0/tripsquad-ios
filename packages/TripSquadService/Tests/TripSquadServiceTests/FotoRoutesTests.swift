@@ -244,4 +244,49 @@ struct FotoRoutesTests {
             }
         }
     }
+
+    /// GET /trips/:id/photos?limit= — el tope llega desde el query, y un `limit` basura
+    /// NO se rechaza con 4xx (mismo criterio que ChatRoutes). Aquí el tope es además el
+    /// que acota las URLs prefirmadas: una por foto DEVUELTA.
+    @Test func limitDelQuerySeAplicaYUnValorInvalidoNoEs4xx() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            for _ in 0..<3 {
+                var fotoId = ""
+                try await client.execute(
+                    uri: "/trips/\(trip)/photos/presign", method: .post,
+                    headers: [.authorization: try await bearer("ana")], body: presignJSON()
+                ) { res in
+                    #expect(res.status == .created)
+                    fotoId = campoDe(String(buffer: res.body), "photoId")
+                }
+                try await client.execute(
+                    uri: "/trips/\(trip)/photos/\(fotoId)/confirm", method: .post,
+                    headers: [.authorization: try await bearer("ana")]
+                ) { res in #expect(res.status == .ok) }
+            }
+
+            try await client.execute(
+                uri: "/trips/\(trip)/photos?limit=1", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(res.status == .ok)
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"url\":") == 1)
+            }
+            for basura in ["abc", "0", "-1", ""] {
+                try await client.execute(
+                    uri: "/trips/\(trip)/photos?limit=\(basura)", method: .get,
+                    headers: [.authorization: try await bearer("ana")]
+                ) { res in
+                    #expect(res.status == .ok, "limit='\(basura)' no debe dar 4xx")
+                }
+            }
+            try await client.execute(
+                uri: "/trips/\(trip)/photos", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"url\":") == 3)
+            }
+        }
+    }
 }

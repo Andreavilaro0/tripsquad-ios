@@ -103,11 +103,16 @@ func montarFotos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Depe
         }
     }
 
-    // GET /trips/:tripId/photos — SOLO miembros (plan §Endpoints, "403 sin
-    // fuga"). Solo fotos `ready`, cada una con su URL prefirmada de LECTURA.
-    router.get("trips/:tripId/photos") { _, ctx -> Response in
+    // GET /trips/:tripId/photos?limit= — SOLO miembros (plan §Endpoints, "403 sin
+    // fuga"). Solo fotos `ready`, cada una con su URL prefirmada de LECTURA — por eso
+    // el tope importa aquí más que en ningún otro listado: cada foto devuelta es una
+    // llamada al proveedor de storage. `limit` ausente o no parseable cae al default
+    // del caso de uso (50); el clamp [1,200] lo hace `CasosDeUsoFoto.listar`, no esta
+    // ruta. Mismo criterio que ChatRoutes: un valor de query inválido NO da 4xx.
+    router.get("trips/:tripId/photos") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
-        switch try await deps.casosFoto.listar(tripId: tripId, actor: ctx.actor) {
+        let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
+        switch try await deps.casosFoto.listar(tripId: tripId, actor: ctx.actor, limit: limit) {
         case .success(let fotos):
             return try respuestaJSON(.ok, FotosListDTO(photos: fotos.map(dtoDe)))
         case .failure(let error):
@@ -137,6 +142,8 @@ private func respuestaErrorFoto(_ error: ErrorFoto) -> Response {
         return errorJSON(.forbidden, "not_member")
     case .noEncontrado:
         return errorJSON(.notFound, "not_found")
+    case .viajeCerrado:
+        return errorJSON(.conflict, "trip_closed")
     case .reglaViolada(let code):
         return errorJSON(HTTPResponse.Status(code: 422), code)
     }

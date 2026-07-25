@@ -315,4 +315,70 @@ struct ItinerarioRoutesTests {
             }
         }
     }
+
+    /// GET /trips/:id/itinerary?limit= — el tope llega desde el query, y un `limit`
+    /// basura NO se rechaza con 4xx (mismo criterio que ChatRoutes).
+    @Test func limitDelQuerySeAplicaYUnValorInvalidoNoEs4xx() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            for titulo in ["Coliseo", "Foro", "Vaticano"] {
+                try await client.execute(
+                    uri: "/trips/\(trip)/itinerary", method: .post,
+                    headers: [.authorization: try await bearer("ana")],
+                    body: crearItemJSON(title: titulo)
+                ) { res in #expect(res.status == .created) }
+            }
+
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary?limit=1", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(res.status == .ok)
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"title\":") == 1)
+            }
+            for basura in ["abc", "0", "-1", ""] {
+                try await client.execute(
+                    uri: "/trips/\(trip)/itinerary?limit=\(basura)", method: .get,
+                    headers: [.authorization: try await bearer("ana")]
+                ) { res in
+                    #expect(res.status == .ok, "limit='\(basura)' no debe dar 4xx")
+                }
+            }
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(contarOcurrencias(String(buffer: res.body), de: "\"title\":") == 3)
+            }
+        }
+    }
+
+    /// El PATCH carga la actividad con `detalle`, no buscándola dentro de `listar`:
+    /// debe seguir funcionando sobre una actividad que NO cabría en la primera página.
+    /// (Con la implementación anterior esto habría devuelto 403.)
+    @Test func patchFuncionaSobreUnaActividadFueraDeLaPrimeraPagina() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            var ids: [String] = []
+            for titulo in ["Coliseo", "Foro", "Vaticano"] {
+                try await client.execute(
+                    uri: "/trips/\(trip)/itinerary", method: .post,
+                    headers: [.authorization: try await bearer("ana")],
+                    body: crearItemJSON(title: titulo)
+                ) { res in ids.append(idDe(String(buffer: res.body))) }
+            }
+            // La última por orden (day, orderIndex, id) — desempate por id, todas
+            // comparten day y orderIndex.
+            let ultima = ids.sorted().last ?? ""
+
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary/\(ultima)", method: .patch,
+                headers: [.authorization: try await bearer("ana")],
+                body: ByteBuffer(string: #"{"title":"Renombrada"}"#)
+            ) { res in
+                #expect(res.status == .ok)
+                #expect(String(buffer: res.body).contains("\"title\":\"Renombrada\""))
+            }
+        }
+    }
 }

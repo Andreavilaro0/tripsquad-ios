@@ -192,6 +192,39 @@ struct CasosDeUsoFotoTests {
         #expect(try await r.foto(id: presign.fotoId, en: "t1") != nil)   // sigue existiendo
     }
 
+    // Viaje cerrado (decisión de la revisión integrada): SUBIR se bloquea (presign y
+    // confirmar), BORRAR se permite — limpieza terminal, mismo criterio que itinerario.
+    // Antes fotos era el único módulo mutante sin este gate y sin documentar por qué.
+    @Test func viajeCerradoBloqueaSubirPeroNoBorrar() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoFoto(repo: r, membresia: r, viajes: r, storage: storage())
+
+        // Se sube una foto ANTES de cerrar, para poder probar el borrado después.
+        guard case .success(let previa) = try await casos.presignSubida(tripId: "t1", contentType: "image/jpeg", sizeBytes: 1024, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba presign exitoso antes de cerrar"); return
+        }
+
+        await r.cerrarViaje("t1")
+
+        // Subir: bloqueado en las dos mitades.
+        guard case .failure(let errorPresign) = try await casos.presignSubida(tripId: "t1", contentType: "image/jpeg", sizeBytes: 1024, actor: ana, ahora: ahora) else {
+            Issue.record("presign deberia fallar con el viaje cerrado"); return
+        }
+        #expect(errorPresign == .viajeCerrado)
+
+        guard case .failure(let errorConfirmar) = try await casos.confirmar(fotoId: previa.fotoId, tripId: "t1", actor: ana) else {
+            Issue.record("confirmar deberia fallar con el viaje cerrado"); return
+        }
+        #expect(errorConfirmar == .viajeCerrado)
+
+        // Borrar: permitido (limpieza terminal).
+        guard case .success = try await casos.borrar(fotoId: previa.fotoId, tripId: "t1", actor: ana) else {
+            Issue.record("borrar SI debe permitirse con el viaje cerrado"); return
+        }
+        #expect(try await r.foto(id: previa.fotoId, en: "t1") == nil)
+    }
+
     // Orden de borrado (bot GitHub M7 P2): PRIMERO el binario, DESPUÉS el metadato.
     // Con un storage que lanza al borrar el binario, el metadato NO debe borrarse:
     // la operación queda reintentable y no se pierde el puntero a un binario que sigue
@@ -209,6 +242,83 @@ struct CasosDeUsoFotoTests {
         // El binario falló al borrarse → el metadato DEBE seguir (reintentable, sin huérfano).
         #expect(try await r.foto(id: presign.fotoId, en: "t1") != nil)
     }
+
+    // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
+
+    /// Siembra 3 fotos `ready` con el MISMO `createdAt`: así el único desempate es el
+    /// `id`, y además se cuenta cuántas URLs prefirmadas pide `listar`.
+    private func conFotosListas(_ storage: FotoStorage) async throws -> (RepositorioEnMemoria, CasosDeUsoFoto) {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoFoto(repo: r, membresia: r, viajes: r, storage: storage)
+        for _ in 0..<3 {
+            guard case .success(let presign) = try await casos.presignSubida(
+                tripId: "t1", contentType: "image/jpeg", sizeBytes: 1024, actor: ana, ahora: ahora),
+                  case .success = try await casos.confirmar(fotoId: presign.fotoId, tripId: "t1", actor: ana) else {
+                Issue.record("esperaba presign + confirmar exitosos"); break
+            }
+        }
+        return (r, casos)
+    }
+
+    /// Un `limit` fuera de rango NUNCA se rechaza: se ajusta en silencio. 0 sube a 1,
+    /// 999 baja a 200 (y con 3 fotos, 200 las devuelve todas).
+    @Test func listarClampaElLimiteEnVezDeRechazarlo() async throws {
+        let (_, casos) = try await conFotosListas(storage())
+
+        guard case .success(let cero) = try await casos.listar(tripId: "t1", actor: ana, limit: 0),
+              case .success(let negativo) = try await casos.listar(tripId: "t1", actor: ana, limit: -5),
+              case .success(let enorme) = try await casos.listar(tripId: "t1", actor: ana, limit: 999),
+              case .success(let porDefecto) = try await casos.listar(tripId: "t1", actor: ana) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(cero.count == 1)         // 0 -> 1
+        #expect(negativo.count == 1)     // negativo -> 1
+        #expect(enorme.count == 3)       // 999 -> 200 (caben las 3)
+        #expect(porDefecto.count == 3)   // default 50
+    }
+
+    /// El orden debe ser TOTAL y repetible: con el mismo `createdAt`, el desempate es
+    /// el `id` (mismo criterio que `ORDER BY created_at, id` en Postgres).
+    @Test func listarTieneOrdenEstableYLaPaginaEsPrefijo() async throws {
+        let (_, casos) = try await conFotosListas(storage())
+
+        guard case .success(let completa) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let repetida) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let pagina) = try await casos.listar(tripId: "t1", actor: ana, limit: 2) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        let ids = completa.map(\.foto.id)
+        #expect(ids == ids.sorted())          // mismo createdAt -> desempate por id
+        #expect(repetida.map(\.foto.id) == ids)
+        #expect(pagina.map(\.foto.id) == Array(ids.prefix(2)))
+    }
+
+    /// La razón de fondo del tope en FOTOS: `listar` pide UNA url prefirmada POR FOTO.
+    /// Con `limit: 1` el storage debe recibir UNA sola llamada, no una por fila de la
+    /// tabla — que era el coste real del listado sin tope.
+    @Test func listarPideUnaUrlPrefirmadaPorFotoDevueltaNoPorFilaDeLaTabla() async throws {
+        let contador = ContadorDeLecturas()
+        let (_, casos) = try await conFotosListas(contador)
+
+        guard case .success(let pagina) = try await casos.listar(tripId: "t1", actor: ana, limit: 1) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(pagina.count == 1)
+        #expect(await contador.lecturas == 1, "3 fotos en la tabla, 1 en la página -> 1 prefirmada")
+    }
+}
+
+/// Storage que cuenta cuántas URLs de LECTURA se han pedido — para demostrar que el
+/// tope de `listar` acota las llamadas al proveedor, no solo el tamaño de la respuesta.
+private actor ContadorDeLecturas: FotoStorage {
+    private(set) var lecturas = 0
+    func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String { "stub://subida/\(storageKey)" }
+    func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String {
+        lecturas += 1
+        return "stub://lectura/\(storageKey)"
+    }
+    func borrar(storageKey: String) async throws {}
 }
 
 /// Storage que sube/lee como el stub pero LANZA al borrar el binario — para

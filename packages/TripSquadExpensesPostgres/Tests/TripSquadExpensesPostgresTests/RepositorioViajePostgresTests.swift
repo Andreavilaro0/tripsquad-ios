@@ -51,7 +51,7 @@ struct RepositorioViajePostgresTests {
             #expect(viaje.name == "Roma")
             #expect(viaje.closedAt == nil)
             #expect(try await repo.rol(de: ana, en: id) == .owner)
-            let misViajes = try await repo.viajesDe(ana)
+            let misViajes = try await repo.viajesDe(ana, limit: 200)
             #expect(misViajes.contains { $0.id == id })
         }
     }
@@ -148,6 +148,78 @@ struct RepositorioViajePostgresTests {
             #expect(try await repo.rol(de: ivan, en: id) == .member)
             let activos = try await repo.miembros(de: id)
             #expect(activos.filter { $0.0 == ivan }.count == 1)
+        }
+    }
+
+    /// P1 de la revisión integrada (ADR-0014 §2): `quitarMiembro` revoca, EN LA MISMA
+    /// TRANSACCIÓN, las invitaciones que ese miembro emitió. Antes solo tocaba
+    /// `trip_members`, así que el expulsado reingresaba con su propio code.
+    @Test func quitarMiembroRevocaLasInvitacionesQueEmitio() async throws {
+        try await conRepo { repo in
+            let ahora = Date()
+            let id = nuevoId()
+            _ = try await repo.crearViaje(id: id, name: "Roma", baseCurrency: "EUR", creador: ana, ahora: ahora)
+            // ivan entra y crea SU propia invitación.
+            let codeAna = try await invitar(repo, tripId: id, ahora: ahora)
+            _ = try await repo.unirsePorCodigo(code: codeAna, actor: ivan, ahora: ahora, tope: 50)
+            let codeIvan = "code-ivan-" + UUID().uuidString
+            _ = try await repo.crearInvitacion(tripId: id, por: ivan, code: codeIvan, expiresAt: ahora.addingTimeInterval(3600))
+
+            // Se expulsa a ivan (quitarMiembro).
+            try await repo.quitarMiembro(ivan, de: id, ahora: ahora)
+
+            // El code de ivan quedó revocado: nadie entra con él.
+            let masTarde = ahora.addingTimeInterval(60)
+            #expect(try await repo.unirsePorCodigo(code: codeIvan, actor: MiembroId("sara-viaje"), ahora: masTarde, tope: 50) == .revocado)
+            // El code de ANA sigue vivo (no se revocan los de otros emisores).
+            #expect(try await repo.unirsePorCodigo(code: codeAna, actor: MiembroId("sara-viaje"), ahora: masTarde, tope: 50) == .unido)
+        }
+    }
+
+    // MARK: - Tope + orden estable
+
+    /// `viajesDe` respeta el `LIMIT` y ordena por `t.id` — el MISMO criterio que el
+    /// adaptador en memoria. Antes ordenaba por `t.created_at`, un orden que memoria no
+    /// puede reproducir (`Viaje` no lleva `createdAt`) y que además no desempata.
+    /// Se usa un actor propio del test para no contar los viajes que siembran otros.
+    @Test func viajesDeRespetaElLimitYOrdenaPorId() async throws {
+        try await conRepo { repo in
+            let ahora = Date()
+            let solo = MiembroId("solo-" + UUID().uuidString.prefix(8))
+            var ids: [String] = []
+            for nombre in ["Roma", "Lisboa", "Oslo"] {
+                let id = nuevoId()
+                ids.append(id)
+                _ = try await repo.crearViaje(id: id, name: nombre, baseCurrency: "EUR", creador: solo, ahora: ahora)
+            }
+
+            let completa = try await repo.viajesDe(solo, limit: 200).map(\.id)
+            #expect(completa == ids.sorted())
+            #expect(try await repo.viajesDe(solo, limit: 200).map(\.id) == completa)   // repetible
+            #expect(try await repo.viajesDe(solo, limit: 2).map(\.id) == Array(completa.prefix(2)))
+            #expect(try await repo.viajesDe(solo, limit: 1).count == 1)
+        }
+    }
+
+    /// `miembros` NO lleva tope (el dominio ya acota a 50), pero SÍ orden: sin el
+    /// `ORDER BY member_id` que se acaba de añadir, Postgres devolvía el orden físico
+    /// del heap — que cambia con cada UPDATE de `left_at` — mientras memoria sí
+    /// ordenaba. Se fuerza justo ese UPDATE (salida + reingreso) para comprobarlo.
+    @Test func miembrosVaOrdenadoPorMemberIdAunTrasSalirYVolver() async throws {
+        try await conRepo { repo in
+            let ahora = Date()
+            let id = nuevoId()
+            _ = try await repo.crearViaje(id: id, name: "Roma", baseCurrency: "EUR", creador: ana, ahora: ahora)
+            let code = try await invitar(repo, tripId: id, ahora: ahora)
+            _ = try await repo.unirsePorCodigo(code: code, actor: ivan, ahora: ahora, tope: 50)
+
+            // Salir y volver reescribe la fila de ivan: en el heap pasa al final.
+            try await repo.quitarMiembro(ivan, de: id, ahora: ahora)
+            _ = try await repo.unirsePorCodigo(code: code, actor: ivan, ahora: ahora.addingTimeInterval(60), tope: 50)
+
+            let ids = try await repo.miembros(de: id).map(\.0)
+            #expect(ids == ids.sorted(), "el orden lo fija member_id, no el orden físico de la tabla")
+            #expect(ids == [ana, ivan].sorted())
         }
     }
 }

@@ -92,4 +92,43 @@ struct SaldosTests {
             }
         }
     }
+
+    // MARK: - Overflow: error de dominio, NUNCA una caída del proceso
+
+    // P1 de la revisión integrada. `Dinero.minorUnits` acepta importes hasta Int64.max,
+    // y `+=`/`-=` de Swift TRAPEAN en overflow (SIGTRAP: mata el proceso, ningún catch
+    // lo recoge). Como el gasto ya está PERSISTIDO cuando se calculan los saldos, dos
+    // gastos gigantes envenenaban el viaje para siempre: cada sugerencia de settle y
+    // cada consulta de Brújula tumbaban el servicio, que sirve a todos los viajes.
+    // Estos tests fijan que ahora sea un error normal.
+
+    /// Dos gastos que individualmente caben, pero cuyo ACUMULADO no.
+    ///
+    /// El reparto importa: si el pagador asume su propia cuota, lo que suma se le
+    /// resta dentro del mismo gasto y el neto vuelve a 0 (nunca acumula). El caso
+    /// que sí crece es el pagador que NO participa: adelanta el importe entero y la
+    /// cuota es de otro, así que su saldo se acumula gasto a gasto.
+    @Test func balancesConAcumuladoFueraDeRangoLanzaEnVezDeTrapear() throws {
+        let ana = MiembroId("ana"), ivan = MiembroId("ivan")
+        let g1 = Gasto(id: "g1", pagadoPor: ana, importeMinor: Int64.max,
+                       reparto: .exacto([ivan: Int64.max]))
+        let g2 = Gasto(id: "g2", pagadoPor: ana, importeMinor: Int64.max,
+                       reparto: .exacto([ivan: Int64.max]))
+        // Uno solo cabe justo.
+        #expect(try balances([g1])[ana] == Int64.max)
+        // Dos: el acumulado de ana se sale de Int64 -> error, no SIGTRAP.
+        #expect(throws: DomainError.saldoFueraDeRango) {
+            _ = try balances([g1, g2])
+        }
+    }
+
+    /// La suma de cuotas exactas tampoco puede trapear.
+    @Test func cuotasExactasFueraDeRangoLanzaEnVezDeTrapear() throws {
+        let ana = MiembroId("ana"), ivan = MiembroId("ivan")
+        let gasto = Gasto(id: "g1", pagadoPor: ana, importeMinor: 100,
+                          reparto: .exacto([ana: Int64.max, ivan: Int64.max]))
+        #expect(throws: DomainError.saldoFueraDeRango) {
+            _ = try cuotas(de: gasto)
+        }
+    }
 }

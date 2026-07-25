@@ -58,4 +58,12 @@ public enum DomainError: Error, Equatable {
     case sinParticipantes
     case miembroDuplicado
     case pesoInvalido
+    /// La acumulación de saldos (o la suma de cuotas exactas) se sale del rango de
+    /// `Int64`. Antes de existir este caso, esa situación TRAPEABA: `+=`/`-=` de Swift
+    /// matan el proceso con SIGTRAP en overflow, y `Dinero.minorUnits` acepta importes
+    /// hasta `Int64.max`, así que un par de gastos gigantes envenenaba el viaje de forma
+    /// PERMANENTE — toda sugerencia de settle y toda consulta de Brújula de ese viaje
+    /// mataban el servicio, que sirve a todos los viajes. Ahora es un error de dominio
+    /// normal (422), no una caída (P1 de la revisión integrada).
+    case saldoFueraDeRango
 }

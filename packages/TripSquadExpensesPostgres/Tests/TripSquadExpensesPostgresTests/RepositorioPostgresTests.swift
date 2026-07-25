@@ -79,6 +79,45 @@ struct RepositorioPostgresTests {
         }
     }
 
+    /// FUGA ENTRE VIAJES (P1 de la revisión integrada). `expenses.id` es PK GLOBAL y lo
+    /// elige el CLIENTE, así que un miembro del viaje B puede mandar el id de un gasto
+    /// del viaje A. Antes, la consulta que resuelve ese choque no filtraba por `trip_id`
+    /// y devolvía el `etag` y el estado de borrado del gasto AJENO como si fuera propio
+    /// (`.reproducido`). Ahora debe ser un rechazo OPACO, sin revelar nada de A.
+    @Test func idDeOtroViajeNoFiltraDatosAjenos() async throws {
+        let host = ProcessInfo.processInfo.environment["PG_TEST_HOST"] ?? "localhost"
+        let config = PostgresClient.Configuration(
+            host: host, port: 5432, username: "postgres", password: "postgres",
+            database: "tripsquad", tls: .disable)
+        let client = PostgresClient(configuration: config)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { await client.run() }
+            let repo = RepositorioPostgres(client: client)
+            let tripA = "trip-" + UUID().uuidString.prefix(8)
+            let tripB = "trip-" + UUID().uuidString.prefix(8)
+            for t in [tripA, tripB] {
+                try await client.query("INSERT INTO trips (id, currency_reference) VALUES (\(t), 'EUR')")
+                try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(t), \(ana.raw))")
+                try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(t), \(ivan.raw))")
+            }
+
+            let id = nuevoId()
+            let enA = try await repo.guardar(gasto(id), en: tripA, por: ana, idempotencyKey: "\(id)-kA")
+            guard case .creado = enA else { Issue.record("esperaba creado en A, obtuve \(enA)"); return }
+
+            // El MISMO id desde el viaje B: choca con la PK global del gasto de A.
+            let enB = try await repo.guardar(gasto(id), en: tripB, por: ana, idempotencyKey: "\(id)-kB")
+            guard case .rechazado(let razon) = enB else {
+                Issue.record("un id ocupado en otro viaje debe rechazarse sin filtrar; obtuve \(enB)"); return
+            }
+            #expect(razon == "id_conflict")
+            // Y el viaje B sigue vacío: no se coló ni se "reprodujo" nada de A.
+            #expect(try await repo.gastos(de: tripB).isEmpty)
+            #expect(try await repo.gastos(de: tripA).count == 1)
+            group.cancelAll()
+        }
+    }
+
     @Test func conflictoPorEtagRancio() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()

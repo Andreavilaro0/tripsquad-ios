@@ -40,14 +40,19 @@ extension RepositorioPostgres: ItinerarioRepositorio {
 
     // MARK: - Leer
 
-    /// Orden `(day, order_index)` — mismo criterio que el puerto (plan §Contrato
+    /// Orden `(day, order_index, id)` — mismo criterio que el puerto (plan §Contrato
     /// de dominio); el cliente añade `startTime` como desempate fuera del dominio.
-    public func listar(_ tripId: String) async throws -> [ActividadItinerario] {
+    /// El `id` final NO es cosmético: `(day, order_index)` no desempata (nada impide
+    /// dos actividades del mismo día con el mismo índice), y con un orden no total el
+    /// `LIMIT` puede devolver un subconjunto distinto en cada consulta.
+    /// `limit` llega ya clampado de `CasosDeUsoItinerario.listar`.
+    public func listar(_ tripId: String, limit: Int) async throws -> [ActividadItinerario] {
         let rows = try await client.query("""
             SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by
             FROM itinerary_items
             WHERE trip_id = \(tripId)
-            ORDER BY day, order_index
+            ORDER BY day, order_index, id
+            LIMIT \(limit)
             """, logger: logger)
         var out: [ActividadItinerario] = []
         for try await (id, tripId, title, day, startTime, location, notes, orderIndex, createdBy)

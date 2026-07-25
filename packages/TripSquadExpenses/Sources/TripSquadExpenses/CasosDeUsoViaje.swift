@@ -27,8 +27,12 @@ public struct CasosDeUsoViaje: Sendable {
         return try await repo.crearViaje(id: id, name: name, baseCurrency: baseCurrency, creador: actor, ahora: ahora)
     }
 
-    public func misViajes(actor: MiembroId) async throws -> [Viaje] {
-        try await repo.viajesDe(actor)
+    /// `limit` se clampa a [1, 200] (mismo patrón que `CasosDeUsoChat.listar`): un
+    /// límite fuera de rango NUNCA se rechaza, se ajusta en silencio. El orden estable
+    /// (por `id`) lo garantiza el repo — sin él, paginar no significaría nada.
+    public func misViajes(actor: MiembroId, limit: Int = 50) async throws -> [Viaje] {
+        let limiteClamp = min(max(limit, 1), 200)
+        return try await repo.viajesDe(actor, limit: limiteClamp)
     }
 
     /// SOLO miembros ven el detalle. Un no-miembro recibe `.noAutorizado` tanto

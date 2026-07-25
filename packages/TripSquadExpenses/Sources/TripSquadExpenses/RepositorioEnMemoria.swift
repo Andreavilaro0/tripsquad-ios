@@ -12,9 +12,14 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     private var datos: [String: [String: Fila]] = [:]        // tripId -> gastoId -> fila
     private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // "actor|key" -> resultado
-    private var miembros: [String: Set<MiembroId>] = [:]
-    private var cerrados: Set<String> = []
+    // NOTA: no hay almacén propio de membresía ni de "cerrados". `esMiembro` y
+    // `viajeCerrado` derivan de `miembrosDeViaje` y `viajes` (los de onboarding), que
+    // son la única fuente de verdad — ver el bloque de helpers de test más abajo.
     private var settlements: [String: Settlement] = [:]   // id generado -> settlement
+    /// Ids en ORDEN DE CREACIÓN. `Settlement` (dominio) no lleva `createdAt`, así que
+    /// este array es lo único que puede reproducir aquí el `ORDER BY created_at, id`
+    /// de Postgres: el orden de inserción ES el orden de `created_at`.
+    private var ordenSettlements: [String] = []
     private var contadorSettlement = 0
     private var version = 0
 
@@ -54,17 +59,66 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     // MARK: - Setup para tests
 
-    public func anadirMiembro(_ m: MiembroId, a tripId: String) { miembros[tripId, default: []].insert(m) }
-    public func quitarDeMembresia(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }   // helper de test (M5)
-    public func expulsar(_ m: MiembroId, de tripId: String) { miembros[tripId]?.remove(m) }              // helper de test (M1)
-    public func cerrarViaje(_ tripId: String) { cerrados.insert(tripId) }
+    // Estos helpers escriben en los almacenes REALES (`miembrosDeViaje`, `viajes`), los
+    // mismos que usa `ViajeRepositorio`. Antes escribían en dos almacenes paralelos
+    // (`miembros`, `cerrados`) que NADIE MÁS leía, así que el doble de test mentía:
+    // `unirsePorCodigo` no hacía miembro a nadie a ojos de `esMiembro`, `quitarMiembro`
+    // no desautorizaba, y `cerrar` no cerraba nada. Por eso ninguna prueba de extremo a
+    // extremo podía detectar regresiones de "miembro ACTUAL" ni de "viaje cerrado" — y
+    // por eso el agujero de `CasosDeUsoVotacion.cerrar` sobrevivió a ocho PRs
+    // (causa raíz identificada en la revisión integrada).
+
+    /// Alta directa sin pasar por invitación. PRESERVA el rol y reactiva a quien salió:
+    /// varios tests crean el viaje con `CasosDeUsoViaje` (que deja al creador como
+    /// `.owner`) y luego llaman aquí para sembrar el resto; sobrescribir la fila
+    /// degradaría al owner a `.member` y rompería la autorización que quieren probar.
+    public func anadirMiembro(_ m: MiembroId, a tripId: String) {
+        if var fila = miembrosDeViaje[tripId]?[m] {
+            fila.leftAt = nil
+            miembrosDeViaje[tripId]?[m] = fila
+        } else {
+            miembrosDeViaje[tripId, default: [:]][m] = FilaMiembro(rol: .member, leftAt: nil)
+        }
+    }
+
+    /// Marca la salida igual que `quitarMiembro` (deja `leftAt`, no borra la fila).
+    public func quitarDeMembresia(_ m: MiembroId, de tripId: String) { marcarSalida(m, tripId) }   // helper de test (M5)
+    public func expulsar(_ m: MiembroId, de tripId: String) { marcarSalida(m, tripId) }            // helper de test (M1)
+
+    private func marcarSalida(_ m: MiembroId, _ tripId: String) {
+        guard var fila = miembrosDeViaje[tripId]?[m] else { return }
+        fila.leftAt = fila.leftAt ?? Self.marcaDeTest
+        miembrosDeViaje[tripId]?[m] = fila
+    }
+
+    /// Cierra el viaje en el almacén real. Crea una ficha mínima si el test nunca llamó
+    /// a `crearViaje` (el caso habitual: sembrar con `anadirMiembro` y cerrar), porque
+    /// si no `viajeCerrado` seguiría devolviendo `false` y el cierre no probaría nada.
+    public func cerrarViaje(_ tripId: String) {
+        if let v = viajes[tripId] {
+            viajes[tripId] = Viaje(id: v.id, name: v.name, baseCurrency: v.baseCurrency,
+                                    createdBy: v.createdBy, closedAt: v.closedAt ?? Self.marcaDeTest)
+        } else {
+            viajes[tripId] = Viaje(id: tripId, name: "", baseCurrency: "EUR",
+                                    createdBy: MiembroId(""), closedAt: Self.marcaDeTest)
+        }
+    }
+
+    /// Fecha fija para los helpers: da igual cuál sea, solo importa que NO sea nil.
+    private static let marcaDeTest = Date(timeIntervalSince1970: 0)
 
     // MARK: - Membresia
 
+    /// Deriva del MISMO almacén que `ViajeRepositorio.rol`: miembro activo = existe la
+    /// fila y no tiene `leftAt`. Así unirse/salir/expulsar por el camino real afectan de
+    /// verdad a la autorización de los ocho módulos.
     public func esMiembro(_ m: MiembroId, de tripId: String) -> Bool {
-        miembros[tripId]?.contains(m) ?? false
+        guard let fila = miembrosDeViaje[tripId]?[m] else { return false }
+        return fila.leftAt == nil
     }
-    public func viajeCerrado(_ tripId: String) -> Bool { cerrados.contains(tripId) }
+
+    /// Deriva del MISMO almacén que `ViajeRepositorio.cerrar`.
+    public func viajeCerrado(_ tripId: String) -> Bool { viajes[tripId]?.closedAt != nil }
 
     // MARK: - GastoRepositorio
 
@@ -177,6 +231,7 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         }
         let id = nuevoIdSettlement()
         settlements[id] = settlement
+        ordenSettlements.append(id)
         return .creado(id: id)
     }
 
@@ -194,13 +249,27 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         return .ok
     }
 
+    /// SIN tope (entrada de saldos, ver el puerto), pero SÍ con orden estable: antes
+    /// iteraba `settlements.values`, es decir el orden arbitrario de un diccionario.
     public func confirmados(de tripId: String) -> [Settlement] {
-        settlements.values.filter { $0.tripId == tripId && $0.status == .confirmed }
+        porEstado(tripId, .confirmed).map { $0.1 }
     }
 
-    public func pendientes(de tripId: String) -> [(String, Settlement)] {
-        settlements.filter { $0.value.tripId == tripId && $0.value.status == .pending }
-            .map { ($0.key, $0.value) }
+    public func pendientes(de tripId: String, limit: Int, ahora: Date) -> [(String, Settlement)] {
+        // Excluye los caducados ANTES del `prefix(limit)`, igual que el `AND expires_at
+        // >= ahora` de Postgres: si no, los pending viejos-y-caducados consumirían la
+        // página y taparían los activos más nuevos (bot GitHub P2).
+        Array(porEstado(tripId, .pending).filter { $0.1.expiresAt >= ahora }.prefix(limit))
+    }
+
+    /// Recorre `ordenSettlements` (orden de creación) en vez de `settlements.values`
+    /// (orden de diccionario, no determinista): así memoria y Postgres devuelven la
+    /// MISMA secuencia y el `limit` recorta la misma página en los dos.
+    private func porEstado(_ tripId: String, _ estado: EstadoSettlement) -> [(String, Settlement)] {
+        ordenSettlements.compactMap { id in
+            guard let s = settlements[id], s.tripId == tripId, s.status == estado else { return nil }
+            return (id, s)
+        }
     }
 
     private func nuevoIdSettlement() -> String { contadorSettlement += 1; return "set-\(contadorSettlement)" }
@@ -219,10 +288,12 @@ extension RepositorioEnMemoria: ViajeRepositorio {
 
     public func viaje(id: String) -> Viaje? { viajes[id] }
 
-    public func viajesDe(_ actor: MiembroId) -> [Viaje] {
+    public func viajesDe(_ actor: MiembroId, limit: Int) -> [Viaje] {
         viajes.values
             .filter { miembrosDeViaje[$0.id]?[actor]?.leftAt == nil && miembrosDeViaje[$0.id]?[actor] != nil }
-            .sorted { $0.id < $1.id }   // orden estable
+            .sorted { $0.id < $1.id }   // orden estable — el MISMO que Postgres (ORDER BY t.id)
+            .prefix(limit)
+            .map { $0 }
     }
 
     public func miembros(de tripId: String) -> [(MiembroId, RolMiembro)] {
@@ -273,10 +344,20 @@ extension RepositorioEnMemoria: ViajeRepositorio {
         return .unido
     }
 
+    /// Idempotente, igual que el `UPDATE ... WHERE left_at IS NULL` de Postgres: repetir
+    /// la expulsión NO pisa la fecha de salida original (divergencia detectada en la
+    /// revisión integrada).
     public func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) {
         guard var fila = miembrosDeViaje[tripId]?[memberId] else { return }
-        fila.leftAt = ahora
+        fila.leftAt = fila.leftAt ?? ahora
         miembrosDeViaje[tripId]?[memberId] = fila
+        // Revoca las invitaciones que ese miembro emitió (ADR-0014 §2, P1 de la revisión
+        // integrada): si no, reingresaría con su propio code. Mismo efecto que el segundo
+        // UPDATE de la transacción en Postgres.
+        for (code, inv) in invitaciones where inv.tripId == tripId && inv.createdBy == memberId && inv.revokedAt == nil {
+            invitaciones[code] = Invitacion(code: inv.code, tripId: inv.tripId, createdBy: inv.createdBy,
+                                            expiresAt: inv.expiresAt, revokedAt: ahora)
+        }
     }
 
     public func cerrar(tripId: String, ahora: Date) {
@@ -295,8 +376,11 @@ extension RepositorioEnMemoria: VotacionRepositorio {
         votaciones[tripId]?[id]
     }
 
-    public func votacionesDe(_ tripId: String) -> [Votacion] {
-        (votaciones[tripId] ?? [:]).values.sorted { $0.id < $1.id }   // orden estable
+    public func votacionesDe(_ tripId: String, limit: Int) -> [Votacion] {
+        (votaciones[tripId] ?? [:]).values
+            .sorted { $0.id < $1.id }   // orden estable — el MISMO que Postgres (ORDER BY id)
+            .prefix(limit)
+            .map { $0 }
     }
 
     /// UPSERT por `(pollId, member)` — dedupe estructural, mismo criterio que
@@ -332,11 +416,15 @@ extension RepositorioEnMemoria: ItinerarioRepositorio {
         actividades[a.tripId, default: [:]][a.id] = a
     }
 
-    /// Ordenado por `(day, orderIndex)` (plan §4) — `day` es 'YYYY-MM-DD', que
-    /// ordena igual como string ISO que como fecha real.
-    public func listar(_ tripId: String) -> [ActividadItinerario] {
+    /// Ordenado por `(day, orderIndex, id)` (plan §4) — `day` es 'YYYY-MM-DD', que
+    /// ordena igual como string ISO que como fecha real. El `id` es el desempate que
+    /// faltaba: sin él, dos actividades del mismo día con el mismo `orderIndex`
+    /// quedaban en orden arbitrario y la página nº2 podía repetir u omitir ítems.
+    public func listar(_ tripId: String, limit: Int) -> [ActividadItinerario] {
         (actividades[tripId] ?? [:]).values
-            .sorted { ($0.day, $0.orderIndex) < ($1.day, $1.orderIndex) }
+            .sorted { ($0.day, $0.orderIndex, $0.id) < ($1.day, $1.orderIndex, $1.id) }
+            .prefix(limit)
+            .map { $0 }
     }
 
     public func item(id: String, en tripId: String) -> ActividadItinerario? {
@@ -410,10 +498,12 @@ extension RepositorioEnMemoria: FotoRepositorio {
 
     /// `soloListas: true` filtra a `status == .ready` (plan §Tareas: las
     /// `pending` no se muestran).
-    public func listar(_ tripId: String, soloListas: Bool) -> [Foto] {
+    public func listar(_ tripId: String, soloListas: Bool, limit: Int) -> [Foto] {
         (fotos[tripId] ?? [:]).values
             .filter { !soloListas || $0.status == .ready }
             .sorted { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt }
+            .prefix(limit)
+            .map { $0 }
     }
 
     public func borrar(fotoId: String, en tripId: String) {

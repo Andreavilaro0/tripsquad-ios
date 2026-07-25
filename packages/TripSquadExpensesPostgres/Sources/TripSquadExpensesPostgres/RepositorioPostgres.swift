@@ -256,13 +256,24 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         return nil
     }
 
+    /// FUGA ENTRE VIAJES (P1 de la revisión integrada): esta consulta recibía `tripId`
+    /// y NO lo usaba. Como `expenses.id` es PK GLOBAL y lo elige el CLIENTE, el
+    /// `ON CONFLICT (id)` de `guardar` puede haber chocado con un gasto de OTRO viaje;
+    /// sin el filtro, se devolvía el `etag` y el estado de borrado de ese gasto ajeno
+    /// como si fuera del viaje del actor. Con el filtro, "no hay fila en ESTE viaje"
+    /// significa "el id está ocupado fuera": rechazo permanente y OPACO (`id_conflict`),
+    /// que no revela nada del otro viaje.
+    ///
+    /// Nota: antes del filtro, la rama `not_found` era inalcanzable — si el ON CONFLICT
+    /// no insertó, la fila existía necesariamente. Ahora esa rama es justo el caso de
+    /// colisión cruzada, y por eso cambia de razón.
     private func estadoDeExistente(_ conn: PostgresConnection, id: String, tripId: String) async throws -> ResultadoEscritura {
         let rows = try await conn.query(
-            "SELECT etag, deleted_at FROM expenses WHERE id = \(id)", logger: logger)
+            "SELECT etag, deleted_at FROM expenses WHERE id = \(id) AND trip_id = \(tripId)", logger: logger)
         for try await (etag, deletedAt) in rows.decode((String, Date?).self) {
             return deletedAt != nil ? .rechazado(razon: "deleted") : .reproducido(etag: etag)
         }
-        return .rechazado(razon: "not_found")
+        return .rechazado(razon: "id_conflict")
     }
 
     private func insertarShares(_ conn: PostgresConnection, expenseId: String, shares: [(String, Int64)]) async throws {
@@ -351,23 +362,54 @@ extension RepositorioPostgres: SettlementRepositorio {
         return .estadoInvalido
     }
 
+    /// SIN `LIMIT` a propósito: es la entrada de `balancesConLiquidaciones`, no una
+    /// página. Truncarla dejaría pagos fuera del cálculo y corrompería los saldos
+    /// (ver `SettlementRepositorio.confirmados`). Sí lleva orden estable.
     public func confirmados(de tripId: String) async throws -> [Settlement] {
-        try await filasPorEstado(tripId, "confirmed").map { $0.1 }
+        try await filasPorEstado(tripId, "confirmed", limit: nil, noCaducadosDesde: nil).map { $0.1 }
     }
 
     /// Pendientes CON id (Task 4): la lista HTTP necesita el id para confirmar/rechazar/cancelar.
-    public func pendientes(de tripId: String) async throws -> [(String, Settlement)] {
-        try await filasPorEstado(tripId, "pending")
+    /// Excluye los caducados EN SQL, antes del `LIMIT`, para que no consuman la página.
+    public func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)] {
+        try await filasPorEstado(tripId, "pending", limit: limit, noCaducadosDesde: ahora)
     }
 
     /// UNA sola query por estado (Gemini P1: antes era N+1 — un SELECT de ids + un SELECT
     /// por fila). Selecciona todas las columnas y decodifica el array completo.
-    private func filasPorEstado(_ tripId: String, _ status: String) async throws -> [(String, Settlement)] {
-        let rows = try await client.query("""
-            SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
-                   expires_at, status, resolved_by, resolved_at, reject_reason
-            FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
-            """, logger: logger)
+    ///
+    /// `ORDER BY created_at, id`: antes no ordenaba NADA, así que Postgres devolvía el
+    /// orden físico del heap (cambia con cada UPDATE) mientras el repo en memoria hacía
+    /// otra cosa — dos "listas" distintas para el mismo dato. `created_at` solo no basta
+    /// (dos pagos del mismo lote comparten `now()`), de ahí el `id` de desempate. El
+    /// índice `idx_settlements_trip_status (trip_id, status)` sigue sirviendo el filtro.
+    ///
+    /// `limit == nil` -> `LIMIT NULL`, que en Postgres es exactamente "sin límite"
+    /// (equivale a omitir la cláusula). Así una sola query cubre el listado paginado y
+    /// la lectura completa de saldos, sin duplicar el SELECT.
+    /// `noCaducadosDesde`: si viene, añade `AND expires_at >= $ahora` — se filtra la
+    /// caducidad ANTES del `LIMIT` (solo aplica a pending; `confirmed` pasa `nil`). Un
+    /// `nil` no toca la query. `PostgresQuery` interpola binds, así que el `IS NULL`
+    /// del bind opcional NO sirve para "sin filtro" — hay que ramificar el SQL.
+    private func filasPorEstado(_ tripId: String, _ status: String, limit: Int?, noCaducadosDesde ahora: Date?) async throws -> [(String, Settlement)] {
+        let rows: PostgresRowSequence
+        if let ahora {
+            rows = try await client.query("""
+                SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                       expires_at, status, resolved_by, resolved_at, reject_reason
+                FROM settlements WHERE trip_id = \(tripId) AND status = \(status) AND expires_at >= \(ahora)
+                ORDER BY created_at, id
+                LIMIT \(limit)
+                """, logger: logger)
+        } else {
+            rows = try await client.query("""
+                SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                       expires_at, status, resolved_by, resolved_at, reject_reason
+                FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
+                ORDER BY created_at, id
+                LIMIT \(limit)
+                """, logger: logger)
+        }
         var out: [(String, Settlement)] = []
         for try await (id, sid, fromM, toM, idx, amount, createdBy, expires, st, rBy, rAt, reason)
             in rows.decode((String, String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {

@@ -60,9 +60,13 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         return try respuestaJSON(.created, ViajeCreadoDTO(id: viaje.id, name: viaje.name, baseCurrency: viaje.baseCurrency))
     }
 
-    // GET /trips — los viajes de los que el actor es miembro activo.
-    router.get("trips") { _, ctx -> Response in
-        let viajes = try await deps.casosViaje.misViajes(actor: ctx.actor)
+    // GET /trips?limit= — los viajes de los que el actor es miembro activo.
+    // `limit` ausente o no parseable cae al default del caso de uso (50) y el clamp
+    // [1,200] lo hace `CasosDeUsoViaje.misViajes`, no esta ruta — mismo criterio que
+    // ChatRoutes: un valor de query inválido NO se rechaza con 4xx.
+    router.get("trips") { req, ctx -> Response in
+        let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
+        let viajes = try await deps.casosViaje.misViajes(actor: ctx.actor, limit: limit)
         let dto = MisViajesDTO(trips: viajes.map {
             ViajeResumenDTO(id: $0.id, name: $0.name, baseCurrency: $0.baseCurrency, closed: $0.closedAt != nil)
         })
@@ -92,6 +96,19 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
             return try respuestaJSON(.created, InviteDTO(code: invitacion.code, expiresAt: invitacion.expiresAt))
         case .failure(let error):
             return respuestaErrorViaje(error)
+        }
+    }
+
+    // DELETE /trips/:id/invites/:code — SOLO el owner revoca una invitación a mano
+    // (ADR-0018 §4). El caso de uso existía pero no tenía ruta (P1 de la revisión
+    // integrada). El actor SIEMPRE del JWT. 204 si se revocó, 404 si el code no existe
+    // en ese viaje (idempotente: revocar una ya revocada sigue siendo éxito).
+    router.delete("trips/:tripId/invites/:code") { _, ctx -> Response in
+        let tripId = try ctx.parameters.require("tripId")
+        let code = try ctx.parameters.require("code")
+        switch try await deps.casosViaje.revocar(code: code, tripId: tripId, actor: ctx.actor, ahora: deps.ahora()) {
+        case .success: return Response(status: .noContent)
+        case .failure(let error): return respuestaErrorViaje(error)
         }
     }
 

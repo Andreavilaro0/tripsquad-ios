@@ -246,4 +246,62 @@ struct CasosDeUsoViajeTests {
         }
         #expect(error == .viajeCerrado)
     }
+
+    // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
+
+    /// Un `limit` fuera de rango NUNCA se rechaza: se ajusta en silencio. 0 sube a 1,
+    /// 999 baja a 200 (y con 3 viajes, 200 los devuelve todos).
+    @Test func misViajesClampaElLimiteEnVezDeRechazarlo() async throws {
+        let (casos, _) = entorno()
+        for nombre in ["Roma", "Lisboa", "Oslo"] {
+            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora)
+        }
+
+        #expect(try await casos.misViajes(actor: ana, limit: 0).count == 1)      // 0 -> 1
+        #expect(try await casos.misViajes(actor: ana, limit: -5).count == 1)     // negativo -> 1
+        #expect(try await casos.misViajes(actor: ana, limit: 999).count == 3)    // 999 -> 200 (caben los 3)
+        #expect(try await casos.misViajes(actor: ana).count == 3)                // default 50
+    }
+
+    /// El orden debe ser TOTAL y repetible (por `id`, el mismo criterio que usa el
+    /// adaptador Postgres desde este cambio): sin él, la página nº2 podría repetir u
+    /// omitir viajes.
+    @Test func misViajesTieneOrdenEstableYLaPaginaEsPrefijo() async throws {
+        let (casos, _) = entorno()
+        for nombre in ["Roma", "Lisboa", "Oslo"] {
+            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora)
+        }
+
+        let completa = try await casos.misViajes(actor: ana, limit: 200).map(\.id)
+        #expect(completa == completa.sorted())                                   // orden por id
+        #expect(try await casos.misViajes(actor: ana, limit: 200).map(\.id) == completa)   // repetible
+        #expect(try await casos.misViajes(actor: ana, limit: 2).map(\.id) == Array(completa.prefix(2)))
+    }
+
+    // P1 de la revisión integrada (ADR-0014 §2): expulsar revoca las invitaciones que el
+    // expulsado emitió, EN LA MISMA operación. Sin esto reingresaba con su propio code.
+    @Test func expulsarRevocaLasInvitacionesDelExpulsado() async throws {
+        let (casos, _) = entorno()
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        // ivan entra (con el code de ana) y a su vez invita: crea SU code.
+        guard case .success(let inviteAna) = try await casos.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba invitar de ana"); return
+        }
+        #expect(try await casos.unirse(code: inviteAna.code, actor: ivan, ahora: ahora) == .unido)
+        guard case .success(let inviteIvan) = try await casos.invitar(tripId: viaje.id, actor: ivan, ahora: ahora) else {
+            Issue.record("esperaba invitar de ivan"); return
+        }
+
+        // ana (owner) expulsa a ivan.
+        guard case .success = try await casos.expulsar(tripId: viaje.id, memberId: ivan, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba expulsar exitoso"); return
+        }
+
+        // El code de ivan ya no vale: sara no puede entrar con él.
+        #expect(try await casos.unirse(code: inviteIvan.code, actor: sara, ahora: ahora) == .revocado)
+        // Y el propio ivan tampoco reingresa con su code.
+        #expect(try await casos.unirse(code: inviteIvan.code, actor: ivan, ahora: ahora) == .revocado)
+        // El code de ANA (otro emisor) sigue vivo — solo se revocan los del expulsado.
+        #expect(try await casos.unirse(code: inviteAna.code, actor: sara, ahora: ahora) == .unido)
+    }
 }

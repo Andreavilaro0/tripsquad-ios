@@ -52,6 +52,13 @@ public protocol GastoRepositorio: Sendable {
     /// expulsado entre intentos (hallazgo P1 de Codex).
     func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura?
     func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura
+    /// SIN tope A PROPÓSITO (misma razón que `SettlementRepositorio.confirmados`).
+    /// Hoy no hay ningún `GET /expenses`: los ÚNICOS consumidores de este método son
+    /// `CasosDeUsoBrujula` y el `GET .../settlement/suggestion`, y ambos lo pasan
+    /// entero a `balancesConLiquidaciones`. Truncarlo no acortaría una página: haría
+    /// que los saldos del viaje SALIERAN MAL, en silencio. Si algún día se expone un
+    /// listado HTTP de gastos, será un método aparte con su `limit`, no este.
+    /// El orden (`ORDER BY id`) sí es estable en ambos adaptadores.
     func gastos(de tripId: String) async throws -> [GastoConEtag]
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag?
     func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
@@ -89,11 +96,20 @@ public protocol SettlementRepositorio: Sendable {
     /// la decide el CASO DE USO; el repo solo aplica sobre `pending` no caducado.
     func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
                       por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion
+    /// SIN tope A PROPÓSITO: esto NO es un listado paginable, es la entrada de
+    /// `balancesConLiquidaciones`. Un `LIMIT` aquí no recortaría una página: dejaría
+    /// pagos confirmados fuera del cálculo y CORROMPERÍA los saldos en silencio.
+    /// Solo lleva orden estable (`created_at, id`), que sí es gratis.
     func confirmados(de tripId: String) async throws -> [Settlement]
     /// Pendientes CON su id de almacenamiento (el dominio `Settlement` no lo lleva;
     /// lo genera el repo al crear — ADR-0017, decisión Task 4). El id hace falta para
     /// que el cliente pueda confirmar/rechazar/cancelar el settlement listado.
-    func pendientes(de tripId: String) async throws -> [(String, Settlement)]
+    /// `limit` llega YA clampado desde el caso de uso (patrón chat).
+    /// Pendientes NO caducados (`expiresAt >= ahora`), filtrado ANTES del `limit`: si no,
+    /// los pending más viejos —los que más probablemente caducaron— consumirían la página
+    /// y ocultarían pendings activos más nuevos (bot GitHub P2 sobre la paginación). El
+    /// barrido físico de los caducados es un cron aparte (bead 1ea); aquí solo se excluyen.
+    func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)]
     /// Lee un settlement por id (para autorizar la transición en el caso de uso).
     func settlement(id: String, en tripId: String) async throws -> Settlement?
 }
@@ -106,7 +122,14 @@ public protocol SettlementRepositorio: Sendable {
 public protocol ViajeRepositorio: Sendable {
     func crearViaje(id: String, name: String, baseCurrency: String, creador: MiembroId, ahora: Date) async throws -> Viaje
     func viaje(id: String) async throws -> Viaje?
-    func viajesDe(_ actor: MiembroId) async throws -> [Viaje]
+    /// `limit` llega YA clampado desde el caso de uso (patrón chat). Orden estable
+    /// por `id` en AMBOS adaptadores: `Viaje` (dominio) no lleva `createdAt`, así que
+    /// ordenar por `trips.created_at` en Postgres sería un orden que el adaptador en
+    /// memoria no puede reproducir — y sin orden idéntico, paginar diverge según la
+    /// implementación. Se unifica al criterio que ya usaba memoria (`id`).
+    func viajesDe(_ actor: MiembroId, limit: Int) async throws -> [Viaje]
+    /// SIN tope: el número de miembros ya está acotado por el dominio (tope 50,
+    /// ADR-0018 §8). Sí lleva orden estable por `member_id` en ambos adaptadores.
     func miembros(de tripId: String) async throws -> [(MiembroId, RolMiembro)]
     func rol(de actor: MiembroId, en tripId: String) async throws -> RolMiembro?   // nil = no miembro
     func crearInvitacion(tripId: String, por: MiembroId, code: String, expiresAt: Date) async throws -> Invitacion
@@ -123,7 +146,9 @@ public protocol ViajeRepositorio: Sendable {
 public protocol VotacionRepositorio: Sendable {
     func crear(_ v: Votacion) async throws
     func votacion(id: String, en tripId: String) async throws -> Votacion?
-    func votacionesDe(_ tripId: String) async throws -> [Votacion]
+    /// `limit` llega YA clampado desde el caso de uso (patrón chat); orden estable
+    /// por `id`.
+    func votacionesDe(_ tripId: String, limit: Int) async throws -> [Votacion]
     func votar(pollId: String, tripId: String, member: MiembroId, choice: String, ahora: Date) async throws -> ResultadoVotar
     func resultado(pollId: String, en tripId: String) async throws -> ResultadoVotacion?
     func cerrar(pollId: String, en tripId: String, ahora: Date) async throws
@@ -135,7 +160,11 @@ public protocol VotacionRepositorio: Sendable {
 /// ordena además por `startTime` (plan §4), fuera del alcance del dominio.
 public protocol ItinerarioRepositorio: Sendable {
     func crear(_ a: ActividadItinerario, ahora: Date) async throws
-    func listar(_ tripId: String) async throws -> [ActividadItinerario]   // ordenado por day, orderIndex
+    /// `(day, orderIndex, id)`: el `id` es el desempate que faltaba — dos
+    /// actividades del mismo día con el mismo `orderIndex` salían en orden
+    /// arbitrario (distinto en cada consulta de Postgres), y sin orden total la
+    /// paginación no significa nada. `limit` llega YA clampado del caso de uso.
+    func listar(_ tripId: String, limit: Int) async throws -> [ActividadItinerario]
     func item(id: String, en tripId: String) async throws -> ActividadItinerario?
     func actualizar(_ a: ActividadItinerario, ahora: Date) async throws
     func borrar(id: String, en tripId: String) async throws
@@ -161,7 +190,10 @@ public protocol FotoRepositorio: Sendable {
     func crearPendiente(_ f: Foto) async throws
     func marcarLista(id: String, en tripId: String) async throws -> Bool
     func foto(id: String, en tripId: String) async throws -> Foto?
-    func listar(_ tripId: String, soloListas: Bool) async throws -> [Foto]
+    /// `limit` llega YA clampado del caso de uso. Aquí el tope pesa el doble que en
+    /// los demás listados: `CasosDeUsoFoto.listar` pide una URL prefirmada POR FOTO,
+    /// así que sin `LIMIT` N filas eran N llamadas al proveedor de storage.
+    func listar(_ tripId: String, soloListas: Bool, limit: Int) async throws -> [Foto]
     /// Etiqueta `fotoId` (no `id`) a propósito: `RepositorioEnMemoria` ya
     /// implementa `ItinerarioRepositorio.borrar(id:en:)` con la misma forma
     /// `(String, String) async throws`; un selector idéntico sería una

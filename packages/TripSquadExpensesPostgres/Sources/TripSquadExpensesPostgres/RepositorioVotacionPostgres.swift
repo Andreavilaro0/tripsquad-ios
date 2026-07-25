@@ -51,10 +51,12 @@ extension RepositorioPostgres: VotacionRepositorio {
         return nil
     }
 
-    public func votacionesDe(_ tripId: String) async throws -> [Votacion] {
+    /// `ORDER BY id` (ya lo tenía, es total porque `id` es PK) + `LIMIT`: `limit` llega
+    /// ya clampado de `CasosDeUsoVotacion.listar`.
+    public func votacionesDe(_ tripId: String, limit: Int) async throws -> [Votacion] {
         let rows = try await client.query("""
             SELECT id, question, options::text, created_by, closed_at
-            FROM polls WHERE trip_id = \(tripId) ORDER BY id
+            FROM polls WHERE trip_id = \(tripId) ORDER BY id LIMIT \(limit)
             """, logger: logger)
         var out: [Votacion] = []
         for try await (id, question, optionsJSON, createdBy, closedAt) in rows.decode((String, String, String, String, Date?).self) {

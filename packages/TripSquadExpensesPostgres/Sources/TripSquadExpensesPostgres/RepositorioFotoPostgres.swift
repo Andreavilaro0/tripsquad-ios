@@ -82,7 +82,7 @@ extension RepositorioPostgres: FotoRepositorio {
     /// `soloListas: true` filtra a `status = 'ready'` (plan §Tareas: las
     /// `pending` no se muestran). Orden `(created_at, id)` — mismo desempate
     /// que `RepositorioEnMemoria.listar`.
-    public func listar(_ tripId: String, soloListas: Bool) async throws -> [Foto] {
+    public func listar(_ tripId: String, soloListas: Bool, limit: Int) async throws -> [Foto] {
         let rows: PostgresRowSequence
         if soloListas {
             rows = try await client.query("""
@@ -90,6 +90,7 @@ extension RepositorioPostgres: FotoRepositorio {
                 FROM photos
                 WHERE trip_id = \(tripId) AND status = 'ready'
                 ORDER BY created_at, id
+                LIMIT \(limit)
                 """, logger: logger)
         } else {
             rows = try await client.query("""
@@ -97,6 +98,7 @@ extension RepositorioPostgres: FotoRepositorio {
                 FROM photos
                 WHERE trip_id = \(tripId)
                 ORDER BY created_at, id
+                LIMIT \(limit)
                 """, logger: logger)
         }
         var out: [Foto] = []
