@@ -169,4 +169,28 @@ struct CasosDeUsoSettleTests {
         #expect(confirmados.map(\.settlementId) == ["s1", "s2", "s3"])   // orden de creación
         #expect(try await r.confirmados(de: "t1").map(\.settlementId) == ["s1", "s2", "s3"])
     }
+
+    /// Bot GitHub P2 sobre la paginación: los pending CADUCADOS no deben consumir la
+    /// página. Los más viejos (primeros por `created_at`) son los que más probablemente
+    /// caducaron; si el filtro de caducidad se aplicara DESPUÉS del `limit`, taparían a
+    /// los pending activos más nuevos, que desaparecerían de `GET /settlements` y de los
+    /// flags `pending` de la sugerencia. TTL = 30 días (ADR-0017).
+    @Test func pendientesCaducadosNoConsumenLaPagina() async throws {
+        let (_, casos) = await setup()
+        let treintaUnDia = 31.0 * 24 * 3600
+        // Tres pendings viejos (creados en t0, caducan en t0+30d).
+        _ = try await casos.crearPagos([cmd("viejo1"), cmd("viejo2"), cmd("viejo3")], ahora: t0)
+        // Uno nuevo y ACTIVO, creado 31 días después (caduca en t0+61d).
+        let despues = t0.addingTimeInterval(treintaUnDia)
+        _ = try await casos.crearPagos([cmd("nuevo", from: "ana", to: "ivan", actor: "ana")], ahora: despues)
+
+        // Consulta en t0+31d con limit=2: los tres viejos ya caducaron; solo "nuevo" sigue.
+        let pagina = try await casos.pendientes(tripId: "t1", ahora: despues, limit: 2).map(\.0)
+        // Con el filtro DESPUÉS del limit, la página sería [] (los 2 viejos la consumían).
+        // Con el filtro ANTES, devuelve el pending activo.
+        let sids = try await casos.pendientes(tripId: "t1", ahora: despues, limit: 2)
+        #expect(!pagina.isEmpty, "el pending activo no debe quedar oculto por los caducados")
+        #expect(sids.allSatisfy { $0.1.expiresAt >= despues }, "ningún caducado en la página")
+        #expect(sids.contains { $0.1.settlementId == "nuevo" })
+    }
 }

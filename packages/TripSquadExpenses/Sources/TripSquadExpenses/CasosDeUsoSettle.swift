@@ -90,7 +90,10 @@ public struct CasosDeUsoSettle: Sendable {
     /// nunca ha sabido de caducidad) y se prefiere a mover la regla de negocio al SQL.
     public func pendientes(tripId: String, ahora: Date, limit: Int = 50) async throws -> [(String, Settlement)] {
         let limiteClamp = min(max(limit, 1), Self.limiteMaximo)
-        return try await repo.pendientes(de: tripId, limit: limiteClamp).filter { $0.1.expiresAt >= ahora }
+        // La caducidad la filtra el repo ANTES del limit (bot GitHub P2): filtrarla aquí,
+        // después, dejaba que los pending caducados consumieran la página y ocultaba los
+        // activos más nuevos —tanto en GET /settlements como en los flags de la sugerencia.
+        return try await repo.pendientes(de: tripId, limit: limiteClamp, ahora: ahora)
     }
 
     /// Pagos CONFIRMADOS del viaje (ADR-0017): los únicos que descuentan saldo (Task 5).

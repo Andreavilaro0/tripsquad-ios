@@ -81,11 +81,38 @@ struct SettlementPostgresTests {
         try await conBD { repo, tripId in
             _ = try await sembrarPendientes(repo, tripId, 5)
 
-            let completa = try await repo.pendientes(de: tripId, limit: 200).map(\.0)
+            let completa = try await repo.pendientes(de: tripId, limit: 200, ahora: Date()).map(\.0)
             #expect(completa.count == 5)
-            #expect(try await repo.pendientes(de: tripId, limit: 200).map(\.0) == completa)   // repetible
-            let pagina = try await repo.pendientes(de: tripId, limit: 2).map(\.0)
+            #expect(try await repo.pendientes(de: tripId, limit: 200, ahora: Date()).map(\.0) == completa)   // repetible
+            let pagina = try await repo.pendientes(de: tripId, limit: 2, ahora: Date()).map(\.0)
             #expect(pagina == Array(completa.prefix(2)))                                      // prefijo, no azar
+        }
+    }
+
+    /// Bot GitHub P2: la caducidad se filtra EN SQL, antes del `LIMIT`, para que los
+    /// pending caducados no consuman la página y oculten los activos más nuevos.
+    @Test func pendientesExcluyeCaducadosAntesDelLimit() async throws {
+        try await conBD { repo, tripId in
+            let base = Date(timeIntervalSince1970: 1_700_000_000)
+            // Dos pending que YA caducaron (expiresAt en el pasado respecto a `ahora`).
+            for i in 0..<2 {
+                let s = Settlement(settlementId: "cad-\(i)", tripId: tripId, from: ivan, to: ana,
+                                   transferIndex: i, amountMinor: 1000, createdBy: ivan,
+                                   expiresAt: base)   // caduca en `base`
+                guard case .creado = try await repo.crear(s) else { Issue.record("esperaba .creado"); return }
+            }
+            // Uno activo (caduca mucho después).
+            let activo = Settlement(settlementId: "activo", tripId: tripId, from: ivan, to: ana,
+                                    transferIndex: 9, amountMinor: 1000, createdBy: ivan,
+                                    expiresAt: base.addingTimeInterval(100 * 24 * 3600))
+            guard case .creado = try await repo.crear(activo) else { Issue.record("esperaba .creado"); return }
+
+            // Consulta DESPUÉS de que caduquen los dos, con limit=2 (los caducados lo
+            // consumirían si el filtro fuese en Swift tras el LIMIT).
+            let ahora = base.addingTimeInterval(24 * 3600)
+            let pagina = try await repo.pendientes(de: tripId, limit: 2, ahora: ahora)
+            #expect(pagina.count == 1)
+            #expect(pagina.first?.1.settlementId == "activo")
         }
     }
 

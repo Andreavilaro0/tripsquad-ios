@@ -372,6 +372,6 @@ private struct RepoNoMiembroQueLanzaEnGastos: GastoRepositorio, Membresia, Settl
     func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
                       por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion { throw Boom() }
     func confirmados(de tripId: String) async throws -> [Settlement] { throw Boom() }
-    func pendientes(de tripId: String, limit: Int) async throws -> [(String, Settlement)] { throw Boom() }
+    func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)] { throw Boom() }
     func settlement(id: String, en tripId: String) async throws -> Settlement? { throw Boom() }
 }

@@ -366,12 +366,13 @@ extension RepositorioPostgres: SettlementRepositorio {
     /// página. Truncarla dejaría pagos fuera del cálculo y corrompería los saldos
     /// (ver `SettlementRepositorio.confirmados`). Sí lleva orden estable.
     public func confirmados(de tripId: String) async throws -> [Settlement] {
-        try await filasPorEstado(tripId, "confirmed", limit: nil).map { $0.1 }
+        try await filasPorEstado(tripId, "confirmed", limit: nil, noCaducadosDesde: nil).map { $0.1 }
     }
 
     /// Pendientes CON id (Task 4): la lista HTTP necesita el id para confirmar/rechazar/cancelar.
-    public func pendientes(de tripId: String, limit: Int) async throws -> [(String, Settlement)] {
-        try await filasPorEstado(tripId, "pending", limit: limit)
+    /// Excluye los caducados EN SQL, antes del `LIMIT`, para que no consuman la página.
+    public func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)] {
+        try await filasPorEstado(tripId, "pending", limit: limit, noCaducadosDesde: ahora)
     }
 
     /// UNA sola query por estado (Gemini P1: antes era N+1 — un SELECT de ids + un SELECT
@@ -386,14 +387,29 @@ extension RepositorioPostgres: SettlementRepositorio {
     /// `limit == nil` -> `LIMIT NULL`, que en Postgres es exactamente "sin límite"
     /// (equivale a omitir la cláusula). Así una sola query cubre el listado paginado y
     /// la lectura completa de saldos, sin duplicar el SELECT.
-    private func filasPorEstado(_ tripId: String, _ status: String, limit: Int?) async throws -> [(String, Settlement)] {
-        let rows = try await client.query("""
-            SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
-                   expires_at, status, resolved_by, resolved_at, reject_reason
-            FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
-            ORDER BY created_at, id
-            LIMIT \(limit)
-            """, logger: logger)
+    /// `noCaducadosDesde`: si viene, añade `AND expires_at >= $ahora` — se filtra la
+    /// caducidad ANTES del `LIMIT` (solo aplica a pending; `confirmed` pasa `nil`). Un
+    /// `nil` no toca la query. `PostgresQuery` interpola binds, así que el `IS NULL`
+    /// del bind opcional NO sirve para "sin filtro" — hay que ramificar el SQL.
+    private func filasPorEstado(_ tripId: String, _ status: String, limit: Int?, noCaducadosDesde ahora: Date?) async throws -> [(String, Settlement)] {
+        let rows: PostgresRowSequence
+        if let ahora {
+            rows = try await client.query("""
+                SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                       expires_at, status, resolved_by, resolved_at, reject_reason
+                FROM settlements WHERE trip_id = \(tripId) AND status = \(status) AND expires_at >= \(ahora)
+                ORDER BY created_at, id
+                LIMIT \(limit)
+                """, logger: logger)
+        } else {
+            rows = try await client.query("""
+                SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                       expires_at, status, resolved_by, resolved_at, reject_reason
+                FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
+                ORDER BY created_at, id
+                LIMIT \(limit)
+                """, logger: logger)
+        }
         var out: [(String, Settlement)] = []
         for try await (id, sid, fromM, toM, idx, amount, createdBy, expires, st, rBy, rAt, reason)
             in rows.decode((String, String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {

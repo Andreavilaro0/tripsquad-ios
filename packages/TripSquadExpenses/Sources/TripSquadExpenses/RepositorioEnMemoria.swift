@@ -255,8 +255,11 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         porEstado(tripId, .confirmed).map { $0.1 }
     }
 
-    public func pendientes(de tripId: String, limit: Int) -> [(String, Settlement)] {
-        Array(porEstado(tripId, .pending).prefix(limit))
+    public func pendientes(de tripId: String, limit: Int, ahora: Date) -> [(String, Settlement)] {
+        // Excluye los caducados ANTES del `prefix(limit)`, igual que el `AND expires_at
+        // >= ahora` de Postgres: si no, los pending viejos-y-caducados consumirían la
+        // página y taparían los activos más nuevos (bot GitHub P2).
+        Array(porEstado(tripId, .pending).filter { $0.1.expiresAt >= ahora }.prefix(limit))
     }
 
     /// Recorre `ordenSettlements` (orden de creación) en vez de `settlements.values`

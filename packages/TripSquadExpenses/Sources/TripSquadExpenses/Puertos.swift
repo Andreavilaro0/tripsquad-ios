@@ -105,7 +105,11 @@ public protocol SettlementRepositorio: Sendable {
     /// lo genera el repo al crear — ADR-0017, decisión Task 4). El id hace falta para
     /// que el cliente pueda confirmar/rechazar/cancelar el settlement listado.
     /// `limit` llega YA clampado desde el caso de uso (patrón chat).
-    func pendientes(de tripId: String, limit: Int) async throws -> [(String, Settlement)]
+    /// Pendientes NO caducados (`expiresAt >= ahora`), filtrado ANTES del `limit`: si no,
+    /// los pending más viejos —los que más probablemente caducaron— consumirían la página
+    /// y ocultarían pendings activos más nuevos (bot GitHub P2 sobre la paginación). El
+    /// barrido físico de los caducados es un cron aparte (bead 1ea); aquí solo se excluyen.
+    func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)]
     /// Lee un settlement por id (para autorizar la transición en el caso de uso).
     func settlement(id: String, en tripId: String) async throws -> Settlement?
 }
