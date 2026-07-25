@@ -156,9 +156,10 @@ public struct CasosDeUsoReserva: Sendable {
     /// parezcan un número de tarjeta, antes de mandar el texto al LLM
     /// (RGPD — minimización, spec §RGPD).
     private func redactar(_ texto: String) -> String {
-        let patron = try! NSRegularExpression(pattern: "\\b(?:\\d[ -]?){13,19}\\b")
-        let rango = NSRange(texto.startIndex..., in: texto)
-        return patron.stringByReplacingMatches(in: texto, range: rango, withTemplate: "[REDACTED]")
+        texto.replacingOccurrences(
+            of: "\\b(?:\\d[ -]?){13,19}\\b",
+            with: "[REDACTED]",
+            options: .regularExpression)
     }
 }
 
