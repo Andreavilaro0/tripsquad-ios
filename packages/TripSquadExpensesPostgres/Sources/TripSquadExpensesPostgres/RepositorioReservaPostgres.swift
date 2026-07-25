@@ -1,8 +1,15 @@
 // Adaptador Postgres de ReservaRepositorio (wedge "quién ya reservó",
 // spec docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md, Task 4). Mapea contra
-// la migración 0008 (itinerary_reservations + itinerary_reservation_members).
+// la migración 0008 (itinerary_reservations + itinerary_reservation_members)
+// y, para confirmaciones (dy5), la migración 0009 (itinerary_reservation_confirmations).
 // Mismo patrón que RepositorioItinerarioPostgres.swift: client.query con
 // binds interpolados = seguros.
+//
+// `guardarConfirmacion`/`confirmacion` (dy5, Task 4): la confirmación cuelga
+// por FK de `itinerary_reservations.activity_id` (0009), así que exige que el
+// aspecto reserva de la actividad ya exista (`upsert` primero). `confirmacion`
+// hace JOIN con `itinerary_reservations` para verificar el `tripId` (la tabla
+// de confirmaciones no repite esa columna).
 //
 // El aspecto reserva vive en DOS tablas porque el modo (`cada_uno` /
 // `uno_para_todos`) tiene forma distinta (ADR de dominio en Reserva.swift):
@@ -178,6 +185,43 @@ extension RepositorioPostgres: ReservaRepositorio {
         _ = try await client.query(
             "DELETE FROM itinerary_reservations WHERE activity_id = \(activityId) AND trip_id = \(tripId)",
             logger: logger)
+    }
+
+    // MARK: - Confirmaciones (dy5)
+
+    /// Reemplaza si ya existía (mismo criterio que `upsert` de `Reserva`).
+    /// Requiere que ya exista el aspecto reserva de la actividad (FK de la
+    /// migración 0009 a `itinerary_reservations.activity_id`).
+    public func guardarConfirmacion(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws {
+        _ = try await client.query("""
+            INSERT INTO itinerary_reservation_confirmations
+                (activity_id, member_id, tipo, fecha_iso, numero_confirmacion, proveedor, created_at)
+            VALUES
+                (\(activityId), \(miembro.raw), \(c.tipo.rawValue), \(c.fechaISO), \(c.numeroConfirmacion), \(c.proveedor), \(Date()))
+            ON CONFLICT (activity_id, member_id) DO UPDATE SET
+                tipo = EXCLUDED.tipo,
+                fecha_iso = EXCLUDED.fecha_iso,
+                numero_confirmacion = EXCLUDED.numero_confirmacion,
+                proveedor = EXCLUDED.proveedor,
+                created_at = EXCLUDED.created_at
+            """, logger: logger)
+    }
+
+    public func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion? {
+        let rows = try await client.query("""
+            SELECT c.tipo, c.fecha_iso, c.numero_confirmacion, c.proveedor
+            FROM itinerary_reservation_confirmations c
+            JOIN itinerary_reservations r ON r.activity_id = c.activity_id
+            WHERE c.activity_id = \(activityId) AND r.trip_id = \(tripId) AND c.member_id = \(miembro.raw)
+            """, logger: logger)
+        for try await (tipo, fechaISO, numeroConfirmacion, proveedor)
+            in rows.decode((String, String?, String?, String?).self) {
+            guard let kind = KindReserva(rawValue: tipo) else {
+                throw AdaptadorReservaError.kindDesconocido(tipo)
+            }
+            return Confirmacion(tipo: kind, fechaISO: fechaISO, numeroConfirmacion: numeroConfirmacion, proveedor: proveedor)
+        }
+        return nil
     }
 
     // MARK: - Helpers
