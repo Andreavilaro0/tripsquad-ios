@@ -49,13 +49,13 @@
 - **L4 Quick wins que nos faltan ✍️:** _(...)_
 - **Anti-patrón ✍️:** _(...)_
 
-## 6. IA-first (Mindtrip/Layla/ChatGPT — elegida: ___)  _(hands-on ligero · benchmark de la Brújula)_
+## 6. IA-first — **elegida: Mindtrip**  _(web · benchmark de la Brújula · teardown parcial 2026-07-25)_
 - **🔍 Desk:** planificadores IA-first que generan itinerarios por chat. Su límite: NO conocen el contexto real de TU grupo (gastos, votos, quién está dentro).
-- **L1 Patrones ✍️:** _(pídele "planéame 3 días en Lisboa para 4 amigos" — ¿qué tan bueno? ¿qué le pedirías que NO hace?)_ · captura: `img/ia-L1.png`
-- **L2 Posicionamiento 🔍:** la Brújula gana porque vive DENTRO del viaje (ve el itinerario, los gastos, los votos del grupo); un chat genérico no. Este es el benchmark de tu pilar diferencial.
-- **L3 Onboarding ✍️:** _(n/a o muy corto)_
-- **L4 Quick wins que nos faltan ✍️:** _(...)_
-- **Anti-patrón ✍️:** _(...)_
+- **L1 Patrones ✍️ (parcial):** el chat "planéame 3 días en Lisboa para 4 amigos" **quedó bloqueado por un CAPTCHA Cloudflare** ("Verify you are human") → prueba de prompt pendiente para el móvil de Andrea o handoff con navegador visible. captura del muro: `img/ia-L1.png`
+- **L2 Posicionamiento ⚠️ HALLAZGO GORDO (afila la tesis) — de la landing de Mindtrip:** Mindtrip **NO es un chat genérico**: es el competidor **más cercano al bento** de los 8. Su propia web anuncia: *"Plan with your crew — invite friends, start a group chat, build an itinerary that works for everyone, no endless group texts"* + *"upload/forward receipts to receipts@mindtrip.ai"* + *"collaboration tools: plan in real time, chat as a group, tag @Mindtrip for suggestions that balance everyone's vibes"*. O sea: **group chat + itinerario + IA + recibos + colaboración en vivo, integrados.** La suposición del desk ("la IA no conoce el contexto del grupo") **es más débil de lo pensado**: Mindtrip SÍ tiene contexto de grupo. → El foso de TripSquad **se estrecha** a tres cosas concretas que Mindtrip NO tiene: (1) **liquidación real** (sus recibos son almacén/organización, no "quién debe a quién" ni settle), (2) **votaciones estructuradas** (ellos: chat + sugerencias de IA, no un voto con resultado), (3) **Europa + no-agente-de-viajes-US** (Mindtrip se posiciona como AI travel agent con reservas/afiliación). Esto es lo más importante de toda la investigación: **el diferenciador NO es "somos un bento y ellos no" — es el motor de settle + la decisión estructurada + el mercado.**
+- **L3 Onboarding ✍️:** landing → "Start chatting" lleva a `/chat`, y ahí salta el CAPTCHA antes de dejar escribir. Fricción de bot alta (esperable en producto IA); para un humano es "empieza a chatear" directo. iOS app aparte.
+- **L4 Quick wins que nos faltan ✍️ (de la landing):** (1) **Google Pins import** — importar sitios guardados de Google Maps y convertirlos en colección del viaje (**M**, gancho de arranque no-en-blanco). (2) **Events cercanos** ("conciertos, mercados, family fun que encajan con tu vibe") como capa viva del destino (**M**). (3) **Start Anywhere®**: pega un link/foto/PDF de contenido de viaje y te lo convierte en itinerario (**M/L**).
+- **Anti-patrón ✍️ (parcial):** posicionamiento de **AI travel agent con reservas/afiliación** (monetiza empujando hoteles/tours). El riesgo a NO copiar: que la IA empuje a reservar por comisión y el usuario sienta que le venden, no que le ayudan. TripSquad: la Brújula aconseja, no vende.
 
 ## 7. Apple Cash bill-split (iOS 27 / watchOS 27)  _(SECUNDARIO · por specs — COMPLETADO 2026-07-25)_
 - **L1 Patrones (🔍 por specs, no hands-on):** foto al recibo → toca/selecciona ítems y los asigna a cada participante (incl. impuestos y propina) → Apple Cash calcula la parte de cada uno y **envía peticiones de pago personalizadas por Messages o Wallet**; se puede aprobar desde el Apple Watch. Parseo del recibo por IA on-device. Llega en **iOS 27 / watchOS 27** (anunciado jun 2026). Fuentes: Bloomberg, PYMNTS, MacDailyNews.
