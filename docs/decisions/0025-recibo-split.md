@@ -109,16 +109,39 @@ compone un reparto válido (ítem sin sharers, importe negativo, overflow al sum
   app iOS, no es parte de este ADR.
 - Determinista → sujeto al mismo gate de **golden vectors** que el resto del motor de saldos (cf.
   bead 0i9): mismos inputs, mismo `.exacto` siempre, en Swift y en el futuro cliente Kotlin.
-- **Dos desviaciones conscientes, pendientes de confirmar con Andrea:**
-  1. **`sharers ⊆ miembros del viaje` NO se valida** en `crearDesdeRecibo`. Es paridad exacta con
-     la creación de gasto manual (`CasosDeUsoGastos.crear`/`validarDominio`), que tampoco lo
-     valida hoy — no es una regresión introducida por esta feature, pero tampoco se corrigió aquí.
-     Si Andrea decide que debe validarse, el fix es transversal a ambos caminos, no específico de
-     recibos.
+- **Tres desviaciones conscientes, pendientes de confirmar con Andrea:**
+  1. **`sharers ⊆ miembros del viaje` NO se valida** en `crearDesdeRecibo` — y tampoco se valida
+     que **`pagadoPor` sea miembro del viaje**. Mismo origen en ambos casos: paridad exacta con la
+     creación de gasto manual (`CasosDeUsoGastos.crear`/`validarDominio`), que hoy solo valida que
+     el actor (quien llama al endpoint) sea miembro, no que los miembros del reparto o el pagador
+     lo sean. `sharers` y `pagadoPor` llegan del body sin contrastarse contra la membresía — no es
+     una regresión introducida por esta feature, pero tampoco se corrigió aquí. Pendiente de que
+     Andrea decida si se añade validación de subconjunto-de-miembros de forma transversal a los
+     caminos de escritura de gastos.
   2. **`ReciboDTO` no lleva campo de divisa** — `importeMinor` es `Int64` en céntimos de la
      divisa de referencia del viaje, sin negociación de moneda. v1 es EUR-only por decisión de
      alcance (la sección "fuera de alcance" del spec); FX/moneda extranjera queda para una
      iteración futura si aparece necesidad real, con su propio ADR.
+  3. **El endpoint devuelve 422, no 403, para `not_member` y `trip_closed`.** El spec de esta
+     feature pedía 403 para "no eres miembro" / "viaje cerrado". `crearDesdeRecibo` reutiliza a
+     propósito el pipeline existente `CasosDeUsoGastos.crear`, cuya ruta mapea todo `.rechazado` →
+     422 vía `respuestaDirecta`. Cambiar solo este endpoint a 403 lo dejaría inconsistente con
+     `POST /expenses`, que devuelve 422 para estos mismos casos. El fix correcto es transversal
+     (los 8 caminos de escritura de Gastos deberían devolver 403 de forma uniforme) y ya está
+     registrado como **bead 55x** ("Gastos devuelve 422 donde los otros 7 devuelven 403"). Este
+     endpoint se queda intencionalmente consistente con el pipeline de gastos (422) hasta que 55x
+     los arregle todos juntos; el test de ruta `noMiembro422` documenta el comportamiento actual y
+     será actualizado por 55x.
+- **Cobertura de tests / deferidos:**
+  a. `repartoDesdeRecibo` está cubierto por tests unitarios en Swift con mapas exactos esperados,
+     pero NO se añadió al generador de golden vectors cross-language (bead 0i9) — riesgo bajo
+     porque es composición pura de `repartoIgual`/`repartoPorPeso`, que ya son golden, y delega en
+     el `crear` ya testeado.
+  b. Los tests de ruta comprueban el status HTTP, no el efecto end-to-end sobre el settle (el test
+     del caso de uso sí comprueba el `importeMinor` persistido + `.exacto`).
+  c. Caso límite: un recibo cuyos ítems son todos 0 pero con impuestos/propina > 0 se rechaza como
+     `invalid_receipt` (422), porque no hay subtotal positivo sobre el que prorratear — es
+     determinista y defendible.
 - Fuera de alcance v1 (sin tareas abiertas aquí): adjuntar la foto del recibo al gasto (necesita
   `FotoStorage` real, bead 7n3 — en el híbrido on-device la imagen ni siquiera sale del móvil, así
   que no es urgente), moneda extranjera/FX, y sugerencia automática de asignación de ítems (futuro
