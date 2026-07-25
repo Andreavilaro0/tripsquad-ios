@@ -72,6 +72,26 @@ public struct CasosDeUsoGastos: Sendable {
         return try await repo.eliminar(id: c.gastoId, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
     }
 
+    /// Construye el Gasto (.exacto) desde un recibo itemizado y delega en `crear`
+    /// (replay + auth + validación + persistencia, ADR-0011 momento mágico #2). El
+    /// importe se DERIVA del reparto (suma segura), no de un total externo a reconciliar.
+    public func crearDesdeRecibo(tripId: String, gastoId: String, pagadoPor: MiembroId,
+                                 items: [ItemRecibo], impuestosMinor: Int64, propinaMinor: Int64,
+                                 actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura {
+        let reparto: Reparto
+        do { reparto = try repartoDesdeRecibo(items: items, impuestosMinor: impuestosMinor, propinaMinor: propinaMinor) }
+        catch { return .rechazado(razon: "invalid_receipt") }
+        guard case .exacto(let totales) = reparto else { return .rechazado(razon: "invalid_receipt") }
+        var importe: Int64 = 0
+        for v in totales.values {
+            let (s, ov) = importe.addingReportingOverflow(v)
+            guard !ov else { return .rechazado(razon: "invalid_receipt") }
+            importe = s
+        }
+        let gasto = Gasto(id: gastoId, pagadoPor: pagadoPor, importeMinor: importe, reparto: reparto)
+        return try await crear(ComandoCrearGasto(tripId: tripId, gasto: gasto, actor: actor, idempotencyKey: idempotencyKey))
+    }
+
     // MARK: - Reglas comunes
 
     /// Rechazo permanente si no es miembro o el viaje está cerrado (ADR-0012 §4:
