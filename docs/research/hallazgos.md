@@ -1,6 +1,6 @@
 # Hallazgos de la investigación de competidores
 
-> **Estado:** BORRADOR PARCIAL (2026-07-25). Las secciones marcadas 🔍 están cerradas por investigación de escritorio + estado real del back. Las marcadas ✍️ se completan tras el teardown hands-on (Tasks 2-9 del runbook). Matriz: `competidores-matriz.md`.
+> **Estado:** FASE WEB CERRADA (2026-07-25). Desk 8/8 + hands-on web de las 3 apps de más valor + Apple Cash por specs. Los 4 entregables están completos con lo web; solo falta sumar lo que salga del teardown de MÓVIL (queda anotado, no bloquea el front). Matriz: `competidores-matriz.md`.
 >
 > **Teardown hands-on WEB hecho (2026-07-25):** Wanderlog ✅, Splitwise ✅, Mindtrip ✅ (Chrome real), Apple Cash ✅ (specs). **Pendientes de MÓVIL** (Andrea, no reproducibles headless): parseo de vuelo de TripIt, receipt-scan de Splitwise, arranque-sin-cuenta de Tricount, wedge "quién reservó" de la app de grupo, y la encuesta de WhatsApp.
 
@@ -22,9 +22,9 @@ El teardown movió la tesis. **Mindtrip NO es un chat de IA genérico**: integra
 ## Entregable 1 — Matriz
 Ver `competidores-matriz.md` (8 competidores × 4 lentes + anti-patrón).
 
-## Entregable 2 — Lista de robo priorizada  ✍️ (se completa con el teardown)
+## Entregable 2 — Lista de robo priorizada  ✅ (web; pendiente sumar móvil)
 
-Junta aquí todos los `[ROBAR: ___]` de la matriz tras el teardown, ordenados por impacto y marcados FOSO / TABLE STAKES.
+`[ROBAR: ___]` de la matriz, marcados **FOSO** (costura de integración que nadie tiene) o **TABLE STAKES** (hay que tenerlo pero no diferencia). Recordatorio: **el FOSO no se roba de nadie** (settle+voto+Europa, ver hallazgo clave arriba); esta lista es lo que hay que IGUALAR para no quedar por debajo del mercado.
 
 **Confirmados en hands-on (2026-07-25):**
 - **TS / ROBAR (split)** — Splitwise: la **frase editable en lenguaje natural** "Pagado por _X_ y dividido _[a partes iguales / exactas / % / cuotas]_ ($Y/persona)" con chips inline. Claridad, no hoja de cálculo. Es el listón de UX del split del bento.
@@ -49,9 +49,23 @@ Las costuras que NINGUNA app tiene, porque ninguna es un bento. Candidatos al PR
 3. **Tablero "quién ya reservó".**
    Un tablero vivo del viaje: ✅ Iván reservó su vuelo · ⏳ Sara pendiente · ✅ hotel confirmado. La ansiedad #1 del viaje de grupo, sin dueño en el mercado. Convierte "¿habéis reservado todos?" (20 mensajes en WhatsApp) en un vistazo.
 
-## Entregable 4 — Quick wins que nos faltan  ✍️ (se completa con el teardown)
+## Entregable 4 — Quick wins que nos faltan  ✅ (del teardown web; pendiente sumar los de móvil)
 
-Junta aquí todos los L4 de la matriz, ordenados por impacto ÷ esfuerzo (S/M). Es el relleno barato que se ataca en paralelo a los flujos grandes.
+L4 de la matriz ordenados por **impacto ÷ esfuerzo** (los S primero = mejor ratio). Relleno barato para atacar en paralelo a los flujos grandes.
+
+| # | Quick win | Fuente | Esfuerzo | Nota |
+|---|---|---|---|---|
+| 1 | **"Liquidar deudas" (settle up) como acción de primer nivel** en la pantalla de gastos | Splitwise | **S** | ya tenemos back de settle — es darle prominencia. Mejor ratio impacto/esfuerzo. |
+| 2 | **Tipos de reserva tipados** (Vuelo/Hotel/Coche/Tren/Ferry) como bloques con parseo, no texto libre | Wanderlog | **S** | evita el "texto libre" que es anti-premium |
+| 3 | **Foto de portada del viaje** editable | Wanderlog | **S** | toque premium barato, da identidad al viaje |
+| 4 | **Chip de fecha + "añadir imagen/notas"** en el propio gasto | Splitwise | **S** | contexto del gasto sin salir del flujo |
+| 5 | **Calculadora de divisiones justas** (repartos no-triviales) | Splitwise | **S/M** | herramienta suelta útil para casos raros |
+| 6 | **"Recommended places" / "Explore" por ciudad** (arranque no-en-blanco) | Wanderlog / Mindtrip | **M** | requiere fuente de contenido; combate el itinerario vacío |
+| 7 | **Google Pins import** (traer sitios guardados de Google Maps al viaje) | Mindtrip | **M** | gancho de arranque; la gente ya tiene sus pins |
+| 8 | **Events cercanos** (conciertos/mercados que encajan la vibe) como capa viva del destino | Mindtrip | **M** | diferenciador de "app viva", no solo planificador |
+| 9 | **Start Anywhere** (pega link/foto/PDF → itinerario) | Mindtrip | **M/L** | potente pero caro; para más adelante |
+
+_Pendiente sumar: quick wins que salgan del teardown móvil (Tricount, TripIt, app de grupo, WhatsApp)._
 
 ---
 
