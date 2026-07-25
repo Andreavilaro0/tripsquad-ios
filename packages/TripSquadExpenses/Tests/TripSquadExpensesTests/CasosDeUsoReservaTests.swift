@@ -121,4 +121,96 @@ struct CasosDeUsoReservaTests {
         let r = try await f.casos.tablero(tripId: "t1", actor: MiembroId("ext"))
         #expect(r == .failure(.noAutorizado))
     }
+
+    // MARK: - unoParaTodos (fix round 1: cobertura ausente)
+
+    @Test func definirUnoParaTodosComoCreadorOk() async throws {
+        let f = try await fixture()
+        let r = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: f.b), actor: f.b, ahora: Date())
+        #expect(try r.get().mode == .unoParaTodos(responsable: f.b, estado: .pendiente))
+    }
+
+    @Test func definirUnoParaTodosConResponsableNoMiembroEsReglaViolada() async throws {
+        let f = try await fixture()
+        let r = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: MiembroId("ext")), actor: f.b, ahora: Date())
+        #expect(r == .failure(.reglaViolada("responsable_no_miembro")))
+    }
+
+    @Test func marcarUnoParaTodosPorResponsableOk() async throws {
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: f.b), actor: f.b, ahora: Date())
+        let r = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: nil,
+            estado: .reservado, actor: f.b, ahora: Date())
+        #expect(try r.get().mode == .unoParaTodos(responsable: f.b, estado: .reservado))
+    }
+
+    @Test func marcarUnoParaTodosPorNoResponsableNoOwnerEsNoAutorizado() async throws {
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: f.b), actor: f.b, ahora: Date())
+        let r = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: nil,
+            estado: .reservado, actor: f.c, ahora: Date())   // c ni responsable ni owner
+        #expect(r == .failure(.noAutorizado))
+    }
+
+    @Test func ownerMarcaUnoParaTodos() async throws {
+        let f = try await fixture()   // a = owner, b = responsable
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: f.b), actor: f.b, ahora: Date())
+        let r = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: nil,
+            estado: .reservado, actor: f.a, ahora: Date())
+        #expect(try r.get().mode == .unoParaTodos(responsable: f.b, estado: .reservado))
+    }
+
+    @Test func marcarUnoParaTodosConMemberIdSobraEsReglaViolada() async throws {
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: f.b), actor: f.b, ahora: Date())
+        let r = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: f.b,
+            estado: .reservado, actor: f.b, ahora: Date())
+        #expect(r == .failure(.reglaViolada("member_id_sobra")))
+    }
+
+    // MARK: - quitar (fix round 1: cobertura ausente)
+
+    @Test func quitarPorCreadorOk() async throws {
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
+            modo: .cadaUnoElSuyo(participantes: [f.b]), actor: f.b, ahora: Date())
+        let r = try await f.casos.quitar(tripId: "t1", activityId: "act1", actor: f.b, ahora: Date())
+        guard case .success = r else { Issue.record("esperaba quitar exitoso (creador)"); return }
+        let tras = try await f.casos.tablero(tripId: "t1", actor: f.a)
+        #expect(try tras.get().isEmpty)
+    }
+
+    @Test func quitarPorNoCreadorNoOwnerEsNoAutorizado() async throws {
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
+            modo: .cadaUnoElSuyo(participantes: [f.b]), actor: f.b, ahora: Date())
+        let r = try await f.casos.quitar(tripId: "t1", activityId: "act1", actor: f.c, ahora: Date())
+        guard case .failure(let error) = r else { Issue.record("esperaba failure"); return }
+        #expect(error == .noAutorizado)
+    }
+
+    // MARK: - marcar: viaje cerrado / reserva inexistente (fix round 1: cobertura ausente)
+
+    @Test func marcarEnViajeCerradoEsViajeCerrado() async throws {
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
+            modo: .cadaUnoElSuyo(participantes: [f.a, f.b]), actor: f.b, ahora: Date())
+        await f.repo.cerrarViaje("t1")
+        let r = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: f.b,
+            estado: .reservado, actor: f.b, ahora: Date())
+        #expect(r == .failure(.viajeCerrado))
+    }
+
+    @Test func marcarReservaInexistenteEsNoAutorizado() async throws {   // sin fuga de existencia
+        let f = try await fixture()
+        let r = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: f.b,
+            estado: .reservado, actor: f.b, ahora: Date())
+        #expect(r == .failure(.noAutorizado))
+    }
 }
