@@ -1,5 +1,5 @@
 // Adaptador Postgres de ReservaRepositorio (wedge "quién ya reservó",
-// spec docs/design/wedge-reserva-por-persona-scope.md, Task 4). Mapea contra
+// spec docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md, Task 4). Mapea contra
 // la migración 0008 (itinerary_reservations + itinerary_reservation_members).
 // Mismo patrón que RepositorioItinerarioPostgres.swift: client.query con
 // binds interpolados = seguros.

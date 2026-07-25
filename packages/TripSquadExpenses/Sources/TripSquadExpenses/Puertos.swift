@@ -215,7 +215,7 @@ public protocol FotoStorage: Sendable {
 }
 
 /// Puerto de persistencia de reservas (wedge "quién ya reservó", spec
-/// docs/design/wedge-reserva-por-persona-scope.md). `upsert` reemplaza el
+/// docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md). `upsert` reemplaza el
 /// aspecto reserva completo de la actividad (participantes/responsable
 /// incluidos), no lo mergea.
 public protocol ReservaRepositorio: Sendable {

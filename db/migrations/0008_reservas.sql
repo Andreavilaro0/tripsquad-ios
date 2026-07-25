@@ -1,5 +1,5 @@
 -- Migración 0008 — reservas (wedge "quién ya reservó", spec
--- docs/design/wedge-reserva-por-persona-scope.md). Append-only: solo añade,
+-- docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md). Append-only: solo añade,
 -- no reescribe migraciones previas.
 --
 -- `itinerary_reservations` es el aspecto reserva de UNA actividad de

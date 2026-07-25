@@ -85,6 +85,7 @@ public struct CasosDeUsoReserva: Sendable {
             guard actor == m || esOwner else { return .failure(.noAutorizado) }
             try await repo.marcarEstado(activityId: activityId, en: tripId, miembro: m, estado: estado)
         case .unoParaTodos(let responsable, _):
+            guard responsable != nil else { return .failure(.reglaViolada("sin_responsable")) }
             guard memberId == nil else { return .failure(.reglaViolada("member_id_sobra")) }
             guard actor == responsable || esOwner else { return .failure(.noAutorizado) }
             try await repo.marcarEstado(activityId: activityId, en: tripId, miembro: nil, estado: estado)

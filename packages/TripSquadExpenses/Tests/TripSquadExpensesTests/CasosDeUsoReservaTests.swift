@@ -174,6 +174,28 @@ struct CasosDeUsoReservaTests {
         #expect(r == .failure(.reglaViolada("member_id_sobra")))
     }
 
+    /// ADR-0024 / spec: si el responsable de un `unoParaTodos` fue expulsado,
+    /// `quitarMiembro` deja `responsable = nil` (ver
+    /// `RepositorioReservaEnMemoriaTests.expulsarLimpiaEstadoDeReserva`). Marcar esa
+    /// reserva sin responsable debe rechazarse con `reglaViolada("sin_responsable")`
+    /// (422 "reasignar primero"), NUNCA `.noAutorizado` — ni siquiera para el owner,
+    /// porque el guard corre ANTES del gate de autorización (mismo resultado para
+    /// owner y no-owner).
+    @Test func marcarUnoParaTodosSinResponsableEsReglaViolada() async throws {
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: f.b), actor: f.b, ahora: Date())
+        try await f.repo.quitarMiembro(f.b, de: "t1", ahora: Date())   // expulsa al responsable
+
+        let porOwner = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: nil,
+            estado: .reservado, actor: f.a, ahora: Date())
+        #expect(porOwner == .failure(.reglaViolada("sin_responsable")))
+
+        let porNoOwner = try await f.casos.marcar(tripId: "t1", activityId: "act1", memberId: nil,
+            estado: .reservado, actor: f.c, ahora: Date())
+        #expect(porNoOwner == .failure(.reglaViolada("sin_responsable")))
+    }
+
     // MARK: - quitar (fix round 1: cobertura ausente)
 
     @Test func quitarPorCreadorOk() async throws {
