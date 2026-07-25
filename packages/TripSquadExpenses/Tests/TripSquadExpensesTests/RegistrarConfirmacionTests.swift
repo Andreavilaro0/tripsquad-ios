@@ -18,7 +18,8 @@ struct RegistrarConfirmacionTests {
         let repo: RepositorioEnMemoria
         let fake: EstructuradorConfirmacionFake
         let a: MiembroId   // owner del viaje, participante del reservable
-        let b: MiembroId   // miembro, participante del reservable
+        let b: MiembroId   // miembro, participante del reservable / responsable (unoParaTodos)
+        let c: MiembroId   // miembro, ni responsable ni owner (solo usado en los fixtures unoParaTodos)
     }
 
     private let ahora = Date(timeIntervalSince1970: 1_700_000_000)
@@ -30,16 +31,36 @@ struct RegistrarConfirmacionTests {
     /// texto contenga "__ILEGIBLE__" (lanza `ErrorEstructurador.ilegible`).
     private func fixtureConReservable() async throws -> Fixture {
         let r = RepositorioEnMemoria()
-        let a = MiembroId("a"), b = MiembroId("b")
+        let a = MiembroId("a"), b = MiembroId("b"), c = MiembroId("c")
         _ = await r.crearViaje(id: "t1", name: "Roma", baseCurrency: "EUR", creador: a, ahora: ahora)
         await r.anadirMiembro(b, a: "t1")
+        await r.anadirMiembro(c, a: "t1")
         await r.crear(ActividadItinerario(id: "act1", tripId: "t1", title: "Vuelo a Roma", day: "2026-08-02", createdBy: a), ahora: ahora)
         let fake = EstructuradorConfirmacionFake(datos: DatosConfirmacion(
             tipo: .vuelo, fechaISO: "2026-08-02", numeroConfirmacion: "ABC123", proveedor: "TAP"))
         let casos = CasosDeUsoReserva(repo: r, itinerario: r, membresia: r, viajes: r, estructurador: fake)
         _ = try await casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
             modo: .cadaUnoElSuyo(participantes: [a, b]), actor: a, ahora: ahora)
-        return Fixture(casos: casos, repo: r, fake: fake, a: a, b: b)
+        return Fixture(casos: casos, repo: r, fake: fake, a: a, b: b, c: c)
+    }
+
+    /// Igual que `fixtureConReservable`, pero el reservable en "act1" es
+    /// `unoParaTodos(responsable: b)` (fix round 1: cobertura ausente para
+    /// este modo en `registrarConfirmacion`). `c` es miembro del viaje pero
+    /// ni responsable ni owner — para probar el camino `noAutorizado`.
+    private func fixtureUnoParaTodos() async throws -> Fixture {
+        let r = RepositorioEnMemoria()
+        let a = MiembroId("a"), b = MiembroId("b"), c = MiembroId("c")
+        _ = await r.crearViaje(id: "t1", name: "Roma", baseCurrency: "EUR", creador: a, ahora: ahora)
+        await r.anadirMiembro(b, a: "t1")
+        await r.anadirMiembro(c, a: "t1")
+        await r.crear(ActividadItinerario(id: "act1", tripId: "t1", title: "Hotel Roma", day: "2026-08-02", createdBy: a), ahora: ahora)
+        let fake = EstructuradorConfirmacionFake(datos: DatosConfirmacion(
+            tipo: .hotel, fechaISO: "2026-08-02", numeroConfirmacion: "XYZ789", proveedor: "Booking"))
+        let casos = CasosDeUsoReserva(repo: r, itinerario: r, membresia: r, viajes: r, estructurador: fake)
+        _ = try await casos.definir(tripId: "t1", activityId: "act1", kind: .hotel,
+            modo: .unoParaTodos(responsable: b), actor: a, ahora: ahora)
+        return Fixture(casos: casos, repo: r, fake: fake, a: a, b: b, c: c)
     }
 
     @Test func registraGuardaYMarcaReservado() async throws {
@@ -79,6 +100,47 @@ struct RegistrarConfirmacionTests {
         _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "v1", actor: f.a, ahora: Date())
         let antes = f.fake.llamadas
         _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "v2", actor: f.a, ahora: Date())
+        #expect(f.fake.llamadas == antes)   // no volvió a llamar
+    }
+
+    // MARK: - unoParaTodos (fix round 1: cobertura ausente)
+
+    @Test func unoParaTodosPorResponsableOk() async throws {
+        let f = try await fixtureUnoParaTodos()   // reservable unoParaTodos(responsable: b) en act1
+        let r = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1",
+            textoConfirmacion: "reserva hotel Booking XYZ789", actor: f.b, ahora: Date())
+        #expect(try r.get().numeroConfirmacion == "XYZ789")
+        let reserva = try await f.repo.reserva(activityId: "act1", en: "t1")
+        #expect(reserva?.mode == .unoParaTodos(responsable: f.b, estado: .reservado))
+    }
+
+    @Test func unoParaTodosPorOwnerOk() async throws {
+        let f = try await fixtureUnoParaTodos()   // a = owner, b = responsable
+        let r = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1",
+            textoConfirmacion: "reserva hotel Booking XYZ789", actor: f.a, ahora: Date())
+        #expect(try r.get().numeroConfirmacion == "XYZ789")
+    }
+
+    @Test func unoParaTodosPorNoResponsableNoOwnerEsNoAutorizado() async throws {
+        let f = try await fixtureUnoParaTodos()   // c ni responsable ni owner
+        let r = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1",
+            textoConfirmacion: "reserva hotel Booking XYZ789", actor: f.c, ahora: Date())
+        #expect(r == .failure(.noAutorizado))
+    }
+
+    /// Documenta el comportamiento ACTUAL: la idempotencia está indexada por
+    /// actor (`repo.confirmacion(activityId, tripId, actor)`), no por la
+    /// reserva compartida de `unoParaTodos`. Para el MISMO actor (`b`), la
+    /// segunda llamada no vuelve a invocar el LLM — igual que en
+    /// `cadaUnoElSuyo`. El caso borde de que un actor DISTINTO (p.ej. el
+    /// owner) pudiera re-disparar el LLM sobre la misma reserva compartida
+    /// queda fuera de este test — decisión pendiente de Andrea, no se toca
+    /// aquí el keying de producción.
+    @Test func segundaVezMismoActorNoRellamaLLM() async throws {
+        let f = try await fixtureUnoParaTodos()
+        _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "v1", actor: f.b, ahora: Date())
+        let antes = f.fake.llamadas
+        _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "v2", actor: f.b, ahora: Date())
         #expect(f.fake.llamadas == antes)   // no volvió a llamar
     }
 }
