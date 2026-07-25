@@ -109,15 +109,15 @@ compone un reparto válido (ítem sin sharers, importe negativo, overflow al sum
   app iOS, no es parte de este ADR.
 - Determinista → sujeto al mismo gate de **golden vectors** que el resto del motor de saldos (cf.
   bead 0i9): mismos inputs, mismo `.exacto` siempre, en Swift y en el futuro cliente Kotlin.
-- **Tres desviaciones conscientes, pendientes de confirmar con Andrea:**
-  1. **`sharers ⊆ miembros del viaje` NO se valida** en `crearDesdeRecibo` — y tampoco se valida
-     que **`pagadoPor` sea miembro del viaje**. Mismo origen en ambos casos: paridad exacta con la
-     creación de gasto manual (`CasosDeUsoGastos.crear`/`validarDominio`), que hoy solo valida que
-     el actor (quien llama al endpoint) sea miembro, no que los miembros del reparto o el pagador
-     lo sean. `sharers` y `pagadoPor` llegan del body sin contrastarse contra la membresía — no es
-     una regresión introducida por esta feature, pero tampoco se corrigió aquí. Pendiente de que
-     Andrea decida si se añade validación de subconjunto-de-miembros de forma transversal a los
-     caminos de escritura de gastos.
+- **Desviaciones conscientes:**
+  1. **~~`sharers`/`pagadoPor ⊆ miembros` no se valida~~ → RESUELTO (bead epb, 2026-07-25).** Tras
+     elevarlo a Alta DOS revisores independientes (opus + Codex), se cerró en la misma rama:
+     `CasosDeUsoGastos` ahora valida en `crear` **y** `editar` (y por delegación en `crearDesdeRecibo`)
+     que `pagadoPor` y **todos** los miembros del reparto (`.igual`/`.porPeso`/`.exacto`) sean
+     miembros del viaje; si no → `.rechazado("member_not_in_trip")`. La comprobación va tras el replay
+     (que sigue ganando) y tras `autorizar`, antes de persistir. Cierra el hueco tanto para gastos
+     normales como para recibo. **Pendiente (defensa en profundidad, sigue en bead epb):** FK/CHECK en
+     BD (`expense_shares.member_id`/`paid_by` → `trip_members`), que toca migraciones y datos existentes.
   2. **`ReciboDTO` no lleva campo de divisa** — `importeMinor` es `Int64` en céntimos de la
      divisa de referencia del viaje, sin negociación de moneda. v1 es EUR-only por decisión de
      alcance (la sección "fuera de alcance" del spec); FX/moneda extranjera queda para una
