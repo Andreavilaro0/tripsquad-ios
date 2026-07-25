@@ -102,24 +102,13 @@ let client = PostgresClient(configuration: pgConfig)
 
 let repo = RepositorioPostgres(client: client, logger: logger)
 
-// TODO(Task 4, wedge reserva): `RepositorioPostgres` todavía no implementa
-// `ReservaRepositorio` (esa tarea es la persistencia Postgres del wedge
-// "quién ya reservó"). Hasta entonces, `casosReserva` se apoya en un
-// `RepositorioEnMemoria` SEPARADO solo para el aspecto reserva — `itinerario`/
-// `membresia`/`viajes` siguen siendo Postgres (mismo repo que el resto de
-// casos de uso), así que la autorización es real; lo que NO sobrevive un
-// reinicio del proceso (ni se comparte entre réplicas) son los datos de
-// reserva en sí. Aceptado a propósito para no inventar aquí un adaptador
-// Postgres que le corresponde a la Tarea 4.
-let reservaRepoEnMemoria = RepositorioEnMemoria()
-
 let deps = Dependencias(
     casos: CasosDeUsoGastos(repo: repo, membresia: repo),
     casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
     casosViaje: CasosDeUsoViaje(repo: repo),
     casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
     casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
-    casosReserva: CasosDeUsoReserva(repo: reservaRepoEnMemoria, itinerario: repo, membresia: repo, viajes: repo),
+    casosReserva: CasosDeUsoReserva(repo: repo, itinerario: repo, membresia: repo, viajes: repo),
     casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
     casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
     casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
