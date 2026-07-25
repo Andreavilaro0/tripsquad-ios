@@ -59,6 +59,10 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     private var reservas: [String: Reserva] = [:]  // "tripId|activityId" -> Reserva
 
+    // MARK: - Almacén de confirmaciones (dy5 "confirmaciones → auto-marca el wedge")
+
+    private var confirmaciones: [String: Confirmacion] = [:]  // "tripId|activityId|miembro" -> Confirmacion
+
     public init() {}
 
     // MARK: - Setup para tests
@@ -573,5 +577,17 @@ extension RepositorioEnMemoria: ReservaRepositorio {
 
     public func borrar(activityId: String, en tripId: String) {
         reservas[claveReserva(tripId, activityId)] = nil
+    }
+
+    private func claveConfirmacion(_ tripId: String, _ activityId: String, _ miembro: MiembroId) -> String {
+        "\(tripId)|\(activityId)|\(miembro.raw)"
+    }
+
+    public func guardarConfirmacion(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws {
+        confirmaciones[claveConfirmacion(tripId, activityId, miembro)] = c
+    }
+
+    public func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion? {
+        confirmaciones[claveConfirmacion(tripId, activityId, miembro)]
     }
 }
