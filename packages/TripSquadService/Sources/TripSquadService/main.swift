@@ -101,12 +101,14 @@ let pgConfig = configPostgres(env)
 let client = PostgresClient(configuration: pgConfig)
 
 let repo = RepositorioPostgres(client: client, logger: logger)
+
 let deps = Dependencias(
     casos: CasosDeUsoGastos(repo: repo, membresia: repo),
     casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
     casosViaje: CasosDeUsoViaje(repo: repo),
     casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
     casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
+    casosReserva: CasosDeUsoReserva(repo: repo, itinerario: repo, membresia: repo, viajes: repo),
     casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
     casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
     casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),

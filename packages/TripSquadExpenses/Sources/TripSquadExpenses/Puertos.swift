@@ -213,3 +213,20 @@ public protocol FotoStorage: Sendable {
     func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String
     func borrar(storageKey: String) async throws
 }
+
+/// Puerto de persistencia de reservas (wedge "quién ya reservó", spec
+/// docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md). `upsert` reemplaza el
+/// aspecto reserva completo de la actividad (participantes/responsable
+/// incluidos), no lo mergea.
+public protocol ReservaRepositorio: Sendable {
+    /// Crea o REEMPLAZA el aspecto reserva de una actividad (reemplaza participantes/responsable).
+    func upsert(_ r: Reserva, ahora: Date) async throws
+    func reserva(activityId: String, en tripId: String) async throws -> Reserva?
+    /// El tablero: todas las reservas del viaje. Sin tope (nº actividades ya acotado por el itinerario).
+    /// Orden estable por `activityId`.
+    func tablero(_ tripId: String) async throws -> [Reserva]
+    /// Fija el estado de UN miembro (cadaUnoElSuyo, `miembro` no-nil) o del estado único
+    /// (unoParaTodos, `miembro == nil`). No valida autorización (eso es del caso de uso).
+    func marcarEstado(activityId: String, en tripId: String, miembro: MiembroId?, estado: EstadoReserva) async throws
+    func borrar(activityId: String, en tripId: String) async throws
+}
