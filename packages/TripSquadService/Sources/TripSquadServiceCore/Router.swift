@@ -15,6 +15,7 @@ public struct Dependencias: Sendable {
     public let casosViaje: CasosDeUsoViaje         // onboarding: viajes/invites/miembros (ADR-0018)
     public let casosVotacion: CasosDeUsoVotacion   // votaciones: polls/vote/close (M4, ADR-0019 borrador)
     public let casosItinerario: CasosDeUsoItinerario // itinerario: activities CRUD (M5, ADR-0020 borrador)
+    public let casosReserva: CasosDeUsoReserva     // reserva: quién ya reservó (wedge, spec 2026-07-25)
     public let casosChat: CasosDeUsoChat           // chat: messages CRUD (M6, ADR-0021 borrador)
     public let casosFoto: CasosDeUsoFoto           // fotos: presign/confirm/list/delete (M7, ADR-0022 borrador)
     public let casosBrujula: CasosDeUsoBrujula     // brújula IA: consulta con contexto de saldos (M8, ADR-0023 borrador)
@@ -31,6 +32,7 @@ public struct Dependencias: Sendable {
         casosViaje: CasosDeUsoViaje,
         casosVotacion: CasosDeUsoVotacion,
         casosItinerario: CasosDeUsoItinerario,
+        casosReserva: CasosDeUsoReserva,
         casosChat: CasosDeUsoChat,
         casosFoto: CasosDeUsoFoto,
         casosBrujula: CasosDeUsoBrujula,
@@ -44,6 +46,7 @@ public struct Dependencias: Sendable {
         self.casosViaje = casosViaje
         self.casosVotacion = casosVotacion
         self.casosItinerario = casosItinerario
+        self.casosReserva = casosReserva
         self.casosChat = casosChat
         self.casosFoto = casosFoto
         self.casosBrujula = casosBrujula
@@ -95,6 +98,13 @@ public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
     )
 
     montarItinerario(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarReservas(
         router.group()
             .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
             .group(context: ContextoAutenticado.self),
