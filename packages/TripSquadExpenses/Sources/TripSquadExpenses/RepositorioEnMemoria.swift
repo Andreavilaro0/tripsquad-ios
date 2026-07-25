@@ -55,6 +55,10 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     private var fotos: [String: [String: Foto]] = [:]  // tripId -> fotoId -> Foto
 
+    // MARK: - Almacén de reservas (wedge "quién ya reservó")
+
+    private var reservas: [String: Reserva] = [:]  // "tripId|activityId" -> Reserva
+
     public init() {}
 
     // MARK: - Setup para tests
@@ -508,5 +512,48 @@ extension RepositorioEnMemoria: FotoRepositorio {
 
     public func borrar(fotoId: String, en tripId: String) {
         fotos[tripId]?[fotoId] = nil
+    }
+}
+
+extension RepositorioEnMemoria: ReservaRepositorio {
+
+    private func claveReserva(_ tripId: String, _ activityId: String) -> String { "\(tripId)|\(activityId)" }
+
+    public func upsert(_ r: Reserva, ahora: Date) {
+        reservas[claveReserva(r.tripId, r.activityId)] = r
+    }
+
+    public func reserva(activityId: String, en tripId: String) -> Reserva? {
+        reservas[claveReserva(tripId, activityId)]
+    }
+
+    /// SIN tope A PROPÓSITO (mismo criterio que `ItinerarioRepositorio.listar`,
+    /// pero sin `limit`: el número de actividades ya está acotado por el
+    /// itinerario). Orden estable por `activityId`.
+    public func tablero(_ tripId: String) -> [Reserva] {
+        reservas.values
+            .filter { $0.tripId == tripId }
+            .sorted { $0.activityId < $1.activityId }
+    }
+
+    /// Fija el estado de UN miembro (`cadaUnoElSuyo`, `miembro` no-nil) o del
+    /// estado único (`unoParaTodos`, `miembro == nil`). No valida autorización
+    /// ni pertenencia al viaje (eso es del caso de uso); si el miembro no
+    /// estaba incluido en `cadaUnoElSuyo`, no se añade (silencioso, mismo
+    /// criterio que `actualizar` de itinerario con id inexistente).
+    public func marcarEstado(activityId: String, en tripId: String, miembro: MiembroId?, estado: EstadoReserva) {
+        let k = claveReserva(tripId, activityId)
+        guard let r = reservas[k] else { return }
+        switch r.mode {
+        case .cadaUnoElSuyo(var estados):
+            if let m = miembro, estados[m] != nil { estados[m] = estado }
+            reservas[k] = Reserva(activityId: r.activityId, tripId: r.tripId, kind: r.kind, mode: .cadaUnoElSuyo(estados: estados))
+        case .unoParaTodos(let resp, _):
+            reservas[k] = Reserva(activityId: r.activityId, tripId: r.tripId, kind: r.kind, mode: .unoParaTodos(responsable: resp, estado: estado))
+        }
+    }
+
+    public func borrar(activityId: String, en tripId: String) {
+        reservas[claveReserva(tripId, activityId)] = nil
     }
 }
