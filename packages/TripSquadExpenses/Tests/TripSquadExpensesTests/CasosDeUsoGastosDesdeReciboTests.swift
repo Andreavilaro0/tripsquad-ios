@@ -66,6 +66,19 @@ struct CasosDeUsoGastosDesdeReciboTests {
         #expect(r == .rechazado(razon: "invalid_receipt"))
     }
 
+    /// (bead epb) Un ítem del recibo reparte con alguien que NO es miembro del
+    /// viaje: rechazado, no arrastra saldo de un no-miembro.
+    @Test func sharerNoMiembroEsRechazado() async throws {
+        let f = try await fixtureGastos()
+        let r = try await f.casos.crearDesdeRecibo(
+            tripId: "t1", gastoId: "g6", pagadoPor: f.a,
+            items: [ItemRecibo(importeMinor: 750, sharers: [f.a]),
+                    ItemRecibo(importeMinor: 250, sharers: [MiembroId("intruso")])],
+            impuestosMinor: 100, propinaMinor: 0, actor: f.a, idempotencyKey: "k6")
+        #expect(r == .rechazado(razon: "member_not_in_trip"))
+        #expect(await f.repo.gasto(id: "g6", en: "t1") == nil)
+    }
+
     @Test func replayDevuelveReproducido() async throws {
         let f = try await fixtureGastos()
         let mk = { try await f.casos.crearDesdeRecibo(
