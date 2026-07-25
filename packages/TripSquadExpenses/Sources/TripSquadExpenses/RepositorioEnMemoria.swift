@@ -362,6 +362,24 @@ extension RepositorioEnMemoria: ViajeRepositorio {
             invitaciones[code] = Invitacion(code: inv.code, tripId: inv.tripId, createdBy: inv.createdBy,
                                             expiresAt: inv.expiresAt, revokedAt: ahora)
         }
+        // Limpia el estado de reserva de ese miembro en ESE viaje (Task 5, wedge "quién
+        // ya reservó"): consistente con "expulsar revoca huella" — el mismo criterio que
+        // ya aplica arriba a las invitaciones. `cadaUnoElSuyo` pierde al miembro de sus
+        // estados; si era el `responsable` de un `unoParaTodos`, vuelve a quedar sin
+        // asignar (visible como pendiente otra vez, no como "reservado por nadie").
+        for (clave, r) in reservas where r.tripId == tripId {
+            switch r.mode {
+            case .cadaUnoElSuyo(var estados):
+                guard estados[memberId] != nil else { continue }
+                estados[memberId] = nil
+                reservas[clave] = Reserva(activityId: r.activityId, tripId: r.tripId, kind: r.kind,
+                                          mode: .cadaUnoElSuyo(estados: estados))
+            case .unoParaTodos(let responsable, _):
+                guard responsable == memberId else { continue }
+                reservas[clave] = Reserva(activityId: r.activityId, tripId: r.tripId, kind: r.kind,
+                                          mode: .unoParaTodos(responsable: nil, estado: .pendiente))
+            }
+        }
     }
 
     public func cerrar(tripId: String, ahora: Date) {

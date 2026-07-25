@@ -38,4 +38,25 @@ import TripSquadDomain
         let tablero = try await r.tablero("t1")
         #expect(tablero.map(\.activityId) == ["act1", "act2"])
     }
+
+    /// Task 5: expulsar/salir limpia el estado de reserva EN LA MISMA operación que
+    /// `quitarMiembro` (consistente con "expulsar revoca huella" — el mismo método ya
+    /// revoca invitaciones). `cadaUnoElSuyo` pierde al miembro de sus estados;
+    /// `unoParaTodos` vuelve a quedar sin asignar (`responsable = nil`, `.pendiente`).
+    @Test func expulsarLimpiaEstadoDeReserva() async throws {
+        let r = repo()
+        await r.anadirMiembro(a, a: "t1")
+        await r.anadirMiembro(b, a: "t1")
+        try await r.upsert(Reserva(activityId: "act1", tripId: "t1", kind: .vuelo,
+            mode: .cadaUnoElSuyo(estados: [a: .pendiente, b: .pendiente])), ahora: Date())
+        try await r.upsert(Reserva(activityId: "act2", tripId: "t1", kind: .hotel,
+            mode: .unoParaTodos(responsable: b, estado: .pendiente)), ahora: Date())
+
+        try await r.quitarMiembro(b, de: "t1", ahora: Date())
+
+        let r1 = try await r.reserva(activityId: "act1", en: "t1")
+        #expect(r1?.mode == .cadaUnoElSuyo(estados: [a: .pendiente]))
+        let r2 = try await r.reserva(activityId: "act2", en: "t1")
+        #expect(r2?.mode == .unoParaTodos(responsable: nil, estado: .pendiente))
+    }
 }

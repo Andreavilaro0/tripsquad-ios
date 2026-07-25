@@ -193,4 +193,31 @@ struct RepositorioReservaPostgresTests {
             #expect(!tablero.contains { $0.activityId == activityId })
         }
     }
+
+    // MARK: - quitarMiembro limpia el estado de reserva (Task 5)
+
+    /// Task 5: al expulsar/salir un miembro, `RepositorioViajePostgres.quitarMiembro`
+    /// limpia, EN LA MISMA TRANSACCIÓN que marca la salida y revoca invitaciones
+    /// (ver RepositorioViajePostgresTests.quitarMiembroRevocaLasInvitacionesQueEmitio),
+    /// también su huella en las reservas del viaje: `cadaUnoElSuyo` pierde su fila en
+    /// itinerary_reservation_members; si era el `responsible_id` de un `uno_para_todos`,
+    /// vuelve a quedar sin asignar (`responsible_id = NULL`, `single_estado = 'pendiente'`).
+    @Test func quitarMiembroLimpiaEstadoDeReserva() async throws {
+        try await conRepo { repo, trip, activityId in
+            let segundoActivityId = "item-r-" + UUID().uuidString
+            try await sembrarActividad(repo, id: segundoActivityId, tripId: trip)
+
+            try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .vuelo,
+                mode: .cadaUnoElSuyo(estados: [ana: .pendiente, bea: .pendiente])), ahora: Date())
+            try await repo.upsert(Reserva(activityId: segundoActivityId, tripId: trip, kind: .hotel,
+                mode: .unoParaTodos(responsable: bea, estado: .pendiente)), ahora: Date())
+
+            try await repo.quitarMiembro(bea, de: trip, ahora: Date())
+
+            let r1 = try await repo.reserva(activityId: activityId, en: trip)
+            #expect(r1?.mode == .cadaUnoElSuyo(estados: [ana: .pendiente]))
+            let r2 = try await repo.reserva(activityId: segundoActivityId, en: trip)
+            #expect(r2?.mode == .unoParaTodos(responsable: nil, estado: .pendiente))
+        }
+    }
 }
