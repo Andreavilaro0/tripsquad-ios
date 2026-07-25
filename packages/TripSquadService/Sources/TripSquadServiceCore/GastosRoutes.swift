@@ -20,6 +20,20 @@ func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         return respuestaDirecta(r)
     }
 
+    // POST /trips/:tripId/expenses/from-receipt — crear gasto desde recibo itemizado
+    router.post("trips/:tripId/expenses/from-receipt") { req, ctx -> Response in
+        let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
+        guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
+        let tripId = try ctx.parameters.require("tripId")
+        let dto = try await req.decode(as: ReciboDTO.self, context: ctx)
+        let items = dto.items.map { ItemRecibo(importeMinor: $0.importeMinor, sharers: $0.sharers.map(MiembroId.init)) }
+        let r = try await deps.casos.crearDesdeRecibo(
+            tripId: tripId, gastoId: dto.gastoId, pagadoPor: MiembroId(dto.pagadoPor),
+            items: items, impuestosMinor: dto.impuestosMinor, propinaMinor: dto.propinaMinor,
+            actor: actor, idempotencyKey: key)
+        return respuestaDirecta(r)
+    }
+
     // PATCH /trips/:tripId/expenses/:id — editar (If-Match obligatorio)
     router.patch("trips/:tripId/expenses/:id") { req, ctx -> Response in
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)

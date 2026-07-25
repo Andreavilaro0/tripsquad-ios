@@ -22,6 +22,18 @@ struct GastoDTO: Codable {
 
 enum DTOError: Error { case divisaNoSoportada(String), repartoInvalido }
 
+// Recibo itemizado (momento mágico #2, ADR-0011): a diferencia de GastoDTO, viaja
+// en céntimos (Int64) directamente — no hay número "amount" del usuario que
+// convertir en la frontera, el importe se DERIVA del reparto (Task 1/2).
+struct ReciboItemDTO: Decodable { let importeMinor: Int64; let sharers: [String] }
+struct ReciboDTO: Decodable {
+    let gastoId: String
+    let pagadoPor: String
+    let items: [ReciboItemDTO]
+    let impuestosMinor: Int64
+    let propinaMinor: Int64
+}
+
 extension GastoDTO {
     /// Traduce el DTO a un `Gasto` del dominio, convirtiendo el dinero en la
     /// frontera. Lanza si la divisa o el reparto no son válidos.
