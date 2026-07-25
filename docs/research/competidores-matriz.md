@@ -25,13 +25,13 @@
 - **L4 Quick wins que nos faltan ✍️:** _(...)_
 - **Anti-patrón ✍️:** _(...)_
 
-## 3. Splitwise  _(hands-on · foco: split + qué NO copiar)_
+## 3. Splitwise  _(hands-on WEB · foco: split + qué NO copiar · teardown 2026-07-25)_
 - **🔍 Desk:** 100M+ descargas, el especialista de "quién debe a quién" en el tiempo. Escanea recibo → detecta los ítems → los asignas a cada amigo (perfecto para restaurante/súper).
-- **L1 Patrones ✍️:** _(escanea la cena de 80€ — cómo itemiza y asigna "quién comió qué" + [ROBAR: ___])_ · captura: `img/splitwise-L1.png`
-- **L2 Posicionamiento 🔍:** es un LIBRO DE CUENTAS, no un viaje: sin itinerario, chat, votos ni fotos. El split-en-contexto del bento (sabe quién está en el viaje, qué votasteis) es el FOSO.
-- **L3 Onboarding ✍️:** _(...)_
-- **L4 Quick wins que nos faltan ✍️:** _(...)_
-- **Anti-patrón ✍️:** _(qué de su split NO copiar — vigila fricción de cuentas/pagos que te aleje del "premium, no hoja de cálculo")_
+- **L1 Patrones ✍️ (hands-on):** el flujo "Añadir un gasto" primero pide participantes ("Con tú y:") y luego expande el formulario. El patrón estrella es la **frase editable en lenguaje natural**: **"Pagado por _[ti]_ y dividido _[a partes iguales]_ ($X/persona)"** con **dos chips clicables inline** — uno para el pagador (`Elige el pagador` / `Cada persona pagó su parte`), otro para el método: **`a partes iguales` · `por cantidades exactas` · `por porcentajes` · `por cuotas`**. Además: subir imagen de recibo + notas, fecha. Es **claridad, no hoja de cálculo** — la mecánica compleja escondida tras una frase legible. ⚠️ Su patrón MÁS famoso (escanear recibo → itemizar → "quién comió qué") **es solo-móvil, NO está en web** → esa captura la debe hacer Andrea en el móvil. **[ROBAR: la frase "pagado por X, dividido Y" con chips inline — table stakes del split del bento]** · captura: `img/splitwise-L1.png`
+- **L2 Posicionamiento 🔍 (confirmado):** es un LIBRO DE CUENTAS, no un viaje: sin itinerario, chat, votos ni fotos. El panel es saldos puros ("saldo total / debes / se te debe"). El split-en-contexto del bento (sabe quién está en el viaje, qué votasteis) es el FOSO.
+- **L3 Onboarding ✍️ (hands-on):** **requiere cuenta** (email o Google) antes de nada — más fricción que Tricount (que empieza sin cuenta). Modelo **basado en amigos por email**: cada participante debe ser usuario de Splitwise o recibir invitación por email. Para el muro de "meter al squad", ese modelo email-por-email es justo lo que TripSquad debe evitar.
+- **L4 Quick wins que nos faltan ✍️ (hands-on):** (1) **"Liquidar deudas"** (settle up) como acción de primer nivel en el panel (**S**, ya tenemos back de settle — es cuestión de darle prominencia). (2) **"Calculadoras de divisiones justas"** (herramienta suelta para repartos raros) (**S/M**). (3) chip de fecha y "Añadir imagen/notas" en el propio gasto (**S**).
+- **Anti-patrón ✍️ (hands-on) — qué NO copiar:** (a) el modelo **cuenta-obligatoria + amigo-por-email** (fricción social alta). (b) el **upsell constante a "Splitwise Pro"** (gráficos, búsqueda, sin anuncios) metido en la barra lateral → energía de "herramienta de contabilidad que te empuja a pagar", lo contrario a "premium, no hoja de cálculo". TripSquad: el settle es una costura del viaje, no un producto de suscripción aparte.
 
 ## 4. Tricount  _(hands-on · foco: onboarding sin fricción, Europa)_
 - **🔍 Desk:** líder de split en Europa. **Sin cuenta** para lo básico, gratis en core, ahora con escaneo de recibos (OCR), modo oscuro y export Excel/PDF.
