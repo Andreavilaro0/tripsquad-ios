@@ -195,11 +195,22 @@ extension RepositorioPostgres: ViajeRepositorio {
 
     // MARK: - Salir / cerrar
 
+    /// Marca la salida Y revoca, EN LA MISMA TRANSACCIÓN, las invitaciones que ese
+    /// miembro emitió (ADR-0014 §2 — P1 de la revisión integrada). Sin esto, un
+    /// expulsado seguía teniendo su `code` vivo hasta 7 días y `unirsePorCodigo` lo
+    /// reactivaba (`left_at = NULL`): reingresaba con su propio código. Aplica a expulsar
+    /// Y a salir (quien ya no está en el viaje no debe tener códigos activos a su nombre).
     public func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) async throws {
-        _ = try await client.query("""
-            UPDATE trip_members SET left_at = \(ahora)
-            WHERE trip_id = \(tripId) AND member_id = \(memberId.raw) AND left_at IS NULL
-            """, logger: logger)
+        try await client.withTransaction(logger: logger) { conn in
+            _ = try await conn.query("""
+                UPDATE trip_members SET left_at = \(ahora)
+                WHERE trip_id = \(tripId) AND member_id = \(memberId.raw) AND left_at IS NULL
+                """, logger: self.logger)
+            _ = try await conn.query("""
+                UPDATE trip_invites SET revoked_at = \(ahora)
+                WHERE trip_id = \(tripId) AND created_by = \(memberId.raw) AND revoked_at IS NULL
+                """, logger: self.logger)
+        }
     }
 
     public func cerrar(tripId: String, ahora: Date) async throws {

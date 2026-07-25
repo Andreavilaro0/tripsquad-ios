@@ -351,6 +351,13 @@ extension RepositorioEnMemoria: ViajeRepositorio {
         guard var fila = miembrosDeViaje[tripId]?[memberId] else { return }
         fila.leftAt = fila.leftAt ?? ahora
         miembrosDeViaje[tripId]?[memberId] = fila
+        // Revoca las invitaciones que ese miembro emitió (ADR-0014 §2, P1 de la revisión
+        // integrada): si no, reingresaría con su propio code. Mismo efecto que el segundo
+        // UPDATE de la transacción en Postgres.
+        for (code, inv) in invitaciones where inv.tripId == tripId && inv.createdBy == memberId && inv.revokedAt == nil {
+            invitaciones[code] = Invitacion(code: inv.code, tripId: inv.tripId, createdBy: inv.createdBy,
+                                            expiresAt: inv.expiresAt, revokedAt: ahora)
+        }
     }
 
     public func cerrar(tripId: String, ahora: Date) {

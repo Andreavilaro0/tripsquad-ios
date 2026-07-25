@@ -99,6 +99,19 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         }
     }
 
+    // DELETE /trips/:id/invites/:code — SOLO el owner revoca una invitación a mano
+    // (ADR-0018 §4). El caso de uso existía pero no tenía ruta (P1 de la revisión
+    // integrada). El actor SIEMPRE del JWT. 204 si se revocó, 404 si el code no existe
+    // en ese viaje (idempotente: revocar una ya revocada sigue siendo éxito).
+    router.delete("trips/:tripId/invites/:code") { _, ctx -> Response in
+        let tripId = try ctx.parameters.require("tripId")
+        let code = try ctx.parameters.require("code")
+        switch try await deps.casosViaje.revocar(code: code, tripId: tripId, actor: ctx.actor, ahora: deps.ahora()) {
+        case .success: return Response(status: .noContent)
+        case .failure(let error): return respuestaErrorViaje(error)
+        }
+    }
+
     // POST /trips/join — el code ES la autorización para entrar.
     router.post("trips/join") { req, ctx -> Response in
         let dto = try await req.decode(as: JoinDTO.self, context: ctx)

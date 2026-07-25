@@ -277,4 +277,31 @@ struct CasosDeUsoViajeTests {
         #expect(try await casos.misViajes(actor: ana, limit: 200).map(\.id) == completa)   // repetible
         #expect(try await casos.misViajes(actor: ana, limit: 2).map(\.id) == Array(completa.prefix(2)))
     }
+
+    // P1 de la revisión integrada (ADR-0014 §2): expulsar revoca las invitaciones que el
+    // expulsado emitió, EN LA MISMA operación. Sin esto reingresaba con su propio code.
+    @Test func expulsarRevocaLasInvitacionesDelExpulsado() async throws {
+        let (casos, _) = entorno()
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        // ivan entra (con el code de ana) y a su vez invita: crea SU code.
+        guard case .success(let inviteAna) = try await casos.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba invitar de ana"); return
+        }
+        #expect(try await casos.unirse(code: inviteAna.code, actor: ivan, ahora: ahora) == .unido)
+        guard case .success(let inviteIvan) = try await casos.invitar(tripId: viaje.id, actor: ivan, ahora: ahora) else {
+            Issue.record("esperaba invitar de ivan"); return
+        }
+
+        // ana (owner) expulsa a ivan.
+        guard case .success = try await casos.expulsar(tripId: viaje.id, memberId: ivan, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba expulsar exitoso"); return
+        }
+
+        // El code de ivan ya no vale: sara no puede entrar con él.
+        #expect(try await casos.unirse(code: inviteIvan.code, actor: sara, ahora: ahora) == .revocado)
+        // Y el propio ivan tampoco reingresa con su code.
+        #expect(try await casos.unirse(code: inviteIvan.code, actor: ivan, ahora: ahora) == .revocado)
+        // El code de ANA (otro emisor) sigue vivo — solo se revocan los del expulsado.
+        #expect(try await casos.unirse(code: inviteAna.code, actor: sara, ahora: ahora) == .unido)
+    }
 }

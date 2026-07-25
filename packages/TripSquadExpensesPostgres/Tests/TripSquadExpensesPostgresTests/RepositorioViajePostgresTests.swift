@@ -151,6 +151,31 @@ struct RepositorioViajePostgresTests {
         }
     }
 
+    /// P1 de la revisión integrada (ADR-0014 §2): `quitarMiembro` revoca, EN LA MISMA
+    /// TRANSACCIÓN, las invitaciones que ese miembro emitió. Antes solo tocaba
+    /// `trip_members`, así que el expulsado reingresaba con su propio code.
+    @Test func quitarMiembroRevocaLasInvitacionesQueEmitio() async throws {
+        try await conRepo { repo in
+            let ahora = Date()
+            let id = nuevoId()
+            _ = try await repo.crearViaje(id: id, name: "Roma", baseCurrency: "EUR", creador: ana, ahora: ahora)
+            // ivan entra y crea SU propia invitación.
+            let codeAna = try await invitar(repo, tripId: id, ahora: ahora)
+            _ = try await repo.unirsePorCodigo(code: codeAna, actor: ivan, ahora: ahora, tope: 50)
+            let codeIvan = "code-ivan-" + UUID().uuidString
+            _ = try await repo.crearInvitacion(tripId: id, por: ivan, code: codeIvan, expiresAt: ahora.addingTimeInterval(3600))
+
+            // Se expulsa a ivan (quitarMiembro).
+            try await repo.quitarMiembro(ivan, de: id, ahora: ahora)
+
+            // El code de ivan quedó revocado: nadie entra con él.
+            let masTarde = ahora.addingTimeInterval(60)
+            #expect(try await repo.unirsePorCodigo(code: codeIvan, actor: MiembroId("sara-viaje"), ahora: masTarde, tope: 50) == .revocado)
+            // El code de ANA sigue vivo (no se revocan los de otros emisores).
+            #expect(try await repo.unirsePorCodigo(code: codeAna, actor: MiembroId("sara-viaje"), ahora: masTarde, tope: 50) == .unido)
+        }
+    }
+
     // MARK: - Tope + orden estable
 
     /// `viajesDe` respeta el `LIMIT` y ordena por `t.id` — el MISMO criterio que el
