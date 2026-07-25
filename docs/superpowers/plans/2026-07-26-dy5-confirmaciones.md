@@ -30,7 +30,7 @@
 - `packages/TripSquadExpensesPostgres/Sources/TripSquadExpensesPostgres/RepositorioReservaPostgres.swift` — **modificar**. Implementar guardarConfirmacion/confirmacion.
 - `db/migrations/0009_reservation_confirmations.sql` — **crear**.
 - `packages/TripSquadService/Sources/TripSquadServiceCore/ReservaRoutes.swift` — **modificar**. Ruta `POST .../reservation/confirmation` + DTO. Wiring del `estructurador` (fake por defecto) en `Dependencias`.
-- `packages/TripSquadExpenses/Sources/TripSquadExpenses/EstructuradorConfirmacionDeepSeek.swift` — **crear** (Task 5, GATED). Adaptador real.
+- `packages/TripSquadService/Sources/TripSquadServiceCore/EstructuradorConfirmacionDeepSeek.swift` — **crear** (Task 5, GATED). Adaptador real. Vive en `TripSquadService` (NO en `TripSquadExpenses`) porque hace HTTP con AsyncHTTPClient, que es dependencia de la capa externa; el puerto y el fake sí están en `TripSquadExpenses` (Clean Architecture: las dependencias apuntan hacia dentro, ADR-0009).
 - `docs/decisions/0026-confirmaciones-dy5.md` — **crear** ADR (verificar nº libre; 0024 wedge, 0025 recibo).
 
 **Templates a leer:** `Reserva.swift` + `CasosDeUsoReserva.swift` (el wedge — el gate de `marcar` es el que reusa `registrarConfirmacion`), `RepositorioReservaPostgres.swift` + `db/migrations/0008_reservas.sql`, `ReservaRoutes.swift`.
@@ -331,16 +331,16 @@ git commit -m "feat(confirmaciones): persistencia Postgres + migracion 0009"
 ## Task 5: Adaptador real DeepSeek (GATED — no se activa sin key + OK de Andrea)
 
 **Files:**
-- Create: `packages/TripSquadExpenses/Sources/TripSquadExpenses/EstructuradorConfirmacionDeepSeek.swift`
-- Test: `packages/TripSquadExpenses/Tests/TripSquadExpensesTests/EstructuradorConfirmacionDeepSeekTests.swift`
+- Create: `packages/TripSquadService/Sources/TripSquadServiceCore/EstructuradorConfirmacionDeepSeek.swift` (en TripSquadService: hace HTTP; importa `TripSquadExpenses` para conformar el puerto)
+- Test: `packages/TripSquadService/Tests/TripSquadServiceTests/EstructuradorConfirmacionDeepSeekTests.swift`
 
 **Interfaces:**
-- Produces: `EstructuradorConfirmacionDeepSeek: EstructuradorConfirmacion`, construido con `apiKey`, `baseURL` (default `https://api.deepseek.com`), `modelo` (default `deepseek-chat`), y un `HTTPClient` (AsyncHTTPClient, inyectable para test).
+- Produces: `EstructuradorConfirmacionDeepSeek: EstructuradorConfirmacion`, construido con `apiKey`, `baseURL` (default `https://api.deepseek.com`), `modelo` (default `deepseek-chat`), y un `HTTPClient` (AsyncHTTPClient, ya dependencia de TripSquadService, inyectable para test).
 
 - [ ] **Step 1: Escribe el test que falla** con un `HTTPClient` **mockeado** (NO llama a la API real): dado un JSON de respuesta `{"choices":[{"message":{"content":"{\"tipo\":\"vuelo\",\"fechaISO\":\"2026-09-12\",\"numeroConfirmacion\":\"ABC123\",\"proveedor\":\"TAP\"}"}}]}`, `extraer(...)` devuelve el `DatosConfirmacion` correcto; y ante un `content` que no es JSON válido → lanza (para que el caso de uso lo mapee a `confirmacion_ilegible`).
 
 - [ ] **Step 2: Ejecuta y verifica que falla.**
-Run: `swift test --package-path packages/TripSquadExpenses --filter EstructuradorConfirmacionDeepSeekTests`
+Run: `swift test --package-path packages/TripSquadService --filter EstructuradorConfirmacionDeepSeekTests`
 Expected: FAIL.
 
 - [ ] **Step 3: Implementa el adaptador** (doc real DeepSeek, Context7): POST a `\(baseURL)/chat/completions`, `Authorization: Bearer \(apiKey)`, body:
@@ -355,15 +355,15 @@ Expected: FAIL.
 Decodifica `choices[0].message.content` como JSON → mapea a `DatosConfirmacion`; `tipo` desconocido → mapea a `.otro`; si el content no parsea → `throw ErrorEstructurador.ilegible`. Usa `HTTPClient` de AsyncHTTPClient (ya es dependencia del proyecto).
 
 - [ ] **Step 4: Ejecuta y verifica que pasa.**
-Run: `swift test --package-path packages/TripSquadExpenses --filter EstructuradorConfirmacionDeepSeekTests`
+Run: `swift test --package-path packages/TripSquadService --filter EstructuradorConfirmacionDeepSeekTests`
 Expected: PASS.
 
 - [ ] **Step 5: NO lo conectes por defecto.** El wiring por defecto sigue con el FAKE (Task 3). Deja el adaptador real disponible pero **desactivado**: en `main.swift`, úsalo SOLO si `ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"]` está presente; si no, fake. Añade un comentario `// GATED: activar requiere OK de Andrea + tope de presupuesto`. No metas la key en el repo.
 
 - [ ] **Step 6: Commit.**
 ```bash
-git add packages/TripSquadExpenses/Sources/TripSquadExpenses/EstructuradorConfirmacionDeepSeek.swift \
-        packages/TripSquadExpenses/Tests/TripSquadExpensesTests/EstructuradorConfirmacionDeepSeekTests.swift \
+git add packages/TripSquadService/Sources/TripSquadServiceCore/EstructuradorConfirmacionDeepSeek.swift \
+        packages/TripSquadService/Tests/TripSquadServiceTests/EstructuradorConfirmacionDeepSeekTests.swift \
         packages/TripSquadService/Sources/TripSquadService/main.swift
 git commit -m "feat(confirmaciones): adaptador DeepSeek (GATED por DEEPSEEK_API_KEY) + wiring condicional"
 ```
