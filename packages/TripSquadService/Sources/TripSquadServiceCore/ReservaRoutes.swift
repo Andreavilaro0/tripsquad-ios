@@ -37,6 +37,13 @@ struct MarcarReservaDTO: Decodable {
     let estado: String
 }
 
+/// Entrada de `POST .../reservation/confirmation` (dy5): el texto libre de
+/// confirmación (PDF/email pegado) que el `EstructuradorConfirmacion` (LLM)
+/// estructura. Ver `CasosDeUsoReserva.registrarConfirmacion`.
+struct ConfirmacionInputDTO: Decodable {
+    let confirmationText: String
+}
+
 // MARK: - DTOs de salida (Encodable) — SIEMPRE serializados con JSONEncoder.
 
 private struct EstadoMiembroDTO: Encodable {
@@ -77,6 +84,22 @@ private struct ReservaDTO: Encodable {
 }
 
 private struct ReservasListDTO: Encodable { let items: [ReservaDTO] }
+
+/// Salida de `POST .../reservation/confirmation`: los datos que el
+/// `EstructuradorConfirmacion` extrajo (y que `registrarConfirmacion` guardó).
+private struct ConfirmacionDTO: Encodable {
+    let tipo: String
+    let fechaISO: String?
+    let numeroConfirmacion: String?
+    let proveedor: String?
+
+    init(_ c: Confirmacion) {
+        tipo = c.tipo.rawValue
+        fechaISO = c.fechaISO
+        numeroConfirmacion = c.numeroConfirmacion
+        proveedor = c.proveedor
+    }
+}
 
 /// Orden estable por `memberId` en `cadaUnoElSuyo`: `ModoReserva.cadaUnoElSuyo`
 /// guarda un `Dictionary` (sin orden garantizado); el body HTTP necesita un
@@ -172,6 +195,27 @@ func montarReservas(_ router: some RouterMethods<ContextoAutenticado>, _ deps: D
             return try respuestaJSON(.ok, dtoDe(reserva))
         case .failure(let error):
             return respuestaErrorReserva(error)
+        }
+    }
+
+    // POST /trips/:tripId/itinerary/:itemId/reservation/confirmation —
+    // registra la confirmación de reserva del ACTOR (dy5, spec
+    // docs/superpowers/specs/2026-07-25-dy5-confirmaciones-design.md). El actor SIEMPRE sale de
+    // `ctx.actor` (JWT), nunca del body. Ver `CasosDeUsoReserva.registrarConfirmacion`
+    // para el gate y el mapeo `confirmacion_ilegible`.
+    router.post("trips/:tripId/itinerary/:itemId/reservation/confirmation") { req, ctx -> Response in
+        let tripId = try ctx.parameters.require("tripId")
+        let itemId = try ctx.parameters.require("itemId")
+        let dto = try await req.decode(as: ConfirmacionInputDTO.self, context: ctx)
+
+        switch try await deps.casosReserva.registrarConfirmacion(
+            tripId: tripId, activityId: itemId, textoConfirmacion: dto.confirmationText,
+            actor: ctx.actor, ahora: deps.ahora()
+        ) {
+        case .success(let c):
+            return try respuestaJSON(.ok, ConfirmacionDTO(c))
+        case .failure(let e):
+            return respuestaErrorReserva(e)
         }
     }
 
