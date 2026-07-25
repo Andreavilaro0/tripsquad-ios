@@ -35,6 +35,16 @@ import PostgresNIO
 import TripSquadDomain
 import TripSquadExpenses
 
+/// Fila cruda de `itinerary_reservations` antes de reconstruir el `Reserva` de
+/// dominio (sustituye una tupla de 5 miembros — `large_tuple` de SwiftLint).
+private struct FilaReservaHeader {
+    let activityId: String
+    let kind: String
+    let mode: String
+    let responsibleId: String?
+    let singleEstado: String?
+}
+
 extension RepositorioPostgres: ReservaRepositorio {
 
     // MARK: - Upsert
@@ -103,10 +113,12 @@ extension RepositorioPostgres: ReservaRepositorio {
             WHERE trip_id = \(tripId)
             ORDER BY activity_id
             """, logger: logger)
-        var base: [(activityId: String, kind: String, mode: String, responsibleId: String?, singleEstado: String?)] = []
+        var base: [FilaReservaHeader] = []
         for try await (activityId, kind, mode, responsibleId, singleEstado)
             in rows.decode((String, String, String, String?, String?).self) {
-            base.append((activityId, kind, mode, responsibleId, singleEstado))
+            base.append(FilaReservaHeader(
+                activityId: activityId, kind: kind, mode: mode,
+                responsibleId: responsibleId, singleEstado: singleEstado))
         }
         guard !base.isEmpty else { return [] }
 
