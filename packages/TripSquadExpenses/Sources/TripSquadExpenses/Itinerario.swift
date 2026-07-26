@@ -42,4 +42,23 @@ public enum ErrorItinerario: Error, Equatable, Sendable {
     case noEncontrado
     case viajeCerrado
     case reglaViolada(String)
+    /// El `If-Match` no coincide con el etag actual de la actividad (bead
+    /// 201): otro miembro la editó mientras tanto. Mismo criterio de control
+    /// de concurrencia optimista que `ResultadoEscritura.conflicto` de
+    /// gastos (ADR-0013 §2), aplicado aquí a itinerario.
+    case conflicto(serverEtag: String)
+}
+
+/// Una actividad de itinerario tal como está persistida, con su ETag para
+/// control de concurrencia (bead 201). Mismo espíritu que `GastoConEtag`: el
+/// dominio (`ActividadItinerario`) no lleva su propio etag —lo asigna el
+/// repositorio en cada escritura—, así que las lecturas y las respuestas de
+/// escritura que necesitan exponerlo lo envuelven aquí.
+public struct ActividadConEtag: Equatable, Sendable {
+    public let actividad: ActividadItinerario
+    public let etag: String
+    public init(actividad: ActividadItinerario, etag: String) {
+        self.actividad = actividad
+        self.etag = etag
+    }
 }

@@ -69,3 +69,50 @@ public protocol ItinerarioRepositorio: Sendable {
 2. Postgres: `RepositorioPostgres: ItinerarioRepositorio` + tests integración.
 3. Service: 4 endpoints + tests autorización.
 4. Seguridad: revisión + arreglos.
+
+## Enmienda (bead 201, 2026-07-27) — ETag/If-Match
+
+Hallazgo de la revisión integrada (cross-cutting, confianza 9): `PATCH
+/trips/:tripId/itinerary/:itemId` era el único recurso editable (además de
+gastos, que sí lo tiene desde el principio) SIN control de concurrencia
+optimista — dos ediciones concurrentes se pisaban en silencio
+(last-write-wins). Se cierra con el MISMO patrón que gastos (ADR-0013 §2):
+
+- **Migración 0010**: `itinerary_items.etag text not null` (sin default —
+  la aplicación lo asigna en cada INSERT/UPDATE, igual que `expenses.etag`).
+- **Contrato de dominio** (reemplaza el de arriba, que queda como registro
+  histórico de M5):
+  ```swift
+  public struct ActividadConEtag: Equatable, Sendable {
+      public let actividad: ActividadItinerario
+      public let etag: String
+  }
+  public enum ResultadoEscrituraItinerario: Equatable, Sendable {
+      case ok(ActividadConEtag)
+      case conflicto(serverEtag: String)
+      case noEncontrado
+  }
+  public protocol ItinerarioRepositorio: Sendable {
+      func crear(_ a: ActividadItinerario, ahora: Date) async throws -> ActividadConEtag
+      func listar(_ tripId: String, limit: Int) async throws -> [ActividadConEtag]
+      func item(id: String, en tripId: String) async throws -> ActividadItinerario?   // sin etag: solo autorización/merge
+      func actualizar(_ a: ActividadItinerario, ifMatch etag: String, ahora: Date) async throws -> ResultadoEscrituraItinerario
+      func borrar(id: String, en tripId: String) async throws
+  }
+  ```
+  `ErrorItinerario` gana `case conflicto(serverEtag: String)`.
+  `CasosDeUsoItinerario.crear/listar/editar` devuelven `ActividadConEtag`
+  (`editar` añade el parámetro `ifMatch: String`); `detalle` sigue devolviendo
+  `ActividadItinerario` puro (lo usa el PATCH de la ruta solo para el merge
+  parcial, no expone el etag).
+- **Endpoints** (reemplaza la fila de PATCH de arriba):
+  `PATCH /trips/:tripId/itinerary/:itemId` {campos} → **428** si falta
+  `If-Match` · 200 con etag NUEVO (body + cabecera `etag`) · **412** con la
+  cabecera `etag` del SERVIDOR si `If-Match` no coincide · 403 · 409.
+  `POST`/`GET` también devuelven el etag (campo `etag` en el JSON; POST
+  además en la cabecera).
+- **Atomicidad**: el UPDATE del adaptador Postgres es condicional por etag en
+  el propio `WHERE` (no hay lectura-antes-de-escritura que perder en una
+  carrera) — mismo patrón que `RepositorioPostgres.actualizar` de gastos.
+  `DELETE` queda FUERA de este bead (no exige `If-Match`): el hallazgo original
+  era específico de la edición silenciosa, no de borrar.

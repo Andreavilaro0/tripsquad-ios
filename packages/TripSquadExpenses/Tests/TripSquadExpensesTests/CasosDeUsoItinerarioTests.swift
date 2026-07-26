@@ -1,5 +1,6 @@
-// Tests de itinerario (M5, ADR-0020 borrador). El foco es la AUTORIZACIÓN y
-// el orden de listado — mismo espíritu que CasosDeUsoVotacionTests.
+// Tests de itinerario (M5, ADR-0020 borrador; ETag/If-Match bead 201). El foco
+// es la AUTORIZACIÓN, el orden de listado y el control de concurrencia
+// optimista — mismo espíritu que CasosDeUsoVotacionTests.
 //
 // NOTA sobre el repo en memoria: `Membresia.esMiembro` y `ViajeRepositorio.rol`
 // son DOS almacenes separados en `RepositorioEnMemoria` (ver nota de cabecera
@@ -12,7 +13,7 @@ import Testing
 import TripSquadDomain
 @testable import TripSquadExpenses
 
-@Suite("Itinerario: actividades (M5, ADR-0020 borrador)")
+@Suite("Itinerario: actividades (M5, ADR-0020 borrador; ETag bead 201)")
 struct CasosDeUsoItinerarioTests {
 
     let ana = MiembroId("ana"), ivan = MiembroId("ivan"), sara = MiembroId("sara")
@@ -20,19 +21,20 @@ struct CasosDeUsoItinerarioTests {
 
     func repo() -> RepositorioEnMemoria { RepositorioEnMemoria() }
 
-    // 1a. crear feliz.
+    // 1a. crear feliz — devuelve la actividad CON su etag inicial (bead 201).
     @Test func crearFeliz() async throws {
         let r = repo()
         await r.anadirMiembro(ana, a: "t1")
         let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
 
-        guard case .success(let a) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", startTime: "10:00", actor: ana, ahora: ahora) else {
+        guard case .success(let conEtag) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", startTime: "10:00", actor: ana, ahora: ahora) else {
             Issue.record("esperaba crear exitoso"); return
         }
-        #expect(a.title == "Coliseo")
-        #expect(a.day == "2026-08-02")
-        #expect(a.startTime == "10:00")
-        #expect(a.createdBy == ana)
+        #expect(conEtag.actividad.title == "Coliseo")
+        #expect(conEtag.actividad.day == "2026-08-02")
+        #expect(conEtag.actividad.startTime == "10:00")
+        #expect(conEtag.actividad.createdBy == ana)
+        #expect(!conEtag.etag.isEmpty)
     }
 
     // 1b. title vacío → rechazo.
@@ -67,7 +69,9 @@ struct CasosDeUsoItinerarioTests {
         guard case .success(let items) = try await casos.listar(tripId: "t1", actor: ana) else {
             Issue.record("esperaba listar exitoso"); return
         }
-        #expect(items.map(\.id) == [primerDia.id, segundoDiaPrimero.id, segundoDiaSegundo.id])
+        #expect(items.map { $0.actividad.id } == [primerDia.actividad.id, segundoDiaPrimero.actividad.id, segundoDiaSegundo.actividad.id])
+        // El etag de cada item de la lista coincide con el que se devolvió al crear.
+        #expect(items.first { $0.actividad.id == primerDia.actividad.id }?.etag == primerDia.etag)
     }
 
     // 3. no-miembro no ve ni crea: mismo error exista o no la actividad (sin fuga de existencia).
@@ -107,12 +111,14 @@ struct CasosDeUsoItinerarioTests {
         let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
 
         // ivan (member, NO owner) crea la actividad → él es el creador.
-        guard case .success(let actividad) = try await casos.crear(tripId: viaje.id, title: "Coliseo", day: "2026-08-02", actor: ivan, ahora: ahora) else {
+        guard case .success(let creada) = try await casos.crear(tripId: viaje.id, title: "Coliseo", day: "2026-08-02", actor: ivan, ahora: ahora) else {
             Issue.record("esperaba crear exitoso"); return
         }
+        let actividad = creada.actividad
+        let etag0 = creada.etag
 
         // sara (ni creadora ni owner) intenta editar/borrar la actividad de ivan → noAutorizado.
-        guard case .failure(let errorEditar) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (cambiado)", day: "2026-08-02", startTime: nil, location: nil, notes: nil, orderIndex: 0, actor: sara, ahora: ahora) else {
+        guard case .failure(let errorEditar) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (cambiado)", day: "2026-08-02", startTime: nil, location: nil, notes: nil, orderIndex: 0, actor: sara, ifMatch: etag0, ahora: ahora) else {
             Issue.record("esperaba failure"); return
         }
         #expect(errorEditar == .noAutorizado)
@@ -123,19 +129,50 @@ struct CasosDeUsoItinerarioTests {
         #expect(errorBorrar == .noAutorizado)
 
         // ivan (creador, no owner) SÍ puede editar su propia actividad.
-        guard case .success(let editada) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (cambiado)", day: "2026-08-02", startTime: "11:00", location: nil, notes: nil, orderIndex: 0, actor: ivan, ahora: ahora) else {
+        guard case .success(let editada) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (cambiado)", day: "2026-08-02", startTime: "11:00", location: nil, notes: nil, orderIndex: 0, actor: ivan, ifMatch: etag0, ahora: ahora) else {
             Issue.record("esperaba editar exitoso (creador)"); return
         }
-        #expect(editada.title == "Coliseo (cambiado)")
-        #expect(editada.startTime == "11:00")
+        #expect(editada.actividad.title == "Coliseo (cambiado)")
+        #expect(editada.actividad.startTime == "11:00")
+        // La edición renueva el etag (bead 201): ya no coincide con el original.
+        #expect(editada.etag != etag0)
 
-        // ana (owner, no creadora) también puede editar y borrar.
-        guard case .success = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (owner)", day: "2026-08-02", startTime: "12:00", location: nil, notes: nil, orderIndex: 0, actor: ana, ahora: ahora) else {
+        // ana (owner, no creadora) también puede editar y borrar, con el ÚLTIMO etag.
+        guard case .success(let editadaPorOwner) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (owner)", day: "2026-08-02", startTime: "12:00", location: nil, notes: nil, orderIndex: 0, actor: ana, ifMatch: editada.etag, ahora: ahora) else {
             Issue.record("esperaba editar exitoso (owner)"); return
         }
         guard case .success = try await casos.borrar(itemId: actividad.id, tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba borrar exitoso (owner)"); return
         }
+        _ = editadaPorOwner
+    }
+
+    // 4b. If-Match viejo → conflicto (412 en la capa HTTP), NO se aplica la edición.
+    @Test func editarConEtagViejoEsConflicto() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        // Primera edición: renueva el etag.
+        guard case .success(let editada) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Coliseo v2", day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("esperaba editar exitoso"); return
+        }
+        #expect(editada.etag != creada.etag)
+
+        // Segunda edición con el etag VIEJO (el de la creación, ya obsoleto) → conflicto.
+        guard case .failure(let error) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Coliseo v3 (perdedor)", day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("esperaba failure por conflicto de etag"); return
+        }
+        #expect(error == .conflicto(serverEtag: editada.etag))
+
+        // El conflicto NO aplicó la edición: el título sigue siendo el de la 1ª edición.
+        guard case .success(let detalle) = try await casos.detalle(itemId: creada.actividad.id, tripId: "t1", actor: ana) else {
+            Issue.record("esperaba detalle exitoso"); return
+        }
+        #expect(detalle.title == "Coliseo v2")
     }
 
     // 5. crear/editar en viaje cerrado → rechazo.
@@ -144,7 +181,7 @@ struct CasosDeUsoItinerarioTests {
         await r.anadirMiembro(ana, a: "t1")
         let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
 
-        guard case .success(let actividad) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
             Issue.record("esperaba crear exitoso"); return
         }
         await r.cerrarViaje("t1")
@@ -154,7 +191,7 @@ struct CasosDeUsoItinerarioTests {
         }
         #expect(errorCrear == .viajeCerrado)
 
-        guard case .failure(let errorEditar) = try await casos.editar(itemId: actividad.id, tripId: "t1", title: "Coliseo (cambiado)", day: "2026-08-02", startTime: nil, location: nil, notes: nil, orderIndex: 0, actor: ana, ahora: ahora) else {
+        guard case .failure(let errorEditar) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Coliseo (cambiado)", day: "2026-08-02", startTime: nil, location: nil, notes: nil, orderIndex: 0, actor: ana, ifMatch: creada.etag, ahora: ahora) else {
             Issue.record("esperaba failure"); return
         }
         #expect(errorEditar == .viajeCerrado)
@@ -165,15 +202,15 @@ struct CasosDeUsoItinerarioTests {
         let r = repo()
         await r.anadirMiembro(ana, a: "t1")
         let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
-        guard case .success(let actividad) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
             Issue.record("esperaba crear"); return
         }
         await r.quitarDeMembresia(ana, de: "t1")   // ana sale del viaje (createdBy sigue siendo ana)
-        guard case .failure(let eEditar) = try await casos.editar(itemId: actividad.id, tripId: "t1", title: "Foro", day: "2026-08-02", actor: ana, ahora: ahora) else {
+        guard case .failure(let eEditar) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Foro", day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
             Issue.record("editar deberia fallar para ex-miembro"); return
         }
         #expect(eEditar == .noAutorizado)
-        guard case .failure(let eBorrar) = try await casos.borrar(itemId: actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+        guard case .failure(let eBorrar) = try await casos.borrar(itemId: creada.actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
             Issue.record("borrar deberia fallar para ex-miembro"); return
         }
         #expect(eBorrar == .noAutorizado)
@@ -224,9 +261,9 @@ struct CasosDeUsoItinerarioTests {
               case .success(let pagina) = try await casos.listar(tripId: "t1", actor: ana, limit: 2) else {
             Issue.record("esperaba listar exitoso"); return
         }
-        #expect(completa.map(\.id) == completa.map(\.id).sorted())   // el id es el desempate
-        #expect(repetida.map(\.id) == completa.map(\.id))            // repetible
-        #expect(pagina.map(\.id) == Array(completa.map(\.id).prefix(2)))
+        #expect(completa.map { $0.actividad.id } == completa.map { $0.actividad.id }.sorted())   // el id es el desempate
+        #expect(repetida.map { $0.actividad.id } == completa.map { $0.actividad.id })            // repetible
+        #expect(pagina.map { $0.actividad.id } == Array(completa.map { $0.actividad.id }.prefix(2)))
     }
 
     /// `detalle` (la carga que usa el PATCH de la ruta) NO depende del tope: encuentra
@@ -237,7 +274,7 @@ struct CasosDeUsoItinerarioTests {
         guard case .success(let completa) = try await casos.listar(tripId: "t1", actor: ana, limit: 200) else {
             Issue.record("esperaba listar exitoso"); return
         }
-        let ultima = completa[2].id   // fuera de una página de tamaño 1
+        let ultima = completa[2].actividad.id   // fuera de una página de tamaño 1
 
         guard case .success(let item) = try await casos.detalle(itemId: ultima, tripId: "t1", actor: ana) else {
             Issue.record("detalle debe encontrarla aunque no esté en la primera página"); return
