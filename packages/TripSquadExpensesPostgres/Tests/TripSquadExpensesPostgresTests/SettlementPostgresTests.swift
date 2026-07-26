@@ -45,6 +45,38 @@ struct SettlementPostgresTests {
         }
     }
 
+    /// G4 (bead 8hn) — invariante de concurrencia con DB real: N `crear` del MISMO
+    /// settlement EN PARALELO → exactamente 1 fila, 1 `.creado`, resto `.duplicado`.
+    /// Cubre el escenario que el criterio del P0 pedía y que solo estaba testeado en
+    /// secuencial (`crearEsIdempotentePorClaveNatural`). El `ON CONFLICT DO NOTHING`
+    /// sobre la clave natural lo hace determinista: un INSERT gana el `RETURNING`, el
+    /// resto cae al `SELECT` de la fila existente.
+    @Test func crearConcurrenteMismoSettlementDejaUnaSolaFila() async throws {
+        try await conBD { repo, tripId in
+            let s = Settlement(settlementId: "s-concurrente", tripId: tripId, from: ivan, to: ana,
+                               transferIndex: 0, amountMinor: 2000, createdBy: ivan,
+                               expiresAt: Date().addingTimeInterval(3600))
+            let n = 8
+            var resultados: [ResultadoSettle] = []
+            try await withThrowingTaskGroup(of: ResultadoSettle.self) { group in
+                for _ in 0..<n { group.addTask { try await repo.crear(s) } }
+                for try await r in group { resultados.append(r) }
+            }
+            let creados = resultados.filter { if case .creado = $0 { return true }; return false }
+            let duplicados = resultados.filter { if case .duplicado = $0 { return true }; return false }
+            #expect(creados.count == 1, "exactamente un .creado bajo N inserts concurrentes")
+            #expect(duplicados.count == n - 1, "el resto deben ser .duplicado")
+            // Todos apuntan a la MISMA fila ganadora.
+            guard case .creado(let idCreado) = creados.first else { Issue.record("falta .creado"); return }
+            for case .duplicado(let idDup) in resultados {
+                #expect(idDup == idCreado, "el duplicado devuelve el id de la fila ganadora")
+            }
+            // Una sola fila viva, verificada por la API pública (sin SQL crudo ni tocar `conBD`).
+            let vivos = try await repo.pendientes(de: tripId, limit: 200, ahora: Date())
+            #expect(vivos.count == 1, "una sola liquidación materializada")
+        }
+    }
+
     @Test func confirmarSoloContraparteYCuentaSaldos() async throws {
         try await conBD { repo, tripId in
             let s = Settlement(settlementId: "s2", tripId: tripId, from: ivan, to: ana,
