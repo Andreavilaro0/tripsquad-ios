@@ -371,6 +371,8 @@ private struct RepoNoMiembroQueLanzaEnGastos: GastoRepositorio, Membresia, Settl
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag? { throw Boom() }
     func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
     func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
+    func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] { throw Boom() }
+    func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int { throw Boom() }
     func crear(_ settlement: Settlement) async throws -> ResultadoSettle { throw Boom() }
     func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
                       por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion { throw Boom() }

@@ -210,6 +210,48 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
         try await gastos(de: tripId).first { $0.gasto.id == id }
     }
 
+    // MARK: - Historial (p4b) + RGPD (o1v)
+
+    /// Historial append-only de un gasto (ADR-0015 §15, bead p4b). El JOIN con
+    /// `expenses` filtra por `trip_id` EN LA QUERY (defensa en profundidad, mismo
+    /// criterio que `estadoDeExistente`): `expense_id` es una PK GLOBAL de
+    /// cliente, así que sin el filtro un `expenseId` de OTRO viaje filtraría su
+    /// historial entre viajes.
+    public func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] {
+        let rows = try await client.query("""
+            SELECT r.id, r.expense_id, r.edited_by, r.edited_at, r.field, r.old_value::text, r.new_value::text
+            FROM expense_revisions r
+            JOIN expenses e ON e.id = r.expense_id
+            WHERE r.expense_id = \(expenseId) AND e.trip_id = \(tripId)
+            ORDER BY r.edited_at, r.id
+            LIMIT \(limit)
+            """, logger: logger)
+        var out: [RevisionGasto] = []
+        for try await (id, eid, editedBy, editedAt, field, oldValue, newValue)
+            in rows.decode((Int64, String, String, Date, String, String?, String?).self) {
+            out.append(RevisionGasto(id: id, expenseId: eid, editedBy: MiembroId(editedBy), editedAt: editedAt,
+                                     field: field, oldValue: oldValue, newValue: newValue))
+        }
+        return out
+    }
+
+    /// Derecho al olvido RGPD (bead o1v, DECISIÓN de Andrea 2026-07-27, ADR-0027 —
+    /// enmienda a ADR-0015 §15 / ADR-0013): HARD-DELETE selectivo por autor,
+    /// GLOBAL (no filtra por `trip_id`: el derecho al olvido es de la CUENTA, no
+    /// de un viaje). NO toca `expenses`: el gasto puede ser de OTRO dueño, y
+    /// borrar el rastro de texto de ESTE autor no debe destruir el gasto de
+    /// quien lo pagó. Ni `UPDATE` ni crypto-shredding: `DELETE` literal, la
+    /// EXCEPCIÓN documentada al append-only de ADR-0015 §15.
+    public func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int {
+        let rows = try await client.query("""
+            DELETE FROM expense_revisions WHERE edited_by = \(userId.raw)
+            RETURNING id
+            """, logger: logger)
+        var n = 0
+        for try await _ in rows.decode(Int64.self) { n += 1 }
+        return n
+    }
+
     // MARK: - Helpers (dentro de la conexión de la transacción)
 
     /// Resultado de reclamar la clave de idempotencia (patrón Brandur, ADR-0012 §2).

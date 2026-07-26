@@ -74,6 +74,31 @@ public struct CasosDeUsoGastos: Sendable {
         return try await repo.eliminar(id: c.gastoId, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
     }
 
+    /// Historial append-only de un gasto (bead p4b, ADR-0015 §15). Autorización =
+    /// `is_member(trip_id)` — CUALQUIER miembro ve el historial, la misma función
+    /// única de ADR-0013 §4 que el resto del módulo (sin candados de permiso,
+    /// coherente con "todos editan"). `limit` se clampa a [1, 200] (mismo patrón
+    /// que chat/settle), default 50.
+    public func revisiones(gastoId: String, tripId: String, actor: MiembroId, limit: Int = 50) async throws -> Result<[RevisionGasto], ErrorGasto> {
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
+        // `expenseId` inexistente o de OTRO viaje -> el MISMO `.noAutorizado` (sin
+        // fuga de existencia, mismo criterio que `CasosDeUsoItinerario.detalle`).
+        guard try await repo.gasto(id: gastoId, en: tripId) != nil else { return .failure(.noAutorizado) }
+        let limiteClamp = min(max(limit, 1), 200)
+        return .success(try await repo.revisiones(deGasto: gastoId, en: tripId, limit: limiteClamp))
+    }
+
+    /// Derecho al olvido RGPD (bead o1v, DECISIÓN de Andrea 2026-07-27, ADR-0027):
+    /// borra las revisiones de un autor, GLOBAL (todas sus ediciones en todos los
+    /// viajes) — hard-delete, no crypto-shredding. Es un flujo ADMINISTRATIVO de
+    /// borrado de cuenta, no una acción de un miembro sobre un viaje concreto: no
+    /// lleva gate de `esMiembro` (quien ejerce su propio derecho al olvido puede ya
+    /// no ser miembro de ningún viaje, y el flujo de borrado de cuenta no conoce un
+    /// `tripId` sobre el que autorizar). Devuelve cuántas filas borró.
+    public func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int {
+        try await repo.olvidarRevisionesDe(userId)
+    }
+
     /// Construye el Gasto (.exacto) desde un recibo itemizado y delega en `crear`
     /// (replay + auth + validación + persistencia, ADR-0011 momento mágico #2). El
     /// importe se DERIVA del reparto (suma segura), no de un total externo a reconciliar.

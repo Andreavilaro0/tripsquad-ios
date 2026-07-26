@@ -63,6 +63,24 @@ public protocol GastoRepositorio: Sendable {
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag?
     func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
     func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
+
+    /// Historial append-only de un gasto (ADR-0015 §15, bead p4b): quién, cuándo,
+    /// qué campo cambió. Orden cronológico estable (`edited_at`, `id` de
+    /// desempate). `limit` llega YA clampado desde el caso de uso (patrón chat).
+    /// El `tripId` filtra a nivel de query (join con `expenses`): `expense_id` es
+    /// una PK GLOBAL de cliente, así que sin el filtro un `expenseId` de OTRO
+    /// viaje filtraría su historial entre viajes (misma fuga que
+    /// `estadoDeExistente` ya corrigió para `guardar`).
+    func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto]
+
+    /// Derecho al olvido RGPD (bead o1v, DECISIÓN de Andrea 2026-07-27, ADR-0027 —
+    /// enmienda a ADR-0015 §15 / ADR-0013): HARD-DELETE selectivo de
+    /// `expense_revisions` por autor (`edited_by`), **NO** crypto-shredding. Borra
+    /// el rastro de texto libre de ESE actor sin tocar los gastos que edita (son
+    /// de OTRO dueño) ni las revisiones de otros autores. **GLOBAL**: no se scopa
+    /// por `tripId` — el derecho al olvido es de la CUENTA, no de un viaje.
+    /// Devuelve cuántas filas borró (auditoría/test).
+    func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int
 }
 
 /// Puerto de autorización: ¿este miembro pertenece al viaje? Una sola fuente de

@@ -165,6 +165,90 @@ struct CasosDeUsoTests {
         #expect(await repo.gastos(de: trip).isEmpty, "el tombstone no debe resucitar")
     }
 
+    // MARK: - Historial de ediciones (p4b) + RGPD (o1v)
+
+    /// Editar registra una revisión (ADR-0015 §15): el historial no está vacío
+    /// tras un `editar`, y `edited_by` es el ACTOR que editó (no el pagador).
+    @Test func editarRegistraRevision() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        _ = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1"))
+        let etag = try #require(await repo.gasto(id: "g1", en: trip)).etag
+        _ = try await casos.editar(.init(tripId: trip, gasto: gasto("g1", importe: 5000),
+                                         actor: ivan, ifMatch: etag, idempotencyKey: "k2"))
+        let r = try await casos.revisiones(gastoId: "g1", tripId: trip, actor: ana)
+        guard case .success(let revisiones) = r else { Issue.record("esperaba success"); return }
+        #expect(revisiones.count == 1)
+        #expect(revisiones.first?.editedBy == ivan)
+    }
+
+    /// Crear NO registra revisión (el historial es de EDICIONES, ADR-0015 §15) —
+    /// solo `editar` escribe en `expense_revisions`.
+    @Test func crearNoRegistraRevision() async throws {
+        let (casos, _) = await nuevoEntorno()
+        _ = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1"))
+        let r = try await casos.revisiones(gastoId: "g1", tripId: trip, actor: ana)
+        guard case .success(let revisiones) = r else { Issue.record("esperaba success"); return }
+        #expect(revisiones.isEmpty)
+    }
+
+    /// Cualquier miembro ve el historial (autorización = is_member, ADR-0013 §4),
+    /// no hace falta ser el autor de la edición.
+    @Test func cualquierMiembroLeeElHistorial() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        _ = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1"))
+        let etag = try #require(await repo.gasto(id: "g1", en: trip)).etag
+        _ = try await casos.editar(.init(tripId: trip, gasto: gasto("g1", importe: 5000),
+                                         actor: ana, ifMatch: etag, idempotencyKey: "k2"))
+        // Iván no editó nada, pero SÍ puede leer el historial (es miembro).
+        let r = try await casos.revisiones(gastoId: "g1", tripId: trip, actor: ivan)
+        guard case .success(let revisiones) = r else { Issue.record("esperaba success"); return }
+        #expect(revisiones.count == 1)
+    }
+
+    /// No-miembro: `.noAutorizado`, sin fuga (mismo criterio que crear/editar).
+    @Test func noMiembroNoLeeElHistorial() async throws {
+        let (casos, _) = await nuevoEntorno()
+        _ = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1"))
+        let r = try await casos.revisiones(gastoId: "g1", tripId: trip, actor: sara)
+        #expect(r == .failure(.noAutorizado))
+    }
+
+    /// `expenseId` inexistente (o de otro viaje): el MISMO `.noAutorizado`, sin
+    /// fuga de existencia (mismo criterio que `CasosDeUsoItinerario.detalle`).
+    @Test func gastoInexistenteDaNoAutorizado() async throws {
+        let (casos, _) = await nuevoEntorno()
+        let r = try await casos.revisiones(gastoId: "no-existe", tripId: trip, actor: ana)
+        #expect(r == .failure(.noAutorizado))
+    }
+
+    /// RGPD (bead o1v, DECISIÓN de Andrea 2026-07-27): el derecho al olvido borra
+    /// SOLO las revisiones del autor que lo ejerce; el gasto (de OTRO dueño) y las
+    /// revisiones de OTROS autores sobreviven intactos.
+    @Test func olvidarRevisionesBorraSoloLasDelAutor() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        _ = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1"))
+        var etag = try #require(await repo.gasto(id: "g1", en: trip)).etag
+        // Marta (aquí "ivan") edita la descripción de un gasto de Ana.
+        _ = try await casos.editar(.init(tripId: trip, gasto: gasto("g1", importe: 4000),
+                                         actor: ivan, ifMatch: etag, idempotencyKey: "k2"))
+        etag = try #require(await repo.gasto(id: "g1", en: trip)).etag
+        // Ana también edita (una revisión suya propia).
+        _ = try await casos.editar(.init(tripId: trip, gasto: gasto("g1", importe: 4500),
+                                         actor: ana, ifMatch: etag, idempotencyKey: "k3"))
+
+        let borradas = try await casos.olvidarRevisionesDe(ivan)
+        #expect(borradas == 1)
+
+        let r = try await casos.revisiones(gastoId: "g1", tripId: trip, actor: ana)
+        guard case .success(let revisiones) = r else { Issue.record("esperaba success"); return }
+        #expect(revisiones.count == 1)
+        #expect(revisiones.allSatisfy { $0.editedBy == ana })
+
+        // El gasto de Ana sigue intacto: el olvido de Iván no lo tocó.
+        let gastoSuperviviente = await repo.gasto(id: "g1", en: trip)
+        #expect(gastoSuperviviente != nil)
+    }
+
     /// (Codex P2) La clave de idempotencia se scopa por actor: dos usuarios con la
     /// misma clave determinista NO colisionan.
     @Test func claveIdempotenciaScopadaPorActor() async throws {

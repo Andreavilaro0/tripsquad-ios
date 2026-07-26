@@ -204,4 +204,99 @@ struct RepositorioPostgresTests {
             #expect(shares.isEmpty, "las shares del reparto exacto deberían haberse limpiado")
         }
     }
+
+    // MARK: - Historial de ediciones (p4b) + RGPD (o1v, ADR-0027)
+
+    /// Editar deja una revisión (ADR-0015 §15) con `editedBy` = quien EDITÓ, no
+    /// quien pagó — mismo escenario que `CasosDeUsoTests.editarRegistraRevision`,
+    /// ahora contra Postgres real.
+    @Test func editarDejaRevisionConEditedByCorrecto() async throws {
+        try await conRepo { repo, trip in
+            let id = nuevoId()
+            _ = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: "\(id)-k1")
+            let etag = try #require(await repo.gasto(id: id, en: trip)).etag
+            _ = try await repo.actualizar(gasto(id, importe: 5000), en: trip, por: ivan, ifMatch: etag, idempotencyKey: "\(id)-k2")
+
+            let revisiones = try await repo.revisiones(deGasto: id, en: trip, limit: 50)
+            #expect(revisiones.count == 1)
+            #expect(revisiones.first?.editedBy == ivan)
+        }
+    }
+
+    /// FUGA ENTRE VIAJES: un `expenseId` de OTRO viaje no debe filtrar su
+    /// historial — el JOIN con `expenses` filtra por `trip_id` (mismo criterio
+    /// que `idDeOtroViajeNoFiltraDatosAjenos`).
+    @Test func revisionesNoFiltranEntreViajes() async throws {
+        let host = ProcessInfo.processInfo.environment["PG_TEST_HOST"] ?? "localhost"
+        let config = PostgresClient.Configuration(
+            host: host, port: 5432, username: "postgres", password: "postgres",
+            database: "tripsquad", tls: .disable)
+        let client = PostgresClient(configuration: config)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { await client.run() }
+            let repo = RepositorioPostgres(client: client)
+            let tripA = "trip-" + UUID().uuidString.prefix(8)
+            let tripB = "trip-" + UUID().uuidString.prefix(8)
+            for t in [tripA, tripB] {
+                try await client.query("INSERT INTO trips (id, currency_reference) VALUES (\(t), 'EUR')")
+                try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(t), \(ana.raw))")
+                try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(t), \(ivan.raw))")
+            }
+            let id = nuevoId()
+            _ = try await repo.guardar(gasto(id), en: tripA, por: ana, idempotencyKey: "\(id)-k1")
+            let etag = try #require(await repo.gasto(id: id, en: tripA)).etag
+            _ = try await repo.actualizar(gasto(id, importe: 5000), en: tripA, por: ana, ifMatch: etag, idempotencyKey: "\(id)-k2")
+
+            // Mismo expenseId, pero consultado desde tripB: NO debe ver el historial de A.
+            let revisionesDesdeB = try await repo.revisiones(deGasto: id, en: tripB, limit: 50)
+            #expect(revisionesDesdeB.isEmpty, "el historial de un gasto de OTRO viaje no debe filtrarse")
+            let revisionesDesdeA = try await repo.revisiones(deGasto: id, en: tripA, limit: 50)
+            #expect(revisionesDesdeA.count == 1)
+            group.cancelAll()
+        }
+    }
+
+    /// RGPD (bead o1v, ADR-0027, DECISIÓN de Andrea 2026-07-27): hard-delete
+    /// GLOBAL por `edited_by`. Borra SOLO las revisiones del autor que ejerce el
+    /// derecho al olvido; el gasto (de OTRO dueño) y las revisiones de otros
+    /// autores sobreviven — el hallazgo de Gemini que motivó este ADR.
+    ///
+    /// El "autor que olvida" usa un `MiembroId` ÚNICO por ejecución (no `ivan`,
+    /// compartido por toda la suite): `olvidarRevisionesDe` es GLOBAL a
+    /// propósito (borra en TODOS los viajes), así que reusar un actor común
+    /// recogería revisiones de OTROS tests de esta misma suite — falso
+    /// positivo/negativo por contaminación cruzada entre tests, no un bug del
+    /// repo. `edited_by` no tiene FK a `trip_members`: el repo no valida
+    /// membresía (eso es del caso de uso), así que un id "no-miembro" es válido
+    /// aquí.
+    @Test func olvidarRevisionesDeBorraSoloLasDelAutorGlobalmente() async throws {
+        try await conRepo { repo, trip in
+            let autorQueOlvida = MiembroId("olvido-" + UUID().uuidString)
+            let id1 = nuevoId()
+            let id2 = nuevoId()
+            _ = try await repo.guardar(gasto(id1), en: trip, por: ana, idempotencyKey: "\(id1)-k1")
+            _ = try await repo.guardar(gasto(id2), en: trip, por: ana, idempotencyKey: "\(id2)-k1")
+            let etag1 = try #require(await repo.gasto(id: id1, en: trip)).etag
+            let etag2 = try #require(await repo.gasto(id: id2, en: trip)).etag
+            // `autorQueOlvida` edita AMBOS gastos de Ana (dos revisiones suyas, en dos gastos).
+            _ = try await repo.actualizar(gasto(id1, importe: 4000), en: trip, por: autorQueOlvida, ifMatch: etag1, idempotencyKey: "\(id1)-k2")
+            _ = try await repo.actualizar(gasto(id2, importe: 4000), en: trip, por: autorQueOlvida, ifMatch: etag2, idempotencyKey: "\(id2)-k2")
+            // Ana también edita el primero (revisión suya propia).
+            let etag1b = try #require(await repo.gasto(id: id1, en: trip)).etag
+            _ = try await repo.actualizar(gasto(id1, importe: 4500), en: trip, por: ana, ifMatch: etag1b, idempotencyKey: "\(id1)-k3")
+
+            let borradas = try await repo.olvidarRevisionesDe(autorQueOlvida)
+            #expect(borradas == 2)
+
+            let revisionesId1 = try await repo.revisiones(deGasto: id1, en: trip, limit: 50)
+            #expect(revisionesId1.count == 1)
+            #expect(revisionesId1.allSatisfy { $0.editedBy == ana })
+            let revisionesId2 = try await repo.revisiones(deGasto: id2, en: trip, limit: 50)
+            #expect(revisionesId2.isEmpty)
+
+            // Los gastos de Ana (el dueño) siguen intactos: el olvido de `autorQueOlvida` no los tocó.
+            #expect(try await repo.gasto(id: id1, en: trip) != nil)
+            #expect(try await repo.gasto(id: id2, en: trip) != nil)
+        }
+    }
 }

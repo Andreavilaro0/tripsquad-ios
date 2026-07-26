@@ -7,6 +7,38 @@ import HTTPTypes
 import TripSquadDomain
 import TripSquadExpenses
 
+// MARK: - DTOs de salida del historial (Encodable) — SIEMPRE con JSONEncoder.
+
+private struct RevisionDTO: Encodable {
+    let id: Int64
+    let editedBy: String
+    let editedAt: Date
+    let field: String
+    let oldValue: String?
+    let newValue: String?
+}
+
+private struct RevisionesListDTO: Encodable { let revisions: [RevisionDTO] }
+
+private func dtoRevisionDe(_ r: RevisionGasto) -> RevisionDTO {
+    RevisionDTO(id: r.id, editedBy: r.editedBy.raw, editedAt: r.editedAt, field: r.field,
+                oldValue: r.oldValue, newValue: r.newValue)
+}
+
+/// Fechas en ISO-8601 (mismo criterio que ChatRoutes/ViajeRoutes: el default de
+/// JSONEncoder las serializa como epoch-double, poco útil para un cliente HTTP).
+private let jsonEncoderGastos: JSONEncoder = {
+    let e = JSONEncoder()
+    e.dateEncodingStrategy = .iso8601
+    return e
+}()
+
+private func respuestaJSONGastos<T: Encodable>(_ status: HTTPResponse.Status, _ valor: T) throws -> Response {
+    let data = try jsonEncoderGastos.encode(valor)
+    return Response(status: status, headers: [.contentType: "application/json"],
+                     body: .init(byteBuffer: ByteBuffer(bytes: data)))
+}
+
 func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
 
     // POST /trips/:tripId/expenses — crear
@@ -58,6 +90,35 @@ func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
         let id = try ctx.parameters.require("id")
         let r = try await deps.casos.eliminar(.init(tripId: tripId, gastoId: id, actor: actor, ifMatch: etag, idempotencyKey: key))
         return respuestaDirecta(r)
+    }
+
+    // GET /trips/:tripId/expenses/:id/revisions?limit= — historial de ediciones
+    // append-only (bead p4b, ADR-0015 §15). Autorización = is_member(trip_id):
+    // CUALQUIER miembro ve el historial de CUALQUIER gasto (misma función única
+    // de ADR-0013 §4, coherente con "todos editan"), no hace falta ser el autor
+    // ni el owner del viaje. `limit` ausente o no parseable cae al default del
+    // caso de uso (50); el clamp [1,200] lo hace `CasosDeUsoGastos.revisiones`,
+    // no esta ruta (mismo criterio que ChatRoutes/ItinerarioRoutes).
+    router.get("trips/:tripId/expenses/:id/revisions") { req, ctx -> Response in
+        let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
+        let tripId = try ctx.parameters.require("tripId")
+        let id = try ctx.parameters.require("id")
+        let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
+        switch try await deps.casos.revisiones(gastoId: id, tripId: tripId, actor: actor, limit: limit) {
+        case .success(let revisiones):
+            return try respuestaJSONGastos(.ok, RevisionesListDTO(revisions: revisiones.map(dtoRevisionDe)))
+        case .failure(let error):
+            return respuestaErrorGasto(error)
+        }
+    }
+}
+
+// MARK: - Mapeo ErrorGasto -> HTTP (ruta de historial)
+
+private func respuestaErrorGasto(_ error: ErrorGasto) -> Response {
+    switch error {
+    case .noAutorizado:
+        return errorJSON(.forbidden, "not_member")
     }
 }
 
