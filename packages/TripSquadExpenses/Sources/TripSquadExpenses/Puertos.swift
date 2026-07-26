@@ -190,19 +190,40 @@ public protocol VotacionRepositorio: Sendable {
     func cerrar(pollId: String, en tripId: String, ahora: Date) async throws
 }
 
-/// Puerto de persistencia de itinerario (M5, ADR-0020 borrador). Firma
-/// copiada literal de `docs/design/itinerario-scope-y-plan.md`. `listar`
-/// devuelve las actividades ordenadas por `(day, orderIndex)` — el cliente
-/// ordena además por `startTime` (plan §4), fuera del alcance del dominio.
+/// Resultado de `ItinerarioRepositorio.actualizar` (bead 201): el UPDATE es
+/// condicional por etag (mismo patrón atómico que `RepositorioPostgres.
+/// actualizar` de gastos — el etag va en el WHERE, no se lee-antes-de-escribir).
+/// `.ok` lleva la actividad actualizada con su NUEVO etag; `.conflicto` lleva
+/// el etag SERVIDOR actual (para que el cliente pueda reintentar con el
+/// If-Match correcto); `.noEncontrado` cubre borrada/otro tripId.
+public enum ResultadoEscrituraItinerario: Equatable, Sendable {
+    case ok(ActividadConEtag)
+    case conflicto(serverEtag: String)
+    case noEncontrado
+}
+
+/// Puerto de persistencia de itinerario (M5, ADR-0020 borrador, enmendado por
+/// el bead 201 con ETag/If-Match). Firma base copiada de
+/// `docs/design/itinerario-scope-y-plan.md`. `listar` devuelve las
+/// actividades ordenadas por `(day, orderIndex)` — el cliente ordena además
+/// por `startTime` (plan §4), fuera del alcance del dominio.
 public protocol ItinerarioRepositorio: Sendable {
-    func crear(_ a: ActividadItinerario, ahora: Date) async throws
+    /// Devuelve la actividad creada con su etag inicial (bead 201): el
+    /// dominio no lo lleva, lo asigna el repositorio en cada escritura.
+    func crear(_ a: ActividadItinerario, ahora: Date) async throws -> ActividadConEtag
     /// `(day, orderIndex, id)`: el `id` es el desempate que faltaba — dos
     /// actividades del mismo día con el mismo `orderIndex` salían en orden
     /// arbitrario (distinto en cada consulta de Postgres), y sin orden total la
     /// paginación no significa nada. `limit` llega YA clampado del caso de uso.
-    func listar(_ tripId: String, limit: Int) async throws -> [ActividadItinerario]
+    func listar(_ tripId: String, limit: Int) async throws -> [ActividadConEtag]
+    /// Lectura "cruda" sin etag: la usan `CasosDeUsoItinerario`/
+    /// `CasosDeUsoReserva` solo para autorización (createdBy) y para el merge
+    /// parcial del PATCH — ninguno de los dos necesita el etag.
     func item(id: String, en tripId: String) async throws -> ActividadItinerario?
-    func actualizar(_ a: ActividadItinerario, ahora: Date) async throws
+    /// UPDATE condicional ATÓMICO por etag (bead 201, mismo patrón que
+    /// `GastoRepositorio.actualizar`): dos ediciones concurrentes con el mismo
+    /// `If-Match` no se pisan — solo una encuentra la fila con ese etag.
+    func actualizar(_ a: ActividadItinerario, ifMatch etag: String, ahora: Date) async throws -> ResultadoEscrituraItinerario
     func borrar(id: String, en tripId: String) async throws
 }
 

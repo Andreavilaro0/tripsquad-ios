@@ -1,5 +1,6 @@
-// Tests de los endpoints HTTP de itinerario (M5, ADR-0020 borrador) contra el
-// adaptador EN MEMORIA. El foco es la AUTORIZACIÓN — mismo espíritu que
+// Tests de los endpoints HTTP de itinerario (M5, ADR-0020 borrador; ETag/
+// If-Match bead 201) contra el adaptador EN MEMORIA. El foco es la
+// AUTORIZACIÓN y el control de concurrencia optimista — mismo espíritu que
 // VotacionRoutesTests, cruzando la frontera HTTP real (JWT firmado de verdad,
 // router real, mapeo a status codes).
 //
@@ -19,7 +20,7 @@ import TripSquadDomain
 import TripSquadExpenses
 @testable import TripSquadServiceCore
 
-@Suite("Endpoints HTTP de itinerario (M5, ADR-0020 borrador)")
+@Suite("Endpoints HTTP de itinerario (M5, ADR-0020 borrador; ETag bead 201)")
 struct ItinerarioRoutesTests {
     let trip = "trip-1"
     static let clave = ClaveDePrueba(kid: "test")
@@ -56,11 +57,19 @@ struct ItinerarioRoutesTests {
         return String(rest.prefix(while: { $0 != "\"" }))
     }
 
-    // 1. POST crear por miembro -> 201; GET listar por miembro -> 200 con el item.
+    /// Extrae crudamente el `"etag":"..."` del body (bead 201, mismo truco que `idDe`).
+    func etagDe(_ body: String) -> String {
+        guard let r = body.range(of: #""etag":""#) else { return "" }
+        let rest = body[r.upperBound...]
+        return String(rest.prefix(while: { $0 != "\"" }))
+    }
+
+    // 1. POST crear por miembro -> 201 con etag; GET listar por miembro -> 200 con el item y su etag.
     @Test func crearYListarPorMiembro() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
             var itemId = ""
+            var etag = ""
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
                 headers: [.authorization: try await bearer("ana")], body: crearItemJSON()
@@ -70,6 +79,10 @@ struct ItinerarioRoutesTests {
                 #expect(body.contains("\"title\":\"Coliseo\""))
                 #expect(body.contains("\"day\":\"2026-08-02\""))
                 itemId = idDe(body)
+                etag = etagDe(body)
+                // El etag va en el body Y en la cabecera (bead 201, mismo criterio que gastos).
+                #expect(!etag.isEmpty)
+                #expect(res.headers[HTTPField.Name("etag")!] == etag)
             }
             #expect(!itemId.isEmpty)
 
@@ -78,7 +91,10 @@ struct ItinerarioRoutesTests {
                 headers: [.authorization: try await bearer("ivan")]
             ) { res in
                 #expect(res.status == .ok)
-                #expect(String(buffer: res.body).contains(itemId))
+                let body = String(buffer: res.body)
+                #expect(body.contains(itemId))
+                // GET también expone el etag del item (bead 201).
+                #expect(body.contains(#""etag":"\#(etag)""#))
             }
         }
     }
@@ -103,8 +119,42 @@ struct ItinerarioRoutesTests {
         }
     }
 
-    // 3. Editar por el creador -> 200 con los campos actualizados.
+    // 3. Editar por el creador con If-Match correcto -> 200 con los campos actualizados
+    // y un etag NUEVO (bead 201).
     @Test func editarPorCreadorOK() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            var itemId = ""
+            var etag = ""
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary", method: .post,
+                headers: [.authorization: try await bearer("ana")], body: crearItemJSON()
+            ) { res in
+                let body = String(buffer: res.body)
+                itemId = idDe(body)
+                etag = etagDe(body)
+            }
+
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary/\(itemId)", method: .patch,
+                headers: [.authorization: try await bearer("ana"), .ifMatch: etag],
+                body: ByteBuffer(string: #"{"title":"Coliseo (cambiado)"}"#)
+            ) { res in
+                #expect(res.status == .ok)
+                let body = String(buffer: res.body)
+                #expect(body.contains("\"title\":\"Coliseo (cambiado)\""))
+                // PATCH parcial: day no enviado, conserva el valor original.
+                #expect(body.contains("\"day\":\"2026-08-02\""))
+                let nuevoEtag = etagDe(body)
+                #expect(!nuevoEtag.isEmpty)
+                #expect(nuevoEtag != etag)
+                #expect(res.headers[HTTPField.Name("etag")!] == nuevoEtag)
+            }
+        }
+    }
+
+    // 3b. PATCH sin If-Match -> 428 (bead 201, mismo criterio que gastos).
+    @Test func editarSinIfMatch428() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
             var itemId = ""
@@ -116,13 +166,58 @@ struct ItinerarioRoutesTests {
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary/\(itemId)", method: .patch,
                 headers: [.authorization: try await bearer("ana")],
-                body: ByteBuffer(string: #"{"title":"Coliseo (cambiado)"}"#)
+                body: ByteBuffer(string: #"{"title":"Sin If-Match"}"#)
+            ) { res in
+                #expect(res.status.code == 428)
+                #expect(String(buffer: res.body).contains("missing_if_match"))
+            }
+        }
+    }
+
+    // 3c. PATCH con If-Match viejo (otra edición ya pasó) -> 412 con la cabecera etag
+    // del SERVIDOR (bead 201, corazón de este bead: sin esto, la 2ª edición pisaba la
+    // 1ª en silencio).
+    @Test func editarConIfMatchViejoEsConflicto412() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            var itemId = ""
+            var etagOriginal = ""
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary", method: .post,
+                headers: [.authorization: try await bearer("ana")], body: crearItemJSON()
+            ) { res in
+                let body = String(buffer: res.body)
+                itemId = idDe(body)
+                etagOriginal = etagDe(body)
+            }
+
+            var etagTrasPrimeraEdicion = ""
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary/\(itemId)", method: .patch,
+                headers: [.authorization: try await bearer("ana"), .ifMatch: etagOriginal],
+                body: ByteBuffer(string: #"{"title":"Primera edición"}"#)
             ) { res in
                 #expect(res.status == .ok)
-                let body = String(buffer: res.body)
-                #expect(body.contains("\"title\":\"Coliseo (cambiado)\""))
-                // PATCH parcial: day no enviado, conserva el valor original.
-                #expect(body.contains("\"day\":\"2026-08-02\""))
+                etagTrasPrimeraEdicion = etagDe(String(buffer: res.body))
+            }
+
+            // Reintento con el etag VIEJO (el de la creación, ya obsoleto) -> 412.
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary/\(itemId)", method: .patch,
+                headers: [.authorization: try await bearer("ana"), .ifMatch: etagOriginal],
+                body: ByteBuffer(string: #"{"title":"Segunda edición (perdedora)"}"#)
+            ) { res in
+                #expect(res.status.code == 412)
+                #expect(String(buffer: res.body).contains("conflict"))
+                #expect(res.headers[HTTPField.Name("etag")!] == etagTrasPrimeraEdicion)
+            }
+
+            // La edición perdedora NO se aplicó: el título sigue siendo el de la 1ª.
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                #expect(String(buffer: res.body).contains("\"title\":\"Primera edición\""))
             }
         }
     }
@@ -153,7 +248,8 @@ struct ItinerarioRoutesTests {
         }
     }
 
-    // 5. Editar/borrar por otro miembro (ni creador ni owner) -> 403.
+    // 5. Editar/borrar por otro miembro (ni creador ni owner) -> 403 (con If-Match
+    // presente pero irrelevante: la autorización se comprueba ANTES del etag).
     @Test func editarYBorrarPorOtroMiembro403() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
@@ -166,7 +262,7 @@ struct ItinerarioRoutesTests {
 
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary/\(itemId)", method: .patch,
-                headers: [.authorization: try await bearer("ivan")],
+                headers: [.authorization: try await bearer("ivan"), .ifMatch: "cualquier-etag"],
                 body: ByteBuffer(string: #"{"title":"Hackeado"}"#)
             ) { res in
                 #expect(res.status == .forbidden)
@@ -205,16 +301,21 @@ struct ItinerarioRoutesTests {
 
         try await app.test(.router) { client in
             var itemId = ""
+            var etag = ""
             // ivan (member, no owner) crea -> es el creador de la actividad.
             try await client.execute(
                 uri: "/trips/\(viaje.id)/itinerary", method: .post,
                 headers: [.authorization: try await bearer("ivan")], body: crearItemJSON()
-            ) { res in itemId = idDe(String(buffer: res.body)) }
+            ) { res in
+                let body = String(buffer: res.body)
+                itemId = idDe(body)
+                etag = etagDe(body)
+            }
 
-            // ana (owner, no creadora) SÍ puede editar.
+            // ana (owner, no creadora) SÍ puede editar, con el etag actual.
             try await client.execute(
                 uri: "/trips/\(viaje.id)/itinerary/\(itemId)", method: .patch,
-                headers: [.authorization: try await bearer("ana")],
+                headers: [.authorization: try await bearer("ana"), .ifMatch: etag],
                 body: ByteBuffer(string: #"{"title":"Editado por owner"}"#)
             ) { res in
                 #expect(res.status == .ok)
@@ -231,7 +332,7 @@ struct ItinerarioRoutesTests {
         }
     }
 
-    // 7. Editar en viaje cerrado -> 409, incluso siendo el creador.
+    // 7. Editar en viaje cerrado -> 409, incluso siendo el creador (con If-Match presente).
     @Test func editarEnViajeCerrado409() async throws {
         let repo = RepositorioEnMemoria()
         let viaje = try await repo.crearViaje(id: "t-cerrado", name: "Roma", baseCurrency: "EUR", creador: MiembroId("ana"), ahora: .now)
@@ -253,10 +354,15 @@ struct ItinerarioRoutesTests {
 
         try await app.test(.router) { client in
             var itemId = ""
+            var etag = ""
             try await client.execute(
                 uri: "/trips/\(viaje.id)/itinerary", method: .post,
                 headers: [.authorization: try await bearer("ana")], body: crearItemJSON()
-            ) { res in itemId = idDe(String(buffer: res.body)) }
+            ) { res in
+                let body = String(buffer: res.body)
+                itemId = idDe(body)
+                etag = etagDe(body)
+            }
 
             // `Membresia.viajeCerrado` (almacén `cerrados`) es un almacén DISTINTO del
             // `closedAt` de `ViajeRepositorio.cerrar` (mismo patrón que
@@ -266,7 +372,7 @@ struct ItinerarioRoutesTests {
 
             try await client.execute(
                 uri: "/trips/\(viaje.id)/itinerary/\(itemId)", method: .patch,
-                headers: [.authorization: try await bearer("ana")],
+                headers: [.authorization: try await bearer("ana"), .ifMatch: etag],
                 body: ByteBuffer(string: #"{"title":"No debería poder"}"#)
             ) { res in
                 #expect(res.status.code == 409)
@@ -363,21 +469,24 @@ struct ItinerarioRoutesTests {
     @Test func patchFuncionaSobreUnaActividadFueraDeLaPrimeraPagina() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
-            var ids: [String] = []
+            var idsYEtags: [(id: String, etag: String)] = []
             for titulo in ["Coliseo", "Foro", "Vaticano"] {
                 try await client.execute(
                     uri: "/trips/\(trip)/itinerary", method: .post,
                     headers: [.authorization: try await bearer("ana")],
                     body: crearItemJSON(title: titulo)
-                ) { res in ids.append(idDe(String(buffer: res.body))) }
+                ) { res in
+                    let body = String(buffer: res.body)
+                    idsYEtags.append((id: idDe(body), etag: etagDe(body)))
+                }
             }
             // La última por orden (day, orderIndex, id) — desempate por id, todas
             // comparten day y orderIndex.
-            let ultima = ids.sorted().last ?? ""
+            let ultima = idsYEtags.sorted { $0.id < $1.id }.last ?? (id: "", etag: "")
 
             try await client.execute(
-                uri: "/trips/\(trip)/itinerary/\(ultima)", method: .patch,
-                headers: [.authorization: try await bearer("ana")],
+                uri: "/trips/\(trip)/itinerary/\(ultima.id)", method: .patch,
+                headers: [.authorization: try await bearer("ana"), .ifMatch: ultima.etag],
                 body: ByteBuffer(string: #"{"title":"Renombrada"}"#)
             ) { res in
                 #expect(res.status == .ok)

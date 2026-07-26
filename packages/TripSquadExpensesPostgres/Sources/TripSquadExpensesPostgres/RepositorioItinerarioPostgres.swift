@@ -1,9 +1,12 @@
 // Adaptador Postgres de ItinerarioRepositorio (M5, ADR-0020 borrador —
-// docs/design/itinerario-scope-y-plan.md). Mapea contra la migración 0005
-// (itinerary_items). Mismo patrón que RepositorioVotacionPostgres.swift:
-// client.query con binds interpolados = seguros; sin transacción porque cada
-// operación es una única sentencia (no hay lectura-antes-de-escribir que
-// proteger de TOCTOU, a diferencia de `votar`).
+// docs/design/itinerario-scope-y-plan.md; ETag/If-Match añadido por el bead
+// 201, migración 0010). Mapea contra la migración 0005 (itinerary_items).
+// Mismo patrón que RepositorioVotacionPostgres.swift: client.query con binds
+// interpolados = seguros; sin transacción porque cada operación es una única
+// sentencia (`actualizar` no necesita transacción explícita: el UPDATE
+// condicional por etag en el WHERE es atómico por sí mismo — mismo patrón que
+// `RepositorioPostgres.actualizar` de gastos — no hay lectura-antes-de-escribir
+// que proteger de TOCTOU).
 //
 // Decisión sobre `day` (columna `date`, dominio la modela como String
 // 'YYYY-MM-DD', plan §Contrato de dominio): PostgresNIO decodificaría una
@@ -28,14 +31,16 @@ extension RepositorioPostgres: ItinerarioRepositorio {
 
     // MARK: - Crear
 
-    public func crear(_ a: ActividadItinerario, ahora: Date) async throws {
+    public func crear(_ a: ActividadItinerario, ahora: Date) async throws -> ActividadConEtag {
+        let etag = UUID().uuidString
         _ = try await client.query("""
             INSERT INTO itinerary_items
-                (id, trip_id, title, day, start_time, location, notes, order_index, created_by, created_at, updated_at)
+                (id, trip_id, title, day, start_time, location, notes, order_index, created_by, etag, created_at, updated_at)
             VALUES
                 (\(a.id), \(a.tripId), \(a.title), \(a.day)::date, \(a.startTime), \(a.location), \(a.notes),
-                 \(a.orderIndex), \(a.createdBy.raw), \(ahora), \(ahora))
+                 \(a.orderIndex), \(a.createdBy.raw), \(etag), \(ahora), \(ahora))
             """, logger: logger)
+        return ActividadConEtag(actividad: a, etag: etag)
     }
 
     // MARK: - Leer
@@ -46,24 +51,26 @@ extension RepositorioPostgres: ItinerarioRepositorio {
     /// dos actividades del mismo día con el mismo índice), y con un orden no total el
     /// `LIMIT` puede devolver un subconjunto distinto en cada consulta.
     /// `limit` llega ya clampado de `CasosDeUsoItinerario.listar`.
-    public func listar(_ tripId: String, limit: Int) async throws -> [ActividadItinerario] {
+    public func listar(_ tripId: String, limit: Int) async throws -> [ActividadConEtag] {
         let rows = try await client.query("""
-            SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by
+            SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by, etag
             FROM itinerary_items
             WHERE trip_id = \(tripId)
             ORDER BY day, order_index, id
             LIMIT \(limit)
             """, logger: logger)
-        var out: [ActividadItinerario] = []
-        for try await (id, tripId, title, day, startTime, location, notes, orderIndex, createdBy)
-            in rows.decode((String, String, String, String, String?, String?, String?, Int, String).self) {
-            out.append(ActividadItinerario(
+        var out: [ActividadConEtag] = []
+        for try await (id, tripId, title, day, startTime, location, notes, orderIndex, createdBy, etag)
+            in rows.decode((String, String, String, String, String?, String?, String?, Int, String, String).self) {
+            let actividad = ActividadItinerario(
                 id: id, tripId: tripId, title: title, day: day, startTime: startTime,
-                location: location, notes: notes, orderIndex: orderIndex, createdBy: MiembroId(createdBy)))
+                location: location, notes: notes, orderIndex: orderIndex, createdBy: MiembroId(createdBy))
+            out.append(ActividadConEtag(actividad: actividad, etag: etag))
         }
         return out
     }
 
+    /// Lectura "cruda" sin etag (autorización/merge parcial, ver el puerto).
     public func item(id: String, en tripId: String) async throws -> ActividadItinerario? {
         let rows = try await client.query("""
             SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by
@@ -81,13 +88,39 @@ extension RepositorioPostgres: ItinerarioRepositorio {
 
     // MARK: - Actualizar / borrar
 
-    public func actualizar(_ a: ActividadItinerario, ahora: Date) async throws {
-        _ = try await client.query("""
+    /// UPDATE condicional ATÓMICO por etag (bead 201, mismo patrón que
+    /// `RepositorioPostgres.actualizar` de gastos): el etag va en el WHERE, así dos
+    /// PATCH concurrentes con el mismo `If-Match` no se pisan — solo uno encuentra la
+    /// fila con ese etag, el otro afecta 0 filas y se distingue not-found/conflicto
+    /// leyendo el etag actual.
+    public func actualizar(_ a: ActividadItinerario, ifMatch etag: String, ahora: Date) async throws -> ResultadoEscrituraItinerario {
+        let nuevoEtag = UUID().uuidString
+        let upd = try await client.query("""
             UPDATE itinerary_items
             SET title = \(a.title), day = \(a.day)::date, start_time = \(a.startTime),
-                location = \(a.location), notes = \(a.notes), order_index = \(a.orderIndex), updated_at = \(ahora)
-            WHERE id = \(a.id) AND trip_id = \(a.tripId)
+                location = \(a.location), notes = \(a.notes), order_index = \(a.orderIndex),
+                etag = \(nuevoEtag), updated_at = \(ahora)
+            WHERE id = \(a.id) AND trip_id = \(a.tripId) AND etag = \(etag)
+            RETURNING etag
             """, logger: logger)
+        var actualizado = false
+        for try await _ in upd.decode(String.self) { actualizado = true }
+        guard actualizado else {
+            // 0 filas: o no existe (borrada/otro trip) o el etag no coincide (conflicto).
+            if let actual = try await etagActual(id: a.id, en: a.tripId) {
+                return .conflicto(serverEtag: actual)
+            }
+            return .noEncontrado
+        }
+        return .ok(ActividadConEtag(actividad: a, etag: nuevoEtag))
+    }
+
+    private func etagActual(id: String, en tripId: String) async throws -> String? {
+        let rows = try await client.query(
+            "SELECT etag FROM itinerary_items WHERE id = \(id) AND trip_id = \(tripId)",
+            logger: logger)
+        for try await (e) in rows.decode(String.self) { return e }
+        return nil
     }
 
     public func borrar(id: String, en tripId: String) async throws {

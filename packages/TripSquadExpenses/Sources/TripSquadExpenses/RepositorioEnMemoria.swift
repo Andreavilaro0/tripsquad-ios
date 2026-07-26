@@ -50,9 +50,10 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     private var votaciones: [String: [String: Votacion]] = [:]  // tripId -> pollId -> Votacion
     private var votos: [String: [MiembroId: String]] = [:]      // pollId -> member -> choice (upsert)
 
-    // MARK: - Almacén de itinerario (M5, ADR-0020 borrador)
+    // MARK: - Almacén de itinerario (M5, ADR-0020 borrador; etag bead 201)
 
-    private var actividades: [String: [String: ActividadItinerario]] = [:]  // tripId -> itemId -> Actividad
+    private struct FilaItinerario { var actividad: ActividadItinerario; var etag: String }
+    private var actividades: [String: [String: FilaItinerario]] = [:]  // tripId -> itemId -> Fila
 
     // MARK: - Almacén de chat (M6, ADR-0021 borrador)
 
@@ -520,28 +521,37 @@ extension RepositorioEnMemoria: VotacionRepositorio {
 
 extension RepositorioEnMemoria: ItinerarioRepositorio {
 
-    public func crear(_ a: ActividadItinerario, ahora: Date) {
-        actividades[a.tripId, default: [:]][a.id] = a
+    public func crear(_ a: ActividadItinerario, ahora: Date) -> ActividadConEtag {
+        let etag = UUID().uuidString
+        actividades[a.tripId, default: [:]][a.id] = FilaItinerario(actividad: a, etag: etag)
+        return ActividadConEtag(actividad: a, etag: etag)
     }
 
     /// Ordenado por `(day, orderIndex, id)` (plan §4) — `day` es 'YYYY-MM-DD', que
     /// ordena igual como string ISO que como fecha real. El `id` es el desempate que
     /// faltaba: sin él, dos actividades del mismo día con el mismo `orderIndex`
     /// quedaban en orden arbitrario y la página nº2 podía repetir u omitir ítems.
-    public func listar(_ tripId: String, limit: Int) -> [ActividadItinerario] {
+    public func listar(_ tripId: String, limit: Int) -> [ActividadConEtag] {
         (actividades[tripId] ?? [:]).values
-            .sorted { ($0.day, $0.orderIndex, $0.id) < ($1.day, $1.orderIndex, $1.id) }
+            .sorted { ($0.actividad.day, $0.actividad.orderIndex, $0.actividad.id) < ($1.actividad.day, $1.actividad.orderIndex, $1.actividad.id) }
             .prefix(limit)
-            .map { $0 }
+            .map { ActividadConEtag(actividad: $0.actividad, etag: $0.etag) }
     }
 
     public func item(id: String, en tripId: String) -> ActividadItinerario? {
-        actividades[tripId]?[id]
+        actividades[tripId]?[id]?.actividad
     }
 
-    public func actualizar(_ a: ActividadItinerario, ahora: Date) {
-        guard actividades[a.tripId]?[a.id] != nil else { return }
-        actividades[a.tripId]![a.id] = a
+    /// UPDATE condicional por etag (bead 201): mismo criterio atómico que el
+    /// adaptador Postgres, aunque aquí no haga falta un WHERE de SQL — el
+    /// actor (Swift `actor`) ya serializa el acceso, así que leer y escribir
+    /// dentro de la misma llamada síncrona es tan atómico como el UPDATE.
+    public func actualizar(_ a: ActividadItinerario, ifMatch etag: String, ahora: Date) -> ResultadoEscrituraItinerario {
+        guard let fila = actividades[a.tripId]?[a.id] else { return .noEncontrado }
+        guard fila.etag == etag else { return .conflicto(serverEtag: fila.etag) }
+        let nuevoEtag = UUID().uuidString
+        actividades[a.tripId]![a.id] = FilaItinerario(actividad: a, etag: nuevoEtag)
+        return .ok(ActividadConEtag(actividad: a, etag: nuevoEtag))
     }
 
     public func borrar(id: String, en tripId: String) {

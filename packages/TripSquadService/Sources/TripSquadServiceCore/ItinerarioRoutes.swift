@@ -1,13 +1,20 @@
 // Endpoints HTTP de itinerario (M5, ADR-0020 borrador —
-// docs/design/itinerario-scope-y-plan.md). Mismo patrón que VotacionRoutes: el
-// grupo AUTENTICADO, el actor SIEMPRE sale de `ctx.actor` (JWT verificado),
-// nunca del body.
+// docs/design/itinerario-scope-y-plan.md; ETag/If-Match añadido por el bead
+// 201). Mismo patrón que VotacionRoutes: el grupo AUTENTICADO, el actor
+// SIEMPRE sale de `ctx.actor` (JWT verificado), nunca del body.
 //
 // Mapeo de errores (mismo criterio que VotacionRoutes/ViajeRoutes): `ErrorItinerario.
 // noAutorizado`→403, `.noEncontrado`→404, `.viajeCerrado`→409, `.reglaViolada(code)`
-// →422 con ese code. `noAutorizado` es DELIBERADAMENTE el mismo 403 tanto si el actor
-// no es miembro como si el tripId/itemId no existen (CasosDeUsoItinerario) — no se
-// filtra existencia.
+// →422 con ese code, `.conflicto(serverEtag)`→412 con cabecera `etag` (bead 201, mismo
+// criterio que gastos — ver `respuestaDirecta`/`conEtag` en GastosRoutes). `noAutorizado`
+// es DELIBERADAMENTE el mismo 403 tanto si el actor no es miembro como si el tripId/itemId
+// no existen (CasosDeUsoItinerario) — no se filtra existencia.
+//
+// ETag/If-Match (bead 201, ADR-0013 mismo criterio que gastos): POST/GET devuelven el
+// etag de cada actividad (cabecera `etag` en POST, campo `etag` en el JSON de POST/GET/
+// PATCH). El PATCH EXIGE `If-Match` (428 si falta) y lo compara ATÓMICAMENTE contra el
+// etag actual en el repo — 412 con la cabecera `etag` del servidor si no coincide. Antes
+// de este bead, dos ediciones concurrentes se pisaban en silencio (last-write-wins).
 //
 // Semántica de PATCH (decisión de esta ruta, el dominio no la impone): el body es
 // PARCIAL — cualquier campo ausente conserva el valor actual de la actividad. El
@@ -61,20 +68,31 @@ private struct ActividadDTO: Encodable {
     let notes: String?
     let orderIndex: Int
     let createdBy: String
+    let etag: String   // bead 201: control de concurrencia optimista (ADR-0013)
 }
 
 private struct ItemsListDTO: Encodable { let items: [ActividadDTO] }
 
-private func dtoDe(_ a: ActividadItinerario) -> ActividadDTO {
+private func dtoDe(_ a: ActividadConEtag) -> ActividadDTO {
     ActividadDTO(
-        id: a.id, tripId: a.tripId, title: a.title, day: a.day, startTime: a.startTime,
-        location: a.location, notes: a.notes, orderIndex: a.orderIndex, createdBy: a.createdBy.raw)
+        id: a.actividad.id, tripId: a.actividad.tripId, title: a.actividad.title, day: a.actividad.day,
+        startTime: a.actividad.startTime, location: a.actividad.location, notes: a.actividad.notes,
+        orderIndex: a.actividad.orderIndex, createdBy: a.actividad.createdBy.raw, etag: a.etag)
 }
 
 private func respuestaJSON<T: Encodable>(_ status: HTTPResponse.Status, _ valor: T) throws -> Response {
     let data = try JSONEncoder().encode(valor)
     return Response(status: status, headers: [.contentType: "application/json"],
                      body: .init(byteBuffer: ByteBuffer(bytes: data)))
+}
+
+/// Igual que `respuestaJSON` pero añade la cabecera `etag` (bead 201, mismo
+/// criterio que `conEtag` de GastosRoutes): el POST/PATCH de itinerario
+/// también exponen el etag como cabecera, no solo como campo del body.
+private func respuestaJSONConEtag<T: Encodable>(_ status: HTTPResponse.Status, _ valor: T, etag: String) throws -> Response {
+    var resp = try respuestaJSON(status, valor)
+    resp.headers[HTTPField.Name("etag")!] = etag
+    return resp
 }
 
 func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
@@ -88,8 +106,8 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
             location: dto.location, notes: dto.notes, orderIndex: dto.orderIndex ?? 0,
             actor: ctx.actor, ahora: deps.ahora()
         ) {
-        case .success(let actividad):
-            return try respuestaJSON(.created, dtoDe(actividad))
+        case .success(let conEtag):
+            return try respuestaJSONConEtag(.created, dtoDe(conEtag), etag: conEtag.etag)
         case .failure(let error):
             return respuestaErrorItinerario(error)
         }
@@ -112,8 +130,11 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
     }
 
     // PATCH /trips/:tripId/itinerary/:itemId — SOLO el creador de la actividad o el
-    // owner del viaje (plan §2). Body PARCIAL (ver cabecera del archivo).
+    // owner del viaje (plan §2). Body PARCIAL (ver cabecera del archivo). `If-Match`
+    // OBLIGATORIO (bead 201, mismo criterio que gastos): sin él, 428 ANTES de tocar el
+    // caso de uso — ni siquiera se carga la actividad, igual que `montarGastos`.
     router.patch("trips/:tripId/itinerary/:itemId") { req, ctx -> Response in
+        guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")
         let itemId = try ctx.parameters.require("itemId")
         let dto = try await req.decode(as: EditarItinerarioDTO.self, context: ctx)
@@ -138,10 +159,10 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
             location: dto.location ?? existente.location,
             notes: dto.notes ?? existente.notes,
             orderIndex: dto.orderIndex ?? existente.orderIndex,
-            actor: ctx.actor, ahora: deps.ahora()
+            actor: ctx.actor, ifMatch: etag, ahora: deps.ahora()
         ) {
-        case .success(let actividad):
-            return try respuestaJSON(.ok, dtoDe(actividad))
+        case .success(let conEtag):
+            return try respuestaJSONConEtag(.ok, dtoDe(conEtag), etag: conEtag.etag)
         case .failure(let error):
             return respuestaErrorItinerario(error)
         }
@@ -177,5 +198,12 @@ private func respuestaErrorItinerario(_ error: ErrorItinerario) -> Response {
         return errorJSON(.conflict, "trip_closed")
     case .reglaViolada(let code):
         return errorJSON(HTTPResponse.Status(code: 422), code)
+    case .conflicto(let serverEtag):
+        // Bead 201, mismo criterio que gastos (`respuestaDirecta` en GastosRoutes):
+        // el `If-Match` no coincidía -> 412 con el etag SERVIDOR actual, para que el
+        // cliente pueda reintentar con el valor correcto.
+        var resp = errorJSON(.preconditionFailed, "conflict")
+        resp.headers[HTTPField.Name("etag")!] = serverEtag
+        return resp
     }
 }

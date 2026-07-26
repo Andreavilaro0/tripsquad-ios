@@ -34,20 +34,23 @@ public struct CasosDeUsoItinerario: Sendable {
     /// Cualquier miembro puede añadir actividades (plan §1). Rechaza si el
     /// viaje está cerrado (misma coherencia que votaciones/onboarding/settle).
     /// `title` es obligatorio: vacío (tras recortar espacios) se rechaza.
-    public func crear(tripId: String, title: String, day: String, startTime: String? = nil, location: String? = nil, notes: String? = nil, orderIndex: Int = 0, actor: MiembroId, ahora: Date) async throws -> Result<ActividadItinerario, ErrorItinerario> {
+    /// Devuelve la actividad CON su etag inicial (bead 201): no hay carrera
+    /// que proteger al crear (fila nueva), pero el cliente lo necesita para el
+    /// primer `If-Match` de una edición posterior.
+    public func crear(tripId: String, title: String, day: String, startTime: String? = nil, location: String? = nil, notes: String? = nil, orderIndex: Int = 0, actor: MiembroId, ahora: Date) async throws -> Result<ActividadConEtag, ErrorItinerario> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.reglaViolada("title_vacio")) }
         let actividad = ActividadItinerario(id: UUID().uuidString, tripId: tripId, title: title, day: day, startTime: startTime, location: location, notes: notes, orderIndex: orderIndex, createdBy: actor)
-        try await repo.crear(actividad, ahora: ahora)
-        return .success(actividad)
+        let conEtag = try await repo.crear(actividad, ahora: ahora)
+        return .success(conEtag)
     }
 
     /// SOLO miembros listan (plan §3, "403 sin fuga"). El orden (day,
     /// orderIndex, id) es responsabilidad del repo (`listar`). `limit` se clampa a
     /// [1, 200] (mismo patrón que `CasosDeUsoChat.listar`): un límite fuera de rango
-    /// NUNCA se rechaza, se ajusta en silencio.
-    public func listar(tripId: String, actor: MiembroId, limit: Int = 50) async throws -> Result<[ActividadItinerario], ErrorItinerario> {
+    /// NUNCA se rechaza, se ajusta en silencio. Cada item lleva su etag (bead 201).
+    public func listar(tripId: String, actor: MiembroId, limit: Int = 50) async throws -> Result<[ActividadConEtag], ErrorItinerario> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         let limiteClamp = min(max(limit, 1), 200)
         return .success(try await repo.listar(tripId, limit: limiteClamp))
@@ -70,7 +73,15 @@ public struct CasosDeUsoItinerario: Sendable {
     /// mismo criterio que cerrar votación). Se carga la actividad primero: si
     /// no existe (o pertenece a otro tripId), `.noAutorizado` — sin fuga de
     /// existencia. Rechaza si el viaje está cerrado (plan §5).
-    public func editar(itemId: String, tripId: String, title: String, day: String, startTime: String? = nil, location: String? = nil, notes: String? = nil, orderIndex: Int = 0, actor: MiembroId, ahora: Date) async throws -> Result<ActividadItinerario, ErrorItinerario> {
+    ///
+    /// `ifMatch` (bead 201, ADR-0013 mismo criterio que gastos): el UPDATE en
+    /// el repo es condicional por etag y ATÓMICO (el WHERE compara el etag,
+    /// no se lee-antes-de-escribir), así que dos PATCH concurrentes con el
+    /// mismo `If-Match` no se pisan — el perdedor recibe `.conflicto` con el
+    /// etag servidor actual. `.noEncontrado` del repo (carrera con un borrado
+    /// entre la autorización y el UPDATE) se mapea a `.noAutorizado`, mismo
+    /// criterio "sin fuga" que el resto de este archivo.
+    public func editar(itemId: String, tripId: String, title: String, day: String, startTime: String? = nil, location: String? = nil, notes: String? = nil, orderIndex: Int = 0, actor: MiembroId, ifMatch: String, ahora: Date) async throws -> Result<ActividadConEtag, ErrorItinerario> {
         guard let existente = try await repo.item(id: itemId, en: tripId) else { return .failure(.noAutorizado) }
         // Debe ser miembro ACTUAL (Codex M5 P1): un ex-miembro que creó la actividad no puede
         // seguir editándola tras salir del viaje, aunque `createdBy` coincida. Se usa esMiembro
@@ -81,8 +92,14 @@ public struct CasosDeUsoItinerario: Sendable {
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.reglaViolada("title_vacio")) }
         let actualizada = ActividadItinerario(id: existente.id, tripId: existente.tripId, title: title, day: day, startTime: startTime, location: location, notes: notes, orderIndex: orderIndex, createdBy: existente.createdBy)
-        try await repo.actualizar(actualizada, ahora: ahora)
-        return .success(actualizada)
+        switch try await repo.actualizar(actualizada, ifMatch: ifMatch, ahora: ahora) {
+        case .ok(let conEtag):
+            return .success(conEtag)
+        case .conflicto(let serverEtag):
+            return .failure(.conflicto(serverEtag: serverEtag))
+        case .noEncontrado:
+            return .failure(.noAutorizado)
+        }
     }
 
     /// SOLO el creador de la actividad O el owner del viaje borran (plan §2).
