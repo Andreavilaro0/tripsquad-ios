@@ -12,6 +12,15 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     private var datos: [String: [String: Fila]] = [:]        // tripId -> gastoId -> fila
     private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // "actor|key" -> resultado
+    /// Historial append-only (ADR-0015 §15, bead p4b): `expenseId -> revisiones`,
+    /// en orden de inserción (= orden cronológico, `nuevaRevisionId()` es
+    /// monotónico creciente). El doble TAMBIÉN registra revisiones al editar
+    /// (antes solo lo hacía un comentario) — si no, `revisiones`/
+    /// `olvidarRevisionesDe` no serían testeables sin Postgres (mismo criterio "el
+    /// doble no debe mentir" que ya vale para membresía/viaje cerrado, lección de
+    /// la revisión integrada).
+    private var revisionesPorGasto: [String: [RevisionGasto]] = [:]
+    private var proximaRevisionId: Int64 = 1
     // NOTA: no hay almacén propio de membresía ni de "cerrados". `esMiembro` y
     // `viajeCerrado` derivan de `miembrosDeViaje` y `viajes` (los de onboarding), que
     // son la única fuente de verdad — ver el bloque de helpers de test más abajo.
@@ -173,8 +182,15 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
         guard fila.etag == etag else {
             return .conflicto(serverEtag: fila.etag)   // no se congela: no es terminal
         }
-        // (En un adaptador real, aquí se escribiría una fila en expense_revisions
-        // con edited_by = actor — ADR-0015 §15.)
+        // Historial append-only (ADR-0015 §15, bead p4b): `field: "expense"` es la
+        // MISMA granularidad-stub que `RepositorioPostgres.actualizar` (el diff
+        // campo-a-campo real es una mejora futura, fuera de este bead) — el doble
+        // no debe mentir respecto a lo que hace producción.
+        let revision = RevisionGasto(id: proximaRevisionId, expenseId: gasto.id, editedBy: actor,
+                                     editedAt: Date(), field: "expense", oldValue: nil, newValue: nil)
+        proximaRevisionId += 1
+        revisionesPorGasto[gasto.id, default: []].append(revision)
+
         let nuevo = nuevoEtag()
         datos[tripId]![gasto.id] = Fila(gasto: gasto, etag: nuevo, borrado: false)
         let r = ResultadoEscritura.actualizado(etag: nuevo)
@@ -214,6 +230,29 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     public func gasto(id: String, en tripId: String) -> GastoConEtag? {
         guard let fila = datos[tripId]?[id], !fila.borrado else { return nil }
         return GastoConEtag(gasto: fila.gasto, etag: fila.etag)
+    }
+
+    /// El `tripId` se verifica contra `datos` (defensa en profundidad, mismo
+    /// criterio que el JOIN con `expenses` en `RepositorioPostgres`): un
+    /// `expenseId` que no pertenece a este viaje no filtra su historial. El
+    /// caso de uso YA valida esto vía `repo.gasto(id:en:)`, pero el repo no debe
+    /// confiar ciegamente en el llamador.
+    public func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) -> [RevisionGasto] {
+        guard datos[tripId]?[expenseId] != nil else { return [] }
+        return Array((revisionesPorGasto[expenseId] ?? []).sorted { $0.id < $1.id }.prefix(limit))
+    }
+
+    /// Derecho al olvido RGPD (bead o1v): hard-delete GLOBAL por `editedBy`, en
+    /// todos los gastos de todos los viajes — mismo criterio que el `DELETE ...
+    /// WHERE edited_by = $1` de `RepositorioPostgres`.
+    public func olvidarRevisionesDe(_ userId: MiembroId) -> Int {
+        var borradas = 0
+        for (expenseId, revisiones) in revisionesPorGasto {
+            let restantes = revisiones.filter { $0.editedBy != userId }
+            borradas += revisiones.count - restantes.count
+            revisionesPorGasto[expenseId] = restantes
+        }
+        return borradas
     }
 
     // MARK: - Utilidad

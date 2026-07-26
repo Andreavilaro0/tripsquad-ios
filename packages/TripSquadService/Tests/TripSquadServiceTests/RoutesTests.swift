@@ -412,6 +412,8 @@ struct RepoQueLanza: GastoRepositorio, Membresia {
     func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw BDCaida() }
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { throw BDCaida() }
     func viajeCerrado(_ tripId: String) async throws -> Bool { throw BDCaida() }
+    func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] { throw BDCaida() }
+    func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int { throw BDCaida() }
 }
 
 /// Simula la carrera con otro dispositivo del mismo usuario: `in_flight`. El endpoint
@@ -425,6 +427,8 @@ struct RepoInFlight: GastoRepositorio, Membresia {
     func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { true }
     func viajeCerrado(_ tripId: String) async throws -> Bool { false }
+    func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] { [] }
+    func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int { 0 }
 }
 
 extension RepoQueLanza: SettlementRepositorio {
