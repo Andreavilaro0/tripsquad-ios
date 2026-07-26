@@ -20,6 +20,11 @@ public struct CasosDeUsoReserva: Sendable {
     private let viajes: ViajeRepositorio
     private let estructurador: EstructuradorConfirmacion
 
+    /// Cap de coste (endurecimiento post-dy5): tope de longitud del texto de
+    /// confirmación. Por encima de esto se rechaza ANTES de llamar al
+    /// estructurador — un texto gigante nunca debe llegar al LLM de pago.
+    private static let maxLongitudConfirmacion = 20_000
+
     public init(repo: ReservaRepositorio, itinerario: ItinerarioRepositorio, membresia: Membresia, viajes: ViajeRepositorio,
                 estructurador: EstructuradorConfirmacion) {
         self.repo = repo
@@ -118,6 +123,13 @@ public struct CasosDeUsoReserva: Sendable {
     /// los datos extraídos y marca el estado del actor como `.reservado`.
     /// El fallo del extractor (texto ilegible) es `reglaViolada("confirmacion_ilegible")`,
     /// nunca fuga el error interno del LLM (mismo criterio "sin fuga").
+    ///
+    /// Cap de coste (endurecimiento post-dy5): si `textoConfirmacion` supera
+    /// `maxLongitudConfirmacion` (20_000 chars) se rechaza con
+    /// `reglaViolada("confirmacion_muy_larga")` ANTES de llamar al
+    /// estructurador — el LLM de pago nunca ve un texto desmesurado. Chequeo
+    /// después de la comprobación de idempotencia (un reenvío ya-registrado
+    /// sigue siendo gratis) y antes de `redactar`/`extraer`.
     public func registrarConfirmacion(tripId: String, activityId: String, textoConfirmacion: String,
                                       actor: MiembroId, ahora: Date) async throws -> Result<Confirmacion, ErrorReserva> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
@@ -135,6 +147,10 @@ public struct CasosDeUsoReserva: Sendable {
 
         if let existente = try await repo.confirmacion(activityId: activityId, en: tripId, miembro: actor) {
             return .success(existente)
+        }
+
+        guard textoConfirmacion.count <= Self.maxLongitudConfirmacion else {
+            return .failure(.reglaViolada("confirmacion_muy_larga"))
         }
 
         let redactado = redactar(textoConfirmacion)

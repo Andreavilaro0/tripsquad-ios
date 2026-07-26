@@ -95,6 +95,18 @@ struct RegistrarConfirmacionTests {
         #expect(f.fake.ultimoTexto?.contains("[REDACTED]") == true)
     }
 
+    /// Cap de coste (endurecimiento post-dy5): un texto por encima de
+    /// `maxLongitudConfirmacion` (20_000 chars) se rechaza ANTES de llamar al
+    /// estructurador — así un texto gigante nunca llega al LLM de pago.
+    @Test func textoMuyLargoEsReglaVioladaYNoLlamaLLM() async throws {
+        let f = try await fixtureConReservable()
+        let textoLargo = String(repeating: "x", count: 20_001)
+        let r = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1",
+            textoConfirmacion: textoLargo, actor: f.a, ahora: Date())
+        #expect(r == .failure(.reglaViolada("confirmacion_muy_larga")))
+        #expect(f.fake.llamadas == 0)   // el LLM nunca se llegó a invocar
+    }
+
     @Test func segundaVezNoRellamaLLM() async throws {   // idempotencia por (activityId, miembro)
         let f = try await fixtureConReservable()
         _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "v1", actor: f.a, ahora: Date())
