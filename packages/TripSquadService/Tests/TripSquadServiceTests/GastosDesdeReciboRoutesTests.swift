@@ -93,7 +93,9 @@ struct GastosDesdeReciboRoutesTests {
         }
     }
 
-    @Test func noMiembro422() async throws {
+    // (bead 55x) not_member es transversal a los 7 módulos: 403, no 422 — from-receipt
+    // reusa `respuestaDirecta`, así que hereda el mismo mapeo que crear/editar/eliminar.
+    @Test func noMiembro403() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
             try await client.execute(
@@ -102,7 +104,7 @@ struct GastosDesdeReciboRoutesTests {
                 body: reciboJSON(gastoId: "g1", pagadoPor: "sara",
                                  items: #"[{"importeMinor":100,"sharers":["sara"]}]"#)
             ) { res in
-                #expect(res.status == HTTPResponse.Status(code: 422))
+                #expect(res.status == .forbidden)
                 #expect(res.headers[HTTPField.Name("x-error-code")!] == "not_member")
             }
         }
