@@ -31,7 +31,7 @@ struct GastosDesdeReciboRoutesTests {
             casosViaje: CasosDeUsoViaje(repo: repo),
             casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
             casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
-            casosReserva: CasosDeUsoReserva(repo: repo, itinerario: repo, membresia: repo, viajes: repo),
+            casosReserva: CasosDeUsoReserva(repo: repo, itinerario: repo, membresia: repo, viajes: repo, estructurador: EstructuradorConfirmacionFake(datos: DatosConfirmacion(tipo: .vuelo, fechaISO: nil, numeroConfirmacion: nil, proveedor: nil))),
             casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
             casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
             casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),

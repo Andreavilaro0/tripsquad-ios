@@ -229,4 +229,9 @@ public protocol ReservaRepositorio: Sendable {
     /// (unoParaTodos, `miembro == nil`). No valida autorización (eso es del caso de uso).
     func marcarEstado(activityId: String, en tripId: String, miembro: MiembroId?, estado: EstadoReserva) async throws
     func borrar(activityId: String, en tripId: String) async throws
+    /// Guarda la confirmación extraída para UN miembro de UNA actividad (dy5).
+    /// Reemplaza si ya existía (mismo criterio que `upsert` de `Reserva`).
+    func guardarConfirmacion(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws
+    /// Lee la confirmación de un miembro; `nil` si no ha confirmado (aún) esta actividad.
+    func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion?
 }

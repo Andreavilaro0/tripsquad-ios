@@ -41,7 +41,8 @@ struct CasosDeUsoReservaTests {
         await r.anadirMiembro(c, a: "t1")
         await r.crear(ActividadItinerario(id: "act1", tripId: "t1", title: "Vuelo a Roma", day: "2026-08-02", createdBy: b), ahora: ahora)
         if cerrado { await r.cerrarViaje("t1") }
-        let casos = CasosDeUsoReserva(repo: r, itinerario: r, membresia: r, viajes: r)
+        let fake = EstructuradorConfirmacionFake(datos: DatosConfirmacion(tipo: .vuelo, fechaISO: nil, numeroConfirmacion: nil, proveedor: nil))
+        let casos = CasosDeUsoReserva(repo: r, itinerario: r, membresia: r, viajes: r, estructurador: fake)
         return Fixture(casos: casos, repo: r, a: a, b: b, c: c)
     }
 

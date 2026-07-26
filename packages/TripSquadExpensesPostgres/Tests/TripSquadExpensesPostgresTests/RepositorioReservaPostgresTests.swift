@@ -220,4 +220,62 @@ struct RepositorioReservaPostgresTests {
             #expect(r2?.mode == .unoParaTodos(responsable: nil, estado: .pendiente))
         }
     }
+
+    // MARK: - Confirmaciones (dy5, Task 4)
+
+    @Test func guardaYLeeConfirmacion() async throws {
+        try await conRepo { repo, trip, activityId in
+            try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .vuelo,
+                mode: .cadaUnoElSuyo(estados: [ana: .pendiente])), ahora: Date())
+
+            let c = Confirmacion(tipo: .vuelo, fechaISO: "2026-08-01", numeroConfirmacion: "ABC123", proveedor: "Iberia")
+            try await repo.guardarConfirmacion(activityId: activityId, en: trip, miembro: ana, c)
+
+            let leida = try await repo.confirmacion(activityId: activityId, en: trip, miembro: ana)
+            #expect(leida == c)
+        }
+    }
+
+    @Test func confirmacionInexistenteDevuelveNil() async throws {
+        try await conRepo { repo, trip, activityId in
+            try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .vuelo,
+                mode: .cadaUnoElSuyo(estados: [ana: .pendiente])), ahora: Date())
+
+            let leida = try await repo.confirmacion(activityId: activityId, en: trip, miembro: ana)
+            #expect(leida == nil)
+        }
+    }
+
+    @Test func guardarConfirmacionSobrescribeLaMismaPK() async throws {
+        try await conRepo { repo, trip, activityId in
+            try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .hotel,
+                mode: .cadaUnoElSuyo(estados: [ana: .pendiente])), ahora: Date())
+
+            try await repo.guardarConfirmacion(activityId: activityId, en: trip, miembro: ana,
+                Confirmacion(tipo: .hotel, fechaISO: "2026-08-01", numeroConfirmacion: "OLD", proveedor: "Booking"))
+            try await repo.guardarConfirmacion(activityId: activityId, en: trip, miembro: ana,
+                Confirmacion(tipo: .hotel, fechaISO: "2026-08-02", numeroConfirmacion: "NEW", proveedor: "Expedia"))
+
+            let leida = try await repo.confirmacion(activityId: activityId, en: trip, miembro: ana)
+            #expect(leida == Confirmacion(tipo: .hotel, fechaISO: "2026-08-02", numeroConfirmacion: "NEW", proveedor: "Expedia"))
+        }
+    }
+
+    @Test func borrarLaReservaBorraEnCascadaSusConfirmaciones() async throws {
+        try await conRepo { repo, trip, activityId in
+            try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .tren,
+                mode: .cadaUnoElSuyo(estados: [ana: .pendiente, bea: .pendiente])), ahora: Date())
+            try await repo.guardarConfirmacion(activityId: activityId, en: trip, miembro: ana,
+                Confirmacion(tipo: .tren, fechaISO: "2026-08-01", numeroConfirmacion: "XYZ", proveedor: "Renfe"))
+            try await repo.guardarConfirmacion(activityId: activityId, en: trip, miembro: bea,
+                Confirmacion(tipo: .tren, fechaISO: "2026-08-01", numeroConfirmacion: "XYZ2", proveedor: "Renfe"))
+
+            try await repo.borrar(activityId: activityId, en: trip)
+
+            let leidaAna = try await repo.confirmacion(activityId: activityId, en: trip, miembro: ana)
+            let leidaBea = try await repo.confirmacion(activityId: activityId, en: trip, miembro: bea)
+            #expect(leidaAna == nil)
+            #expect(leidaBea == nil)
+        }
+    }
 }

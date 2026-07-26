@@ -102,13 +102,29 @@ let client = PostgresClient(configuration: pgConfig)
 
 let repo = RepositorioPostgres(client: client, logger: logger)
 
+// estructurador: FAKE por defecto. El adaptador real DeepSeek (dy5 Task 5) solo se
+// activa si `DEEPSEEK_API_KEY` está en el entorno.
+// GATED: activar requiere OK de Andrea + tope de presupuesto.
+let estructurador: EstructuradorConfirmacion
+if let deepSeekKey = env["DEEPSEEK_API_KEY"], !deepSeekKey.isEmpty {
+    logger.info("confirmaciones: estructurador = DeepSeek (real)")
+    estructurador = EstructuradorConfirmacionDeepSeek(
+        apiKey: deepSeekKey,
+        httpClient: ClienteHTTPDeepSeekReal(cliente: http))
+} else {
+    logger.info("confirmaciones: estructurador = fake (DEEPSEEK_API_KEY no está en el entorno)")
+    estructurador = EstructuradorConfirmacionFake(datos: DatosConfirmacion(
+        tipo: .vuelo, fechaISO: nil, numeroConfirmacion: nil, proveedor: nil))
+}
+
 let deps = Dependencias(
     casos: CasosDeUsoGastos(repo: repo, membresia: repo),
     casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
     casosViaje: CasosDeUsoViaje(repo: repo),
     casosVotacion: CasosDeUsoVotacion(repo: repo, membresia: repo, viajes: repo),
     casosItinerario: CasosDeUsoItinerario(repo: repo, membresia: repo, viajes: repo),
-    casosReserva: CasosDeUsoReserva(repo: repo, itinerario: repo, membresia: repo, viajes: repo),
+    casosReserva: CasosDeUsoReserva(repo: repo, itinerario: repo, membresia: repo, viajes: repo,
+        estructurador: estructurador),
     casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
     casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
     casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),

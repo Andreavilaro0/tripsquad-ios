@@ -18,12 +18,15 @@ public struct CasosDeUsoReserva: Sendable {
     private let itinerario: ItinerarioRepositorio
     private let membresia: Membresia
     private let viajes: ViajeRepositorio
+    private let estructurador: EstructuradorConfirmacion
 
-    public init(repo: ReservaRepositorio, itinerario: ItinerarioRepositorio, membresia: Membresia, viajes: ViajeRepositorio) {
+    public init(repo: ReservaRepositorio, itinerario: ItinerarioRepositorio, membresia: Membresia, viajes: ViajeRepositorio,
+                estructurador: EstructuradorConfirmacion) {
         self.repo = repo
         self.itinerario = itinerario
         self.membresia = membresia
         self.viajes = viajes
+        self.estructurador = estructurador
     }
 
     /// Marca una actividad como reservable (crea/edita el aspecto). SOLO el
@@ -98,6 +101,65 @@ public struct CasosDeUsoReserva: Sendable {
     public func tablero(tripId: String, actor: MiembroId) async throws -> Result<[Reserva], ErrorReserva> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         return .success(try await repo.tablero(tripId))
+    }
+
+    /// Registra la confirmación de reserva del ACTOR (dy5, spec
+    /// docs/superpowers/specs/2026-07-25-dy5-confirmaciones-design.md). Mismo gate que `marcar`
+    /// con `memberId` fijado al actor (quien sube la confirmación es quien
+    /// marca su propia reserva): actor miembro; reserva existente; viaje
+    /// abierto; en `cadaUnoElSuyo` el actor debe estar incluido; en
+    /// `unoParaTodos` el actor debe ser el responsable o el owner. Sin fuga
+    /// de existencia (no-miembro/no-reserva → `noAutorizado`).
+    ///
+    /// Idempotente por `(activityId, actor)`: si ya hay una confirmación
+    /// guardada, la devuelve SIN volver a llamar al `EstructuradorConfirmacion`
+    /// (evita coste/reintento del LLM en reenvíos). Si no, redacta el texto
+    /// (RGPD — minimización, ver spec §RGPD), lo manda al extractor, guarda
+    /// los datos extraídos y marca el estado del actor como `.reservado`.
+    /// El fallo del extractor (texto ilegible) es `reglaViolada("confirmacion_ilegible")`,
+    /// nunca fuga el error interno del LLM (mismo criterio "sin fuga").
+    public func registrarConfirmacion(tripId: String, activityId: String, textoConfirmacion: String,
+                                      actor: MiembroId, ahora: Date) async throws -> Result<Confirmacion, ErrorReserva> {
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
+        guard let reserva = try await repo.reserva(activityId: activityId, en: tripId) else { return .failure(.noAutorizado) }
+        guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
+        let esOwner = (try await viajes.rol(de: actor, en: tripId)) == .owner
+
+        switch reserva.mode {
+        case .cadaUnoElSuyo(let estados):
+            guard estados[actor] != nil else { return .failure(.reglaViolada("miembro_no_incluido")) }
+        case .unoParaTodos(let responsable, _):
+            guard responsable != nil else { return .failure(.reglaViolada("sin_responsable")) }
+            guard actor == responsable || esOwner else { return .failure(.noAutorizado) }
+        }
+
+        if let existente = try await repo.confirmacion(activityId: activityId, en: tripId, miembro: actor) {
+            return .success(existente)
+        }
+
+        let redactado = redactar(textoConfirmacion)
+        let datos: DatosConfirmacion
+        do {
+            datos = try await estructurador.extraer(textoConfirmacion: redactado)
+        } catch {
+            return .failure(.reglaViolada("confirmacion_ilegible"))
+        }
+
+        let confirmacion = Confirmacion(tipo: datos.tipo, fechaISO: datos.fechaISO,
+                                        numeroConfirmacion: datos.numeroConfirmacion, proveedor: datos.proveedor)
+        try await repo.guardarConfirmacion(activityId: activityId, en: tripId, miembro: actor, confirmacion)
+        try await repo.marcarEstado(activityId: activityId, en: tripId, miembro: actor, estado: .reservado)
+        return .success(confirmacion)
+    }
+
+    /// Redacta secuencias de 13-19 dígitos (con espacios/guiones) que
+    /// parezcan un número de tarjeta, antes de mandar el texto al LLM
+    /// (RGPD — minimización, spec §RGPD).
+    private func redactar(_ texto: String) -> String {
+        texto.replacingOccurrences(
+            of: "\\b(?:\\d[ -]?){13,19}\\b",
+            with: "[REDACTED]",
+            options: .regularExpression)
     }
 }
 
