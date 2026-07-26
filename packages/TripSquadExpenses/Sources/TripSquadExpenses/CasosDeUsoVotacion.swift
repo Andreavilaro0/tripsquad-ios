@@ -26,6 +26,17 @@ public struct CasosDeUsoVotacion: Sendable {
     private let membresia: Membresia
     private let viajes: ViajeRepositorio
 
+    /// Topes de longitud/cardinalidad (bead mjp, "campos de texto libre sin
+    /// límite"): mismo criterio y unidad que `CasosDeUsoChat.enviar`
+    /// (`unicodeScalars.count` == `char_length` de Postgres). `question` es
+    /// más larga que un título corto (puede ser una frase); cada `option` se
+    /// trata como un título corto (~200, mismo orden que
+    /// `CasosDeUsoItinerario.title`). `maxOpciones` topa la CARDINALIDAD del
+    /// array — la BD solo exigía `>= 2` (0004_votaciones.sql), sin techo.
+    private static let longitudMaximaQuestion = 500
+    private static let longitudMaximaOption = 200
+    private static let maxOpciones = 20
+
     public init(repo: VotacionRepositorio, membresia: Membresia, viajes: ViajeRepositorio) {
         self.repo = repo
         self.membresia = membresia
@@ -38,7 +49,10 @@ public struct CasosDeUsoVotacion: Sendable {
     public func crear(tripId: String, question: String, options: [String], actor: MiembroId, ahora: Date) async throws -> Result<Votacion, ErrorVotacion> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
+        guard question.unicodeScalars.count <= Self.longitudMaximaQuestion else { return .failure(.reglaViolada("question_muy_larga")) }
         guard options.count >= 2 else { return .failure(.reglaViolada("min_2_options")) }
+        guard options.count <= Self.maxOpciones else { return .failure(.reglaViolada("max_opciones_superado")) }
+        guard options.allSatisfy({ $0.unicodeScalars.count <= Self.longitudMaximaOption }) else { return .failure(.reglaViolada("option_muy_larga")) }
         // Rechaza opciones duplicadas (bot Codex P1): con `["a","a"]` el conteo colapsa y el
         // voto es ambiguo. La opción es la clave lógica del recuento, debe ser única.
         guard Set(options).count == options.count else { return .failure(.reglaViolada("duplicate_options")) }

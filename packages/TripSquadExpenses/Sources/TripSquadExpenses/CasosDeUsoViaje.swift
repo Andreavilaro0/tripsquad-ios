@@ -15,6 +15,15 @@ public struct CasosDeUsoViaje: Sendable {
     private static let duracionInvitacion: TimeInterval = 7 * 24 * 60 * 60   // 7 días
     private static let topeMiembros = 50                                     // ADR-0018 §8
 
+    /// Topes de longitud (bead mjp, "campos de texto libre sin límite"): defensa
+    /// de coste/abuso, mismo criterio y unidad que `CasosDeUsoChat.enviar`
+    /// (`unicodeScalars.count` == `char_length` de Postgres, ver ese docstring
+    /// para el razonamiento completo). `name` es un título corto (~200, mismo
+    /// orden que `CasosDeUsoItinerario.title`); `baseCurrency` es un código
+    /// ISO 4217 de 3 letras — 10 es techo de sobra sin fijar el formato aquí.
+    private static let longitudMaximaName = 200
+    private static let longitudMaximaBaseCurrency = 10
+
     public init(repo: ViajeRepositorio) {
         self.repo = repo
     }
@@ -22,9 +31,12 @@ public struct CasosDeUsoViaje: Sendable {
     /// Crea el viaje; el actor entra como `owner` (lo hace el repo en la misma
     /// operación: crear un viaje sin dueño no es un estado válido). No genera
     /// invitación — eso es un paso explícito con `invitar`.
-    public func crear(name: String, baseCurrency: String, actor: MiembroId, ahora: Date) async throws -> Viaje {
+    public func crear(name: String, baseCurrency: String, actor: MiembroId, ahora: Date) async throws -> Result<Viaje, ErrorViaje> {
+        guard name.unicodeScalars.count <= Self.longitudMaximaName else { return .failure(.reglaViolada("name_muy_largo")) }
+        guard baseCurrency.unicodeScalars.count <= Self.longitudMaximaBaseCurrency else { return .failure(.reglaViolada("base_currency_muy_largo")) }
         let id = UUID().uuidString
-        return try await repo.crearViaje(id: id, name: name, baseCurrency: baseCurrency, creador: actor, ahora: ahora)
+        let viaje = try await repo.crearViaje(id: id, name: name, baseCurrency: baseCurrency, creador: actor, ahora: ahora)
+        return .success(viaje)
     }
 
     /// `limit` se clampa a [1, 200] (mismo patrón que `CasosDeUsoChat.listar`): un

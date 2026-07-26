@@ -55,9 +55,13 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     // POST /trips — crear; el actor entra como owner.
     router.post("trips") { req, ctx -> Response in
         let dto = try await req.decode(as: CrearViajeDTO.self, context: ctx)
-        let viaje = try await deps.casosViaje.crear(
-            name: dto.name, baseCurrency: dto.baseCurrency ?? "EUR", actor: ctx.actor, ahora: deps.ahora())
-        return try respuestaJSON(.created, ViajeCreadoDTO(id: viaje.id, name: viaje.name, baseCurrency: viaje.baseCurrency))
+        switch try await deps.casosViaje.crear(
+            name: dto.name, baseCurrency: dto.baseCurrency ?? "EUR", actor: ctx.actor, ahora: deps.ahora()) {
+        case .success(let viaje):
+            return try respuestaJSON(.created, ViajeCreadoDTO(id: viaje.id, name: viaje.name, baseCurrency: viaje.baseCurrency))
+        case .failure(let error):
+            return respuestaErrorViaje(error)
+        }
     }
 
     // GET /trips?limit= — los viajes de los que el actor es miembro activo.

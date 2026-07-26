@@ -142,5 +142,6 @@ private func transicionResp(_ r: ResultadoTransicion) -> Response {
     case .noEncontrado:   return errorJSON(.notFound, "not_found")
     case .estadoInvalido: return errorJSON(HTTPResponse.Status(code: 409), "invalid_state")
     case .caducado:       return errorJSON(HTTPResponse.Status(code: 409), "expired")
+    case .reglaViolada(let code): return errorJSON(HTTPResponse.Status(code: 422), code)
     }
 }

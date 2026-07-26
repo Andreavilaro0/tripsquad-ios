@@ -49,6 +49,55 @@ struct CasosDeUsoItinerarioTests {
         #expect(error == .reglaViolada("title_vacio"))
     }
 
+    // MARK: - Topes de longitud (bead mjp: campos de texto libre sin límite)
+
+    @Test func crearConTitleMuyLargoSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        let titleLargo = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", title: titleLargo, day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("title_muy_largo"))
+    }
+
+    @Test func crearConLocationMuyLargaSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        let locationLarga = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", location: locationLarga, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("location_muy_larga"))
+    }
+
+    @Test func crearConNotesMuyLargasSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        let notesLargas = String(repeating: "a", count: 4001)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", notes: notesLargas, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("notes_muy_largas"))
+    }
+
+    @Test func editarConTitleMuyLargoSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        let titleLargo = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: titleLargo, day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("title_muy_largo"))
+    }
+
     // 2. listar ordenado por (day, orderIndex).
     @Test func listarOrdenaPorDiaYOrderIndex() async throws {
         let r = repo()
@@ -99,7 +148,7 @@ struct CasosDeUsoItinerarioTests {
     @Test func soloCreadorOOwnerEditanYBorran() async throws {
         let r = repo()
         let casosViaje = CasosDeUsoViaje(repo: r)
-        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         guard case .success(let invitacion) = try await casosViaje.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba invitar exitoso"); return
         }

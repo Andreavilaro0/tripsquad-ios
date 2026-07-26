@@ -62,6 +62,10 @@ public struct CasosDeUsoFoto: Sendable {
     /// 15 min para subir, 1 h para leer.
     private static let expiraSubida: TimeInterval = 15 * 60
     private static let expiraLectura: TimeInterval = 60 * 60
+    /// Tope de longitud de `caption` (bead mjp, "campos de texto libre sin
+    /// límite"): mismo criterio y unidad que `CasosDeUsoChat.enviar`
+    /// (`unicodeScalars.count` == `char_length` de Postgres).
+    private static let longitudMaximaCaption = 500
 
     public init(repo: FotoRepositorio, membresia: Membresia, viajes: ViajeRepositorio, storage: FotoStorage) {
         self.repo = repo
@@ -85,6 +89,9 @@ public struct CasosDeUsoFoto: Sendable {
         guard Self.tiposPermitidos.contains(contentType) else { return .failure(.reglaViolada("content_type_invalido")) }
         if let sizeBytes {
             guard sizeBytes > 0, sizeBytes <= Self.tamanoMaximoBytes else { return .failure(.reglaViolada("size_invalido")) }
+        }
+        if let caption {
+            guard caption.unicodeScalars.count <= Self.longitudMaximaCaption else { return .failure(.reglaViolada("caption_muy_larga")) }
         }
         let id = UUID().uuidString
         let storageKey = "\(tripId)/\(id)"

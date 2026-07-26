@@ -66,6 +66,19 @@ struct CasosDeUsoFotoTests {
         #expect(error == .reglaViolada("size_invalido"))
     }
 
+    // 2c. caption demasiado larga → reglaViolada (bead mjp: campos de texto libre sin límite).
+    @Test func presignConCaptionMuyLargaSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoFoto(repo: r, membresia: r, viajes: r, storage: storage())
+
+        let captionLarga = String(repeating: "a", count: 501)
+        guard case .failure(let error) = try await casos.presignSubida(tripId: "t1", contentType: "image/jpeg", sizeBytes: 1024, caption: captionLarga, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("caption_muy_larga"))
+    }
+
     // 3. no-miembro no puede presign ni listar: mismo error, sin fuga de existencia.
     @Test func noMiembroNoPresignNiListaSinFugaDeExistencia() async throws {
         let r = repo()
@@ -134,7 +147,7 @@ struct CasosDeUsoFotoTests {
     @Test func borrarSubidorOOwnerOtroMiembroNo() async throws {
         let r = repo()
         let casosViaje = CasosDeUsoViaje(repo: r)
-        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         guard case .success(let invitacion) = try await casosViaje.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba invitar exitoso"); return
         }

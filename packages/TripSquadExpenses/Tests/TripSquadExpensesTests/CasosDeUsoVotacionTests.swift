@@ -58,6 +58,52 @@ struct CasosDeUsoVotacionTests {
         #expect(error == .reglaViolada("duplicate_options"))
     }
 
+    // MARK: - Topes de longitud/cardinalidad (bead mjp: campos de texto libre sin límite)
+
+    @Test func crearConQuestionMuyLargaSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoVotacion(repo: r, membresia: r, viajes: r)
+        let questionLarga = String(repeating: "a", count: 501)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", question: questionLarga, options: ["a", "b"], actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("question_muy_larga"))
+    }
+
+    @Test func crearConOptionMuyLargaSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoVotacion(repo: r, membresia: r, viajes: r)
+        let optionLarga = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", question: "¿?", options: [optionLarga, "b"], actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("option_muy_larga"))
+    }
+
+    @Test func crearConMasDeMaxOpcionesSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoVotacion(repo: r, membresia: r, viajes: r)
+        let muchasOpciones = (1...21).map { "opcion\($0)" }
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", question: "¿?", options: muchasOpciones, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("max_opciones_superado"))
+    }
+
+    @Test func crearConExactamente20OpcionesSeAcepta() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoVotacion(repo: r, membresia: r, viajes: r)
+        let veinteOpciones = (1...20).map { "opcion\($0)" }
+        guard case .success(let v) = try await casos.crear(tripId: "t1", question: "¿?", options: veinteOpciones, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        #expect(v.options.count == 20)
+    }
+
     // 2. votar feliz: se registra y aparece en el conteo del detalle.
     @Test func votarFeliz() async throws {
         let r = repo()
@@ -175,7 +221,7 @@ struct CasosDeUsoVotacionTests {
     @Test func soloCreadorOOwnerCierran() async throws {
         let r = repo()
         let casosViaje = CasosDeUsoViaje(repo: r)
-        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         guard case .success(let invitacion) = try await casosViaje.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba invitar exitoso"); return
         }
@@ -243,7 +289,7 @@ struct CasosDeUsoVotacionTests {
     @Test func exMiembroNoCierraSuPropiaVotacion() async throws {
         let r = repo()
         let casosViaje = CasosDeUsoViaje(repo: r)
-        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         guard case .success(let invitacion) = try await casosViaje.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba invitar exitoso"); return
         }

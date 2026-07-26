@@ -93,6 +93,15 @@ struct CasosDeUsoSettleTests {
         #expect(try await casos.rechazar(id: id, en: "t1", por: MiembroId("ana"), ahora: t0, motivo: "no recibí eso") == .ok)
     }
 
+    // Bead mjp (campos de texto libre sin límite): motivo demasiado largo → reglaViolada,
+    // mismo criterio y unidad que `CasosDeUsoChat.enviar`.
+    @Test func rechazarConMotivoMuyLargoSeRechaza() async throws {
+        let (_, casos) = await setup()
+        guard case .creado(let id) = try await casos.crearPagos([cmd()], ahora: t0)[0] else { return }
+        let motivoLargo = String(repeating: "a", count: 501)
+        #expect(try await casos.rechazar(id: id, en: "t1", por: MiembroId("ana"), ahora: t0, motivo: motivoLargo) == .reglaViolada("motivo_muy_largo"))
+    }
+
     @Test func pendingCaducadoNoSePuedeConfirmar() async throws {
         let (_, casos) = await setup()
         guard case .creado(let id) = try await casos.crearPagos([cmd()], ahora: t0)[0] else { return }
