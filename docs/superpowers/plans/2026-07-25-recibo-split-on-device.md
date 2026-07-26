@@ -1,6 +1,6 @@
 # Recibo → split (on-device) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Referencia de diseño — no es un tracker.** El estado de ejecución y su avance viven en beads (bd), nunca en este documento. Los pasos de abajo son el plan de referencia (viñetas), no checkboxes de seguimiento. Ver AGENTS.md, sección Rules.
 
 **Goal:** Recibir del móvil un recibo ya itemizado + asignado y crear el gasto repartido en céntimos exactos (estilo Apple Cash, pero en Europa y dentro del settle del grupo).
 
@@ -57,7 +57,7 @@ public struct ItemRecibo: Equatable, Sendable {
 public func repartoDesdeRecibo(items: [ItemRecibo], impuestosMinor: Int64, propinaMinor: Int64) throws -> Reparto
 ```
 
-- [ ] **Step 1: Escribe los tests que fallan.**
+- **Step 1: Escribe los tests que fallan.**
 ```swift
 import Testing
 import TripSquadDomain
@@ -138,11 +138,11 @@ import TripSquadDomain
 }
 ```
 
-- [ ] **Step 2: Ejecuta y verifica que fallan.**
+- **Step 2: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadDomain --filter RepartoDesdeReciboTests`
 Expected: FAIL de compilación (`repartoDesdeRecibo`/`ItemRecibo` no existen).
 
-- [ ] **Step 3: Implementa `RepartoDesdeRecibo.swift`.**
+- **Step 3: Implementa `RepartoDesdeRecibo.swift`.**
 ```swift
 // Reparto de un recibo itemizado (momento mágico #2). El OCR/itemización es
 // on-device; aquí solo la cuenta, componiendo primitivas ya testeadas (ADR-0011).
@@ -198,11 +198,11 @@ public func repartoDesdeRecibo(items: [ItemRecibo], impuestosMinor: Int64, propi
 }
 ```
 
-- [ ] **Step 4: Ejecuta y verifica que pasan.**
+- **Step 4: Ejecuta y verifica que pasan.**
 Run: `swift test --package-path packages/TripSquadDomain --filter RepartoDesdeReciboTests`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit.**
+- **Step 5: Commit.**
 ```bash
 git add packages/TripSquadDomain/Sources/TripSquadDomain/RepartoDesdeRecibo.swift \
         packages/TripSquadDomain/Tests/TripSquadDomainTests/RepartoDesdeReciboTests.swift
@@ -232,7 +232,7 @@ extension CasosDeUsoGastos {
 }
 ```
 
-- [ ] **Step 1: Escribe los tests del caso de uso que fallan.** Usa el `RepositorioEnMemoria` como triple (implementa `GastoRepositorio` + `Membresia`), montando un viaje con miembro `a`. Calca el estilo de los tests de `CasosDeUsoGastos` existentes (busca el fichero de tests de gastos para el setup).
+- **Step 1: Escribe los tests del caso de uso que fallan.** Usa el `RepositorioEnMemoria` como triple (implementa `GastoRepositorio` + `Membresia`), montando un viaje con miembro `a`. Calca el estilo de los tests de `CasosDeUsoGastos` existentes (busca el fichero de tests de gastos para el setup).
 ```swift
 @Test func creaGastoExactoDesdeRecibo() async throws {
     let f = try await fixtureGastos()   // viaje t1, miembro a y b
@@ -287,11 +287,11 @@ extension CasosDeUsoGastos {
 }
 ```
 
-- [ ] **Step 2: Ejecuta y verifica que fallan.**
+- **Step 2: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter CasosDeUsoGastosDesdeReciboTests`
 Expected: FAIL (no existe `crearDesdeRecibo`).
 
-- [ ] **Step 3: Implementa `crearDesdeRecibo`** en `CasosDeUso.swift` (extensión o método dentro de `CasosDeUsoGastos`):
+- **Step 3: Implementa `crearDesdeRecibo`** en `CasosDeUso.swift` (extensión o método dentro de `CasosDeUsoGastos`):
 ```swift
 public func crearDesdeRecibo(tripId: String, gastoId: String, pagadoPor: MiembroId,
                              items: [ItemRecibo], impuestosMinor: Int64, propinaMinor: Int64,
@@ -313,17 +313,17 @@ public func crearDesdeRecibo(tripId: String, gastoId: String, pagadoPor: Miembro
 ```
 (Si `crear` es `public` en el mismo `struct`, el método puede ir dentro del `struct`; si va en `extension`, `crear` y las props que use deben ser accesibles — `crear` ya es `public`, así que la extensión funciona.)
 
-- [ ] **Step 4: Verifica los tests del caso de uso.**
+- **Step 4: Verifica los tests del caso de uso.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter CasosDeUsoGastosDesdeReciboTests`
 Expected: PASS.
 
-- [ ] **Step 5: Escribe los tests de ruta que fallan.** Calca `GastosRoutesTests` (busca el fichero; mismo harness de app + JWT + header `Idempotency-Key`). Casos: POST from-receipt con body válido → 201 + etag; sin `Idempotency-Key` → 400 `missing_idempotency_key`; body con ítem sin sharers → 422 `invalid_receipt`; actor no-miembro → 422 `not_member`.
+- **Step 5: Escribe los tests de ruta que fallan.** Calca `GastosRoutesTests` (busca el fichero; mismo harness de app + JWT + header `Idempotency-Key`). Casos: POST from-receipt con body válido → 201 + etag; sin `Idempotency-Key` → 400 `missing_idempotency_key`; body con ítem sin sharers → 422 `invalid_receipt`; actor no-miembro → 422 `not_member`.
 
-- [ ] **Step 6: Ejecuta y verifica que fallan.**
+- **Step 6: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadService --filter GastosDesdeReciboRoutesTests`
 Expected: FAIL (no existe la ruta).
 
-- [ ] **Step 7: Implementa la ruta** en `GastosRoutes.swift`, dentro de `montarGastos`, calcando `POST expenses`:
+- **Step 7: Implementa la ruta** en `GastosRoutes.swift`, dentro de `montarGastos`, calcando `POST expenses`:
 ```swift
 // POST /trips/:tripId/expenses/from-receipt — crear gasto desde recibo itemizado
 router.post("trips/:tripId/expenses/from-receipt") { req, ctx -> Response in
@@ -351,11 +351,11 @@ struct ReciboDTO: Decodable {
 }
 ```
 
-- [ ] **Step 8: Verifica los tests de ruta + build del paquete.**
+- **Step 8: Verifica los tests de ruta + build del paquete.**
 Run: `swift test --package-path packages/TripSquadService --filter GastosDesdeReciboRoutesTests`
 Expected: PASS. Luego `swift build --package-path packages/TripSquadService`.
 
-- [ ] **Step 9: Commit.**
+- **Step 9: Commit.**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/CasosDeUso.swift \
         packages/TripSquadExpenses/Tests/TripSquadExpensesTests/CasosDeUsoGastosDesdeReciboTests.swift \
@@ -372,13 +372,13 @@ git commit -m "feat(recibo): crearDesdeRecibo + POST /expenses/from-receipt"
 **Files:**
 - Create: `docs/decisions/00XX-recibo-split.md` (siguiente número libre ≥ 0025)
 
-- [ ] **Step 1: Escribe el ADR** (usa `_TEMPLATE.md`). Registra: OCR/itemización on-device (el back no parsea); descarte del free tier de Gemini por RGPD/términos UE (contexto); `repartoDesdeRecibo` compone `.igual`+`.porPeso`→`.exacto` reusando el motor testeado; impuestos/propina proporcional al subtotal (estilo Apple); importe derivado; el gasto entra por el `crear` existente y alimenta el settle; endpoint `POST .../expenses/from-receipt`. NOTA la decisión pendiente de "sharers⊆miembros" (parity con gastos normales). Enlaza el spec `docs/superpowers/specs/2026-07-25-recibo-split-on-device-design.md`. Verifica el nº libre (0023 = Brújula M8, 0024 = wedge).
+- **Step 1: Escribe el ADR** (usa `_TEMPLATE.md`). Registra: OCR/itemización on-device (el back no parsea); descarte del free tier de Gemini por RGPD/términos UE (contexto); `repartoDesdeRecibo` compone `.igual`+`.porPeso`→`.exacto` reusando el motor testeado; impuestos/propina proporcional al subtotal (estilo Apple); importe derivado; el gasto entra por el `crear` existente y alimenta el settle; endpoint `POST .../expenses/from-receipt`. NOTA la decisión pendiente de "sharers⊆miembros" (parity con gastos normales). Enlaza el spec `docs/superpowers/specs/2026-07-25-recibo-split-on-device-design.md`. Verifica el nº libre (0023 = Brújula M8, 0024 = wedge).
 
-- [ ] **Step 2: Build + test de los paquetes tocados.**
+- **Step 2: Build + test de los paquetes tocados.**
 Run: `for p in TripSquadDomain TripSquadExpenses TripSquadService; do swift build --package-path packages/$p && swift test --package-path packages/$p; done`
 Expected: verde.
 
-- [ ] **Step 3: Commit.**
+- **Step 3: Commit.**
 ```bash
 git add docs/decisions/00XX-recibo-split.md
 git commit -m "docs(recibo): ADR de recibo->split on-device"

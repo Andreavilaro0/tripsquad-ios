@@ -1,6 +1,6 @@
 # `:settle` — Sugerir (GET) + Registrar pago (POST) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Referencia de diseño — no es un tracker.** El estado de ejecución y su avance viven en beads (bd), nunca en este documento. Los pasos de abajo son el plan de referencia (viñetas), no checkboxes de seguimiento. Ver AGENTS.md, sección Rules.
 
 **Goal:** Implementar los dos recursos de `:settle` decididos en ADR-0016: `GET /trips/:tripId/settlement/suggestion` (lectura pura) y `POST /trips/:tripId/settlements` (registro idempotente de un pago real).
 
@@ -31,7 +31,7 @@
   - `struct Settlement { let settlementId: String; let tripId: String; let from: MiembroId; let to: MiembroId; let transferIndex: Int; let amountMinor: Int64 }`
   - `extension Settlement { var idDeterminista: String }` — `"\(settlementId)|\(from.raw)|\(to.raw)|\(transferIndex)"` (la PK que la tabla materializa como uuidv5; en dominio basta la cadena estable).
 
-- [ ] **Step 1: Write the failing test**
+- **Step 1: Write the failing test**
 
 ```swift
 import Testing
@@ -54,12 +54,12 @@ struct SettlementTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- **Step 2: Run test to verify it fails**
 
 Run: `cd packages/TripSquadExpenses && swift test --filter SettlementTests`
 Expected: FAIL — `cannot find 'Settlement' in scope`.
 
-- [ ] **Step 3: Write minimal implementation**
+- **Step 3: Write minimal implementation**
 
 ```swift
 import TripSquadDomain
@@ -88,12 +88,12 @@ public extension Settlement {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- **Step 4: Run test to verify it passes**
 
 Run: `cd packages/TripSquadExpenses && swift test --filter SettlementTests`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- **Step 5: Commit**
 
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/Settlement.swift packages/TripSquadExpenses/Tests/TripSquadExpensesTests/SettlementTests.swift
@@ -117,7 +117,7 @@ git commit -m "feat(settle): modelo Settlement + clave determinista (ADR-0016)"
   - `struct CasosDeUsoSettle { init(repo: SettlementRepositorio, membresia: Membresia); func registrarPago(_:) async throws -> ResultadoSettle; func sugerir(saldos:) -> [Transferencia] }`
   - `struct ComandoRegistrarPago { let tripId, settlementId: String; let from, to: MiembroId; let transferIndex: Int; let amountMinor: Int64; let actor: MiembroId }`
 
-- [ ] **Step 1: Write the failing test**
+- **Step 1: Write the failing test**
 
 ```swift
 import Testing
@@ -167,12 +167,12 @@ struct CasosDeUsoSettleTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- **Step 2: Run test to verify it fails**
 
 Run: `cd packages/TripSquadExpenses && swift test --filter CasosDeUsoSettleTests`
 Expected: FAIL — `cannot find 'CasosDeUsoSettle'` / `RepositorioEnMemoria` no conforma `SettlementRepositorio` (Task 3 lo añade; este test compila tras Task 3 pero se ESCRIBE aquí; si SwiftPM bloquea la compilación del módulo entero, hacer Task 2 y 3 en el mismo ciclo rojo→verde).
 
-- [ ] **Step 3: Write minimal implementation**
+- **Step 3: Write minimal implementation**
 
 Añadir al final de `Puertos.swift`:
 
@@ -237,12 +237,12 @@ public struct CasosDeUsoSettle: Sendable {
 }
 ```
 
-- [ ] **Step 4: Run test (junto con Task 3)**
+- **Step 4: Run test (junto con Task 3)**
 
 Run: `cd packages/TripSquadExpenses && swift test --filter CasosDeUsoSettleTests`
 Expected: PASS tras completar Task 3 (el repo en-memoria debe conformar el puerto).
 
-- [ ] **Step 5: Commit**
+- **Step 5: Commit**
 
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/Puertos.swift packages/TripSquadExpenses/Sources/TripSquadExpenses/CasosDeUsoSettle.swift packages/TripSquadExpenses/Tests/TripSquadExpensesTests/CasosDeUsoSettleTests.swift
@@ -260,9 +260,9 @@ git commit -m "feat(settle): puerto SettlementRepositorio + caso de uso registra
 - Consumes: `Settlement`, `ResultadoSettle`, `SettlementRepositorio` (Task 2).
 - Produces: `extension RepositorioEnMemoria: SettlementRepositorio`. Dedupe por `idDeterminista` con un `Set<String>` interno.
 
-- [ ] **Step 1: (test cubierto por Task 2)** — los tests de Task 2 son la especificación ejecutable de esta conformidad.
+- **Step 1: (test cubierto por Task 2)** — los tests de Task 2 son la especificación ejecutable de esta conformidad.
 
-- [ ] **Step 2: Añadir el almacén y la conformidad**
+- **Step 2: Añadir el almacén y la conformidad**
 
 En `RepositorioEnMemoria` (dentro del actor), añadir la propiedad:
 
@@ -285,12 +285,12 @@ extension RepositorioEnMemoria: SettlementRepositorio {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- **Step 3: Run tests**
 
 Run: `cd packages/TripSquadExpenses && swift test`
 Expected: PASS — Task 2 y Task 3 verdes (registra, duplicado, not_member, invalid_amount).
 
-- [ ] **Step 4: Commit**
+- **Step 4: Commit**
 
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/RepositorioEnMemoria.swift
@@ -315,7 +315,7 @@ git commit -m "feat(settle): RepositorioEnMemoria conforma SettlementRepositorio
 - `GET /trips/:tripId/settlement/suggestion` → 200 `{"transfers":[{"from","to","amountMinor"}]}`. Membresía requerida (el middleware ya garantiza auth; la no-membresía → 403 `not_member`). Sin Idempotency-Key.
 - `POST /trips/:tripId/settlements` → 201 `{"result":"registered"}` la 1ª vez; 200 `{"result":"duplicate"}` en reintento del mismo `settlementId`; 422 `{"error":{"code":"..."}}` en rechazo permanente (`invalid_amount`, `not_member`, `trip_closed`) en la API directa. Body: `{"settlementId","from","to","transferIndex","amountMinor"}`. El `actor` sale del JWT, no del body.
 
-- [ ] **Step 1: Write the failing test**
+- **Step 1: Write the failing test**
 
 ```swift
 import Foundation
@@ -406,12 +406,12 @@ struct SettleRoutesTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- **Step 2: Run test to verify it fails**
 
 Run: `cd packages/TripSquadService && swift test --filter SettleRoutesTests`
 Expected: FAIL — `Dependencias` no tiene `casosSettle` / `montarSettle` no existe.
 
-- [ ] **Step 3: Write minimal implementation**
+- **Step 3: Write minimal implementation**
 
 En `Router.swift`, añadir a `Dependencias` la propiedad `casosSettle` (y a su `init`), y montar las rutas en el grupo autenticado (junto a `montarGastos`):
 
@@ -482,12 +482,12 @@ func montarSettle(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
 
 Nota: `errorJSON` ya existe en `GastosRoutes.swift` (mismo módulo). `balances` y `MiembroId` vienen de `TripSquadDomain`. Actualizar TODOS los sitios que construyen `Dependencias` (main.swift + los helper `app()` de RoutesTests) para pasar `casosSettle`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- **Step 4: Run test to verify it passes**
 
 Run: `cd packages/TripSquadService && swift test`
 Expected: PASS — SettleRoutesTests (5) + los tests previos siguen verdes.
 
-- [ ] **Step 5: Commit**
+- **Step 5: Commit**
 
 ```bash
 git add packages/TripSquadService/Sources/TripSquadServiceCore/SettleRoutes.swift packages/TripSquadService/Sources/TripSquadServiceCore/Router.swift packages/TripSquadService/Sources/TripSquadService/main.swift packages/TripSquadService/Tests/TripSquadServiceTests/SettleRoutesTests.swift packages/TripSquadService/Tests/TripSquadServiceTests/RoutesTests.swift
@@ -504,7 +504,7 @@ git commit -m "feat(settle): endpoints GET suggestion + POST settlements (ADR-00
 **Interfaces:**
 - Consumes: todo lo anterior. Verifica el invariante de ADR-0015 §5 sobre el endpoint real.
 
-- [ ] **Step 1: Write the failing/verifying test**
+- **Step 1: Write the failing/verifying test**
 
 ```swift
     @Test("G4 (8hn): dos POST concurrentes con el mismo settlementId = una registrada")
@@ -540,12 +540,12 @@ Añadir a `RepositorioEnMemoria` un helper de test:
     }
 ```
 
-- [ ] **Step 2: Run test to verify behavior**
+- **Step 2: Run test to verify behavior**
 
 Run: `cd packages/TripSquadService && swift test --filter SettleRoutesTests`
 Expected: PASS. NOTA: el `RepositorioEnMemoria` es un `actor`, así que las 8 tareas serializan en él — exactamente una ve el `Set` vacío y registra. Este test fija el invariante que el adaptador Postgres deberá replicar con `ON CONFLICT DO NOTHING` (bead futuro de integración Postgres).
 
-- [ ] **Step 3: Commit**
+- **Step 3: Commit**
 
 ```bash
 git add packages/TripSquadService/Tests/TripSquadServiceTests/SettleRoutesTests.swift packages/TripSquadExpenses/Sources/TripSquadExpenses/RepositorioEnMemoria.swift

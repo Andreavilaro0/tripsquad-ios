@@ -1,6 +1,6 @@
 # Wedge "Quién ya reservó" — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Referencia de diseño — no es un tracker.** El estado de ejecución y su avance viven en beads (bd), nunca en este documento. Los pasos de abajo son el plan de referencia (viñetas), no checkboxes de seguimiento. Ver AGENTS.md, sección Rules.
 
 **Goal:** Dar al viaje un tablero de "quién ya reservó" enganchando un estado de reserva por persona a las actividades del itinerario.
 
@@ -93,11 +93,11 @@ public protocol ReservaRepositorio: Sendable {
 }
 ```
 
-- [ ] **Step 1: Escribe `Reserva.swift`** con los tipos de arriba (copia las firmas del bloque Interfaces, con `import TripSquadDomain` para `MiembroId`). Añade cabecera-comentario al estilo de `Itinerario.swift` (qué es, y que la autorización vive en `CasosDeUsoReserva`).
+- **Step 1: Escribe `Reserva.swift`** con los tipos de arriba (copia las firmas del bloque Interfaces, con `import TripSquadDomain` para `MiembroId`). Añade cabecera-comentario al estilo de `Itinerario.swift` (qué es, y que la autorización vive en `CasosDeUsoReserva`).
 
-- [ ] **Step 2: Añade `ReservaRepositorio` a `Puertos.swift`** (el bloque de arriba), junto a `ItinerarioRepositorio`, con el mismo estilo de comentario.
+- **Step 2: Añade `ReservaRepositorio` a `Puertos.swift`** (el bloque de arriba), junto a `ItinerarioRepositorio`, con el mismo estilo de comentario.
 
-- [ ] **Step 3: Escribe el test que falla** (el doble en memoria aún no implementa el puerto):
+- **Step 3: Escribe el test que falla** (el doble en memoria aún no implementa el puerto):
 
 ```swift
 import Testing
@@ -139,11 +139,11 @@ import TripSquadDomain
 }
 ```
 
-- [ ] **Step 4: Ejecuta y verifica que falla.**
+- **Step 4: Ejecuta y verifica que falla.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter RepositorioReservaEnMemoriaTests`
 Expected: FAIL de compilación (`RepositorioEnMemoria` no conforma `ReservaRepositorio`).
 
-- [ ] **Step 5: Implementa `ReservaRepositorio` en `RepositorioEnMemoria.swift`.** Añade un almacén `private var reservas: [String: Reserva] = [:]` (clave = `"\(tripId)|\(activityId)"`) protegido por el MISMO mecanismo de aislamiento que usan los otros almacenes del fichero (mira cómo lo hace para itinerario). Implementa:
+- **Step 5: Implementa `ReservaRepositorio` en `RepositorioEnMemoria.swift`.** Añade un almacén `private var reservas: [String: Reserva] = [:]` (clave = `"\(tripId)|\(activityId)"`) protegido por el MISMO mecanismo de aislamiento que usan los otros almacenes del fichero (mira cómo lo hace para itinerario). Implementa:
 ```swift
 func upsert(_ r: Reserva, ahora: Date) async throws { reservas["\(r.tripId)|\(r.activityId)"] = r }
 func reserva(activityId: String, en tripId: String) async throws -> Reserva? { reservas["\(tripId)|\(activityId)"] }
@@ -165,11 +165,11 @@ func borrar(activityId: String, en tripId: String) async throws { reservas["\(tr
 ```
 (Si `RepositorioEnMemoria` es un `actor`, quita los `async` innecesarios según su estilo; si usa un lock, envuelve igual que los demás métodos.)
 
-- [ ] **Step 6: Ejecuta y verifica que pasa.**
+- **Step 6: Ejecuta y verifica que pasa.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter RepositorioReservaEnMemoriaTests`
 Expected: PASS (3 tests).
 
-- [ ] **Step 7: Commit.**
+- **Step 7: Commit.**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/Reserva.swift \
         packages/TripSquadExpenses/Sources/TripSquadExpenses/Puertos.swift \
@@ -212,7 +212,7 @@ public enum ModoDefinicion: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 1: Escribe los tests que fallan** (la clase aún no existe). Usa el `RepositorioEnMemoria` como triple (implementa `ReservaRepositorio` + `ItinerarioRepositorio` + `Membresia` + `ViajeRepositorio`; monta un viaje con owner `a` y miembro `b` como en `CasosDeUsoItinerarioTests`). Casos mínimos:
+- **Step 1: Escribe los tests que fallan** (la clase aún no existe). Usa el `RepositorioEnMemoria` como triple (implementa `ReservaRepositorio` + `ItinerarioRepositorio` + `Membresia` + `ViajeRepositorio`; monta un viaje con owner `a` y miembro `b` como en `CasosDeUsoItinerarioTests`). Casos mínimos:
 
 ```swift
 import Testing
@@ -304,11 +304,11 @@ import TripSquadDomain
 }
 ```
 
-- [ ] **Step 2: Ejecuta y verifica que fallan.**
+- **Step 2: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter CasosDeUsoReservaTests`
 Expected: FAIL de compilación (`CasosDeUsoReserva` no existe).
 
-- [ ] **Step 3: Implementa `CasosDeUsoReserva.swift`.** Calca el gate de `CasosDeUsoItinerario.editar/borrar`. Lógica clave:
+- **Step 3: Implementa `CasosDeUsoReserva.swift`.** Calca el gate de `CasosDeUsoItinerario.editar/borrar`. Lógica clave:
 
 ```swift
 import Foundation
@@ -385,11 +385,11 @@ public struct CasosDeUsoReserva: Sendable {
 }
 ```
 
-- [ ] **Step 4: Ejecuta y verifica que pasan.**
+- **Step 4: Ejecuta y verifica que pasan.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter CasosDeUsoReservaTests`
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- **Step 5: Commit.**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/CasosDeUsoReserva.swift \
         packages/TripSquadExpenses/Tests/TripSquadExpensesTests/CasosDeUsoReservaTests.swift
@@ -415,21 +415,21 @@ git commit -m "feat(reserva): CasosDeUsoReserva con autorizacion (definir/marcar
 - `PUT /trips/:tripId/itinerary/:activityId/reservation/status` → `marcar`. Body `{ memberId?, estado }`.
 - `GET /trips/:tripId/reservations` → `tablero`.
 
-- [ ] **Step 1: Escribe los tests de ruta que fallan.** Calca `ItinerarioRoutesTests.swift` (mismo helper de app de test + JWT). Casos: PUT reservation por creador → 201/200 con el DTO; PUT status propio → 200; PUT status ajeno sin owner → 403; PUT con `kind` basura → 422; GET /reservations por no-miembro → 403; GET devuelve el tablero. (Escribe el cuerpo real de cada test copiando el estilo de `ItinerarioRoutesTests`; NO dejes placeholders.)
+- **Step 1: Escribe los tests de ruta que fallan.** Calca `ItinerarioRoutesTests.swift` (mismo helper de app de test + JWT). Casos: PUT reservation por creador → 201/200 con el DTO; PUT status propio → 200; PUT status ajeno sin owner → 403; PUT con `kind` basura → 422; GET /reservations por no-miembro → 403; GET devuelve el tablero. (Escribe el cuerpo real de cada test copiando el estilo de `ItinerarioRoutesTests`; NO dejes placeholders.)
 
-- [ ] **Step 2: Ejecuta y verifica que fallan.**
+- **Step 2: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadService --filter ReservaRoutesTests`
 Expected: FAIL (no existe `montarReservas`).
 
-- [ ] **Step 3: Implementa `ReservaRoutes.swift`.** DTOs de entrada/salida `Decodable`/`Encodable` (nunca JSON a mano — usa `JSONEncoder`, ADR del bead db0). Mapeo de error idéntico a `respuestaErrorItinerario` pero para `ErrorReserva` (`.noAutorizado`→403 `not_member`, `.viajeCerrado`→409 `trip_closed`, `.reglaViolada(code)`→422 `code`). Decodifica `kind`/`estado`/`mode` a los enums; valor no reconocido → 422 `enum_invalido` (no crash). DTO de salida de `Reserva` que serializa el `mode` como `{ tipo: "cadaUnoElSuyo", estados: [{memberId, estado}] }` o `{ tipo: "unoParaTodos", responsable, estado }`.
+- **Step 3: Implementa `ReservaRoutes.swift`.** DTOs de entrada/salida `Decodable`/`Encodable` (nunca JSON a mano — usa `JSONEncoder`, ADR del bead db0). Mapeo de error idéntico a `respuestaErrorItinerario` pero para `ErrorReserva` (`.noAutorizado`→403 `not_member`, `.viajeCerrado`→409 `trip_closed`, `.reglaViolada(code)`→422 `code`). Decodifica `kind`/`estado`/`mode` a los enums; valor no reconocido → 422 `enum_invalido` (no crash). DTO de salida de `Reserva` que serializa el `mode` como `{ tipo: "cadaUnoElSuyo", estados: [{memberId, estado}] }` o `{ tipo: "unoParaTodos", responsable, estado }`.
 
-- [ ] **Step 4: Wiring.** En `Dependencias`, añade `let casosReserva: CasosDeUsoReserva` y constrúyelo donde se construyen `casosItinerario` (mismo repo en memoria/Postgres + `membresia` + `viajes`). En `Router.swift`, añade `montarReservas(grupoAutenticado, deps)` junto a `montarItinerario`.
+- **Step 4: Wiring.** En `Dependencias`, añade `let casosReserva: CasosDeUsoReserva` y constrúyelo donde se construyen `casosItinerario` (mismo repo en memoria/Postgres + `membresia` + `viajes`). En `Router.swift`, añade `montarReservas(grupoAutenticado, deps)` junto a `montarItinerario`.
 
-- [ ] **Step 5: Ejecuta y verifica que pasan.**
+- **Step 5: Ejecuta y verifica que pasan.**
 Run: `swift test --package-path packages/TripSquadService --filter ReservaRoutesTests`
 Expected: PASS.
 
-- [ ] **Step 6: Commit.**
+- **Step 6: Commit.**
 ```bash
 git add packages/TripSquadService/Sources/TripSquadServiceCore/ReservaRoutes.swift \
         packages/TripSquadService/Sources/TripSquadServiceCore/Router.swift \
@@ -450,7 +450,7 @@ git commit -m "feat(reserva): rutas HTTP (definir/marcar/quitar/tablero) + wirin
 **Interfaces:**
 - Produces: `RepositorioReservaPostgres: ReservaRepositorio` (mismas firmas del puerto).
 
-- [ ] **Step 1: Escribe la migración `0008_reservas.sql`.**
+- **Step 1: Escribe la migración `0008_reservas.sql`.**
 ```sql
 CREATE TABLE itinerary_reservations (
     activity_id     TEXT PRIMARY KEY REFERENCES itinerary_items(id) ON DELETE CASCADE,
@@ -472,19 +472,19 @@ CREATE TABLE itinerary_reservation_members (
 ```
 (Verifica el nombre real de la tabla de actividades en `0005_itinerario.sql` — usa ese nombre exacto en el `REFERENCES`.)
 
-- [ ] **Step 2: Escribe los tests Postgres que fallan.** Calca `RepositorioItinerarioPostgresTests.swift` (mismo harness de BD de test, skip si no hay `DATABASE_URL`). Casos: `upsert` + `reserva` round-trip de ambos modos; `marcarEstado` de un miembro; `tablero` ordenado; `upsert` reemplaza participantes; `borrar` limpia ambas tablas.
+- **Step 2: Escribe los tests Postgres que fallan.** Calca `RepositorioItinerarioPostgresTests.swift` (mismo harness de BD de test, skip si no hay `DATABASE_URL`). Casos: `upsert` + `reserva` round-trip de ambos modos; `marcarEstado` de un miembro; `tablero` ordenado; `upsert` reemplaza participantes; `borrar` limpia ambas tablas.
 
-- [ ] **Step 3: Ejecuta y verifica que fallan.**
+- **Step 3: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadExpensesPostgres --filter RepositorioReservaPostgresTests`
 Expected: FAIL (no existe el adaptador).
 
-- [ ] **Step 4: Implementa `RepositorioReservaPostgres.swift`.** Calca `RepositorioItinerarioPostgres.swift`: mismo `PostgresClient`, mismo `Codec`. `upsert` en transacción: `INSERT ... ON CONFLICT (activity_id) DO UPDATE` en `itinerary_reservations`, borra e inserta las filas de `itinerary_reservation_members` (reemplazo total). `reserva`/`tablero` reconstruyen el `ModoReserva` juntando ambas tablas. `marcarEstado` con `miembro` no-nil → `UPDATE itinerary_reservation_members`; con nil → `UPDATE itinerary_reservations SET single_estado`.
+- **Step 4: Implementa `RepositorioReservaPostgres.swift`.** Calca `RepositorioItinerarioPostgres.swift`: mismo `PostgresClient`, mismo `Codec`. `upsert` en transacción: `INSERT ... ON CONFLICT (activity_id) DO UPDATE` en `itinerary_reservations`, borra e inserta las filas de `itinerary_reservation_members` (reemplazo total). `reserva`/`tablero` reconstruyen el `ModoReserva` juntando ambas tablas. `marcarEstado` con `miembro` no-nil → `UPDATE itinerary_reservation_members`; con nil → `UPDATE itinerary_reservations SET single_estado`.
 
-- [ ] **Step 5: Ejecuta y verifica que pasan** (con `DATABASE_URL` de test).
+- **Step 5: Ejecuta y verifica que pasan** (con `DATABASE_URL` de test).
 Run: `swift test --package-path packages/TripSquadExpensesPostgres --filter RepositorioReservaPostgresTests`
 Expected: PASS.
 
-- [ ] **Step 6: Commit.**
+- **Step 6: Commit.**
 ```bash
 git add db/migrations/0008_reservas.sql \
         packages/TripSquadExpensesPostgres/Sources/TripSquadExpensesPostgres/RepositorioReservaPostgres.swift \
@@ -505,7 +505,7 @@ git commit -m "feat(reserva): adaptador Postgres + migracion 0008_reservas"
 
 **Regla:** al expulsar/salir un miembro, EN LA MISMA TRANSACCIÓN: (1) borrar sus filas de `itinerary_reservation_members` de ese viaje; (2) donde sea `responsible_id` de un `uno_para_todos`, poner `responsible_id = NULL` y `single_estado = 'pendiente'`. Consistente con "expulsar revoca huella" (el mismo `quitarMiembro` ya revoca invitaciones).
 
-- [ ] **Step 1: Escribe el test que falla (en memoria).** Monta viaje con a (owner) y b; actividad; reservable `cadaUnoElSuyo([a,b])` + otro `unoParaTodos(responsable: b)`. Expulsa a b. Verifica: b ya no está en los estados del primero; el segundo tiene `responsable == nil` y `estado == .pendiente`.
+- **Step 1: Escribe el test que falla (en memoria).** Monta viaje con a (owner) y b; actividad; reservable `cadaUnoElSuyo([a,b])` + otro `unoParaTodos(responsable: b)`. Expulsa a b. Verifica: b ya no está en los estados del primero; el segundo tiene `responsable == nil` y `estado == .pendiente`.
 ```swift
 @Test func expulsarLimpiaEstadoDeReserva() async throws {
     let f = try await fixtureConReservas()   // a owner, b miembro, 2 reservables como arriba
@@ -517,17 +517,17 @@ git commit -m "feat(reserva): adaptador Postgres + migracion 0008_reservas"
 }
 ```
 
-- [ ] **Step 2: Ejecuta y verifica que falla.**
+- **Step 2: Ejecuta y verifica que falla.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter expulsarLimpiaEstadoDeReserva`
 Expected: FAIL (el `quitarMiembro` en memoria aún no toca reservas).
 
-- [ ] **Step 3: Implementa en `RepositorioEnMemoria.quitarMiembro`:** tras marcar la salida, recorre `reservas` de ese `tripId` y aplica la regla (quita al miembro del mapa `cadaUnoElSuyo`; si es el `responsable` de un `unoParaTodos`, ponlo a `nil`+`.pendiente`).
+- **Step 3: Implementa en `RepositorioEnMemoria.quitarMiembro`:** tras marcar la salida, recorre `reservas` de ese `tripId` y aplica la regla (quita al miembro del mapa `cadaUnoElSuyo`; si es el `responsable` de un `unoParaTodos`, ponlo a `nil`+`.pendiente`).
 
-- [ ] **Step 4: Ejecuta y verifica que pasa.**
+- **Step 4: Ejecuta y verifica que pasa.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter expulsarLimpiaEstadoDeReserva`
 Expected: PASS.
 
-- [ ] **Step 5: Replica en Postgres.** En `RepositorioViajePostgres.quitarMiembro`, dentro del `withTransaction` existente, añade tras el `UPDATE trip_invites`:
+- **Step 5: Replica en Postgres.** En `RepositorioViajePostgres.quitarMiembro`, dentro del `withTransaction` existente, añade tras el `UPDATE trip_invites`:
 ```swift
 _ = try await conn.query("""
     DELETE FROM itinerary_reservation_members
@@ -540,9 +540,9 @@ _ = try await conn.query("""
     """, logger: self.logger)
 ```
 
-- [ ] **Step 6: Escribe y corre el test Postgres equivalente** (calca el patrón de `RepositorioViajePostgresTests` de invitaciones revocadas) y verifica PASS con `DATABASE_URL`.
+- **Step 6: Escribe y corre el test Postgres equivalente** (calca el patrón de `RepositorioViajePostgresTests` de invitaciones revocadas) y verifica PASS con `DATABASE_URL`.
 
-- [ ] **Step 7: Commit.**
+- **Step 7: Commit.**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/RepositorioEnMemoria.swift \
         packages/TripSquadExpensesPostgres/Sources/TripSquadExpensesPostgres/RepositorioViajePostgres.swift \
@@ -558,13 +558,13 @@ git commit -m "feat(reserva): expulsar/salir limpia estado de reserva en la mism
 **Files:**
 - Create: `docs/decisions/00XX-reservas-por-persona.md` (siguiente número libre)
 
-- [ ] **Step 1: Escribe el ADR** (usa `docs/decisions/_TEMPLATE.md`). Registra: el estado de reserva vive sobre `ActividadItinerario`; 2 estados (pendiente/reservado); 2 modos (cadaUnoElSuyo con subconjunto / unoParaTodos con responsable); auth (cada uno el suyo + owner cualquiera; definir/quitar = creador u owner); errores sin fuga de existencia; limpieza transaccional al expulsar. Enlaza el spec `docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md`.
+- **Step 1: Escribe el ADR** (usa `docs/decisions/_TEMPLATE.md`). Registra: el estado de reserva vive sobre `ActividadItinerario`; 2 estados (pendiente/reservado); 2 modos (cadaUnoElSuyo con subconjunto / unoParaTodos con responsable); auth (cada uno el suyo + owner cualquiera; definir/quitar = creador u owner); errores sin fuga de existencia; limpieza transaccional al expulsar. Enlaza el spec `docs/superpowers/specs/2026-07-25-wedge-reserva-por-persona-design.md`.
 
-- [ ] **Step 2: Build + test de todo el workspace.**
+- **Step 2: Build + test de todo el workspace.**
 Run: `for p in TripSquadDomain TripSquadExpenses TripSquadExpensesPostgres TripSquadService; do swift build --package-path packages/$p && swift test --package-path packages/$p; done`
 Expected: todo verde (los tests Postgres se saltan si no hay `DATABASE_URL`).
 
-- [ ] **Step 3: Commit.**
+- **Step 3: Commit.**
 ```bash
 git add docs/decisions/00XX-reservas-por-persona.md
 git commit -m "docs(reserva): ADR del wedge quien ya reservo"

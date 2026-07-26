@@ -1,6 +1,6 @@
 # Confirmaciones → auto-marca el wedge (dy5) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Referencia de diseño — no es un tracker.** El estado de ejecución y su avance viven en beads (bd), nunca en este documento. Los pasos de abajo son el plan de referencia (viñetas), no checkboxes de seguimiento. Ver AGENTS.md, sección Rules.
 
 **Goal:** Subir una confirmación (texto) desde la app y que el back extraiga sus datos (IA) y marque la reserva del actor como `reservado` en el wedge, guardando nº/fecha como evidencia.
 
@@ -82,11 +82,11 @@ public final class EstructuradorConfirmacionFake: EstructuradorConfirmacion, @un
     func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion?
 ```
 
-- [ ] **Step 1: Escribe `Confirmacion.swift`** con los tipos + el fake de arriba. El fake: si `textoConfirmacion.contains("__ILEGIBLE__")` → `throw ErrorEstructurador.ilegible` (define `public enum ErrorEstructurador: Error, Sendable { case ilegible }`); si no, guarda `ultimoTexto = textoConfirmacion` y devuelve `datos`.
+- **Step 1: Escribe `Confirmacion.swift`** con los tipos + el fake de arriba. El fake: si `textoConfirmacion.contains("__ILEGIBLE__")` → `throw ErrorEstructurador.ilegible` (define `public enum ErrorEstructurador: Error, Sendable { case ilegible }`); si no, guarda `ultimoTexto = textoConfirmacion` y devuelve `datos`.
 
-- [ ] **Step 2: Añade los 2 métodos a `ReservaRepositorio`** en `Puertos.swift` (bloque de arriba), con comentario al estilo del fichero.
+- **Step 2: Añade los 2 métodos a `ReservaRepositorio`** en `Puertos.swift` (bloque de arriba), con comentario al estilo del fichero.
 
-- [ ] **Step 3: Escribe el test que falla:**
+- **Step 3: Escribe el test que falla:**
 ```swift
 import Testing
 import Foundation
@@ -110,11 +110,11 @@ import TripSquadDomain
 }
 ```
 
-- [ ] **Step 4: Ejecuta y verifica que falla.**
+- **Step 4: Ejecuta y verifica que falla.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter ConfirmacionEnMemoriaTests`
 Expected: FAIL de compilación.
 
-- [ ] **Step 5: Implementa** en `RepositorioEnMemoria` un almacén `private var confirmaciones: [String: Confirmacion] = [:]` (clave `"\(tripId)|\(activityId)|\(miembro.raw)"`) siguiendo el patrón de aislamiento del fichero (es un `actor`):
+- **Step 5: Implementa** en `RepositorioEnMemoria` un almacén `private var confirmaciones: [String: Confirmacion] = [:]` (clave `"\(tripId)|\(activityId)|\(miembro.raw)"`) siguiendo el patrón de aislamiento del fichero (es un `actor`):
 ```swift
 func guardarConfirmacion(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws {
     confirmaciones["\(tripId)|\(activityId)|\(miembro.raw)"] = c
@@ -124,11 +124,11 @@ func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) asy
 }
 ```
 
-- [ ] **Step 6: Ejecuta y verifica que pasa.**
+- **Step 6: Ejecuta y verifica que pasa.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter ConfirmacionEnMemoriaTests`
 Expected: PASS.
 
-- [ ] **Step 7: Commit.**
+- **Step 7: Commit.**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/Confirmacion.swift \
         packages/TripSquadExpenses/Sources/TripSquadExpenses/Puertos.swift \
@@ -165,7 +165,7 @@ public func registrarConfirmacion(tripId: String, activityId: String, textoConfi
 5. Construye `Confirmacion` desde `datos`, `repo.guardarConfirmacion(...)`, y **marca `reservado`**: `repo.marcarEstado(activityId:, en:, miembro: actor, estado: .reservado)` (mismo repo que usa `marcar`).
 6. Devuelve `.success(confirmacion)`.
 
-- [ ] **Step 1: Escribe los tests que fallan.** Reusa el fixture del wedge (`CasosDeUsoReservaTests`: owner `a`, miembro `b`, actividad `act1`, y un reservable `cadaUnoElSuyo([a,b])`). Inyecta un `EstructuradorConfirmacionFake`.
+- **Step 1: Escribe los tests que fallan.** Reusa el fixture del wedge (`CasosDeUsoReservaTests`: owner `a`, miembro `b`, actividad `act1`, y un reservable `cadaUnoElSuyo([a,b])`). Inyecta un `EstructuradorConfirmacionFake`.
 ```swift
 @Test func registraGuardaYMarcaReservado() async throws {
     let f = try await fixtureConReservable()   // reservable cadaUnoElSuyo [a,b] en act1
@@ -205,11 +205,11 @@ public func registrarConfirmacion(tripId: String, activityId: String, textoConfi
 ```
 (Amplía el fake con `public private(set) var llamadas = 0` incrementado en `extraer`.)
 
-- [ ] **Step 2: Ejecuta y verifica que fallan.**
+- **Step 2: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadExpenses --filter RegistrarConfirmacionTests`
 Expected: FAIL.
 
-- [ ] **Step 3: Implementa** el init param + `registrarConfirmacion` + `redactar` en `CasosDeUsoReserva.swift` (lógica de arriba). `redactar`:
+- **Step 3: Implementa** el init param + `registrarConfirmacion` + `redactar` en `CasosDeUsoReserva.swift` (lógica de arriba). `redactar`:
 ```swift
 private func redactar(_ texto: String) -> String {
     // Secuencias de 13-19 dígitos (con espacios/guiones) que parezcan tarjeta.
@@ -220,11 +220,11 @@ private func redactar(_ texto: String) -> String {
 ```
 **Ojo (Task 3 lo consume):** al añadir el init param `estructurador`, el wiring de `Dependencias` y TODOS los sitios que construyen `CasosDeUsoReserva` (incl. tests del wedge y `main.swift`) deben pasar un `estructurador` (usa `EstructuradorConfirmacionFake` en tests/wiring por defecto). Actualízalos para que compile.
 
-- [ ] **Step 4: Ejecuta y verifica que pasan** (incluidos los tests del wedge, que ahora construyen `CasosDeUsoReserva` con el fake).
+- **Step 4: Ejecuta y verifica que pasan** (incluidos los tests del wedge, que ahora construyen `CasosDeUsoReserva` con el fake).
 Run: `swift test --package-path packages/TripSquadExpenses`
 Expected: PASS (todo el paquete).
 
-- [ ] **Step 5: Commit.**
+- **Step 5: Commit.**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/CasosDeUsoReserva.swift \
         packages/TripSquadExpenses/Tests/TripSquadExpensesTests/RegistrarConfirmacionTests.swift \
@@ -245,13 +245,13 @@ git commit -m "feat(confirmaciones): registrarConfirmacion (redacta -> extrae ->
 - Consumes: `CasosDeUsoReserva.registrarConfirmacion` (Task 2).
 - Produces: ruta `POST /trips/:tripId/itinerary/:itemId/reservation/confirmation`, body `{ confirmationText }`.
 
-- [ ] **Step 1: Escribe los tests de ruta que fallan.** Calca `ReservaRoutesTests.swift` (app + JWT). Casos: POST con texto válido por un miembro incluido → 200 con el DTO de confirmación (nº/fecha/tipo/proveedor); por no-miembro → 403; con `__ILEGIBLE__` → 422 `confirmacion_ilegible`; body sin `confirmationText` → 400/422.
+- **Step 1: Escribe los tests de ruta que fallan.** Calca `ReservaRoutesTests.swift` (app + JWT). Casos: POST con texto válido por un miembro incluido → 200 con el DTO de confirmación (nº/fecha/tipo/proveedor); por no-miembro → 403; con `__ILEGIBLE__` → 422 `confirmacion_ilegible`; body sin `confirmationText` → 400/422.
 
-- [ ] **Step 2: Ejecuta y verifica que fallan.**
+- **Step 2: Ejecuta y verifica que fallan.**
 Run: `swift test --package-path packages/TripSquadService --filter ConfirmacionRoutesTests`
 Expected: FAIL.
 
-- [ ] **Step 3: Implementa la ruta** en `ReservaRoutes.swift` (dentro de `montarReservas`), calcando la ruta `PUT .../reservation/status`:
+- **Step 3: Implementa la ruta** en `ReservaRoutes.swift` (dentro de `montarReservas`), calcando la ruta `PUT .../reservation/status`:
 ```swift
 router.post("trips/:tripId/itinerary/:itemId/reservation/confirmation") { req, ctx -> Response in
     let tripId = try ctx.parameters.require("tripId")
@@ -267,13 +267,13 @@ router.post("trips/:tripId/itinerary/:itemId/reservation/confirmation") { req, c
 ```
 DTOs (`ConfirmacionInputDTO { let confirmationText: String }` Decodable; `ConfirmacionDTO` Encodable con tipo/fechaISO/numeroConfirmacion/proveedor, serializado con `JSONEncoder`).
 
-- [ ] **Step 4: Wiring.** `Dependencias`/`main.swift`: al construir `casosReserva`, pasa `estructurador:`. Por defecto **`EstructuradorConfirmacionFake`** (el adaptador real DeepSeek es Task 5, GATED). Actualiza los call-sites de test que construyen `Dependencias`.
+- **Step 4: Wiring.** `Dependencias`/`main.swift`: al construir `casosReserva`, pasa `estructurador:`. Por defecto **`EstructuradorConfirmacionFake`** (el adaptador real DeepSeek es Task 5, GATED). Actualiza los call-sites de test que construyen `Dependencias`.
 
-- [ ] **Step 5: Ejecuta y verifica que pasan + build del paquete.**
+- **Step 5: Ejecuta y verifica que pasan + build del paquete.**
 Run: `swift test --package-path packages/TripSquadService --filter ConfirmacionRoutesTests` luego `swift build --package-path packages/TripSquadService`
 Expected: PASS + build OK.
 
-- [ ] **Step 6: Commit.**
+- **Step 6: Commit.**
 ```bash
 git add packages/TripSquadService/Sources/TripSquadServiceCore/ReservaRoutes.swift \
         packages/TripSquadService/Sources/TripSquadService/main.swift \
@@ -291,7 +291,7 @@ git commit -m "feat(confirmaciones): ruta POST reservation/confirmation + wiring
 - Modify: `packages/TripSquadExpensesPostgres/Sources/TripSquadExpensesPostgres/RepositorioReservaPostgres.swift`
 - Test: `packages/TripSquadExpensesPostgres/Tests/TripSquadExpensesPostgresTests/RepositorioReservaPostgresTests.swift` (añadir casos)
 
-- [ ] **Step 1: Escribe la migración `0009_reservation_confirmations.sql`.**
+- **Step 1: Escribe la migración `0009_reservation_confirmations.sql`.**
 ```sql
 CREATE TABLE itinerary_reservation_confirmations (
     activity_id           TEXT NOT NULL REFERENCES itinerary_reservations(activity_id) ON DELETE CASCADE,
@@ -306,19 +306,19 @@ CREATE TABLE itinerary_reservation_confirmations (
 ```
 (Verifica que `itinerary_reservations(activity_id)` es la tabla/columna real de `0008_reservas.sql`.)
 
-- [ ] **Step 2: Escribe los tests Postgres que fallan** (en `RepositorioReservaPostgresTests`, con su harness `PG_TEST`): guardar + leer una confirmación; sobrescribir (misma PK); borrado en cascada al borrar la reserva.
+- **Step 2: Escribe los tests Postgres que fallan** (en `RepositorioReservaPostgresTests`, con su harness `PG_TEST`): guardar + leer una confirmación; sobrescribir (misma PK); borrado en cascada al borrar la reserva.
 
-- [ ] **Step 3: Ejecuta y verifica que fallan.**
+- **Step 3: Ejecuta y verifica que fallan.**
 Run: `PG_TEST=1 swift test --package-path packages/TripSquadExpensesPostgres --filter RepositorioReservaPostgresTests`
 Expected: FAIL.
 
-- [ ] **Step 4: Implementa** `guardarConfirmacion` (INSERT ... ON CONFLICT (activity_id, member_id) DO UPDATE) y `confirmacion` (SELECT) en `RepositorioReservaPostgres.swift`, con SQL parametrizado (patrón del fichero, `Codec` para el `kind`/tipo).
+- **Step 4: Implementa** `guardarConfirmacion` (INSERT ... ON CONFLICT (activity_id, member_id) DO UPDATE) y `confirmacion` (SELECT) en `RepositorioReservaPostgres.swift`, con SQL parametrizado (patrón del fichero, `Codec` para el `kind`/tipo).
 
-- [ ] **Step 5: Ejecuta y verifica que pasan.**
+- **Step 5: Ejecuta y verifica que pasan.**
 Run: `PG_TEST=1 swift test --package-path packages/TripSquadExpensesPostgres --filter RepositorioReservaPostgresTests`
 Expected: PASS.
 
-- [ ] **Step 6: Commit.**
+- **Step 6: Commit.**
 ```bash
 git add db/migrations/0009_reservation_confirmations.sql \
         packages/TripSquadExpensesPostgres/Sources/TripSquadExpensesPostgres/RepositorioReservaPostgres.swift \
@@ -337,13 +337,13 @@ git commit -m "feat(confirmaciones): persistencia Postgres + migracion 0009"
 **Interfaces:**
 - Produces: `EstructuradorConfirmacionDeepSeek: EstructuradorConfirmacion`, construido con `apiKey`, `baseURL` (default `https://api.deepseek.com`), `modelo` (default `deepseek-chat`), y un `HTTPClient` (AsyncHTTPClient, ya dependencia de TripSquadService, inyectable para test).
 
-- [ ] **Step 1: Escribe el test que falla** con un `HTTPClient` **mockeado** (NO llama a la API real): dado un JSON de respuesta `{"choices":[{"message":{"content":"{\"tipo\":\"vuelo\",\"fechaISO\":\"2026-09-12\",\"numeroConfirmacion\":\"ABC123\",\"proveedor\":\"TAP\"}"}}]}`, `extraer(...)` devuelve el `DatosConfirmacion` correcto; y ante un `content` que no es JSON válido → lanza (para que el caso de uso lo mapee a `confirmacion_ilegible`).
+- **Step 1: Escribe el test que falla** con un `HTTPClient` **mockeado** (NO llama a la API real): dado un JSON de respuesta `{"choices":[{"message":{"content":"{\"tipo\":\"vuelo\",\"fechaISO\":\"2026-09-12\",\"numeroConfirmacion\":\"ABC123\",\"proveedor\":\"TAP\"}"}}]}`, `extraer(...)` devuelve el `DatosConfirmacion` correcto; y ante un `content` que no es JSON válido → lanza (para que el caso de uso lo mapee a `confirmacion_ilegible`).
 
-- [ ] **Step 2: Ejecuta y verifica que falla.**
+- **Step 2: Ejecuta y verifica que falla.**
 Run: `swift test --package-path packages/TripSquadService --filter EstructuradorConfirmacionDeepSeekTests`
 Expected: FAIL.
 
-- [ ] **Step 3: Implementa el adaptador** (doc real DeepSeek, Context7): POST a `\(baseURL)/chat/completions`, `Authorization: Bearer \(apiKey)`, body:
+- **Step 3: Implementa el adaptador** (doc real DeepSeek, Context7): POST a `\(baseURL)/chat/completions`, `Authorization: Bearer \(apiKey)`, body:
 ```json
 { "model": "<modelo>",
   "messages": [
@@ -354,13 +354,13 @@ Expected: FAIL.
 ```
 Decodifica `choices[0].message.content` como JSON → mapea a `DatosConfirmacion`; `tipo` desconocido → mapea a `.otro`; si el content no parsea → `throw ErrorEstructurador.ilegible`. Usa `HTTPClient` de AsyncHTTPClient (ya es dependencia del proyecto).
 
-- [ ] **Step 4: Ejecuta y verifica que pasa.**
+- **Step 4: Ejecuta y verifica que pasa.**
 Run: `swift test --package-path packages/TripSquadService --filter EstructuradorConfirmacionDeepSeekTests`
 Expected: PASS.
 
-- [ ] **Step 5: NO lo conectes por defecto.** El wiring por defecto sigue con el FAKE (Task 3). Deja el adaptador real disponible pero **desactivado**: en `main.swift`, úsalo SOLO si `ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"]` está presente; si no, fake. Añade un comentario `// GATED: activar requiere OK de Andrea + tope de presupuesto`. No metas la key en el repo.
+- **Step 5: NO lo conectes por defecto.** El wiring por defecto sigue con el FAKE (Task 3). Deja el adaptador real disponible pero **desactivado**: en `main.swift`, úsalo SOLO si `ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"]` está presente; si no, fake. Añade un comentario `// GATED: activar requiere OK de Andrea + tope de presupuesto`. No metas la key en el repo.
 
-- [ ] **Step 6: Commit.**
+- **Step 6: Commit.**
 ```bash
 git add packages/TripSquadService/Sources/TripSquadServiceCore/EstructuradorConfirmacionDeepSeek.swift \
         packages/TripSquadService/Tests/TripSquadServiceTests/EstructuradorConfirmacionDeepSeekTests.swift \
@@ -375,13 +375,13 @@ git commit -m "feat(confirmaciones): adaptador DeepSeek (GATED por DEEPSEEK_API_
 **Files:**
 - Create: `docs/decisions/0026-confirmaciones-dy5.md` (verificar nº libre: 0024 wedge, 0025 recibo, 0023 Brújula reservado)
 
-- [ ] **Step 1: Escribe el ADR** (`_TEMPLATE.md`). Registra: confirmaciones suben desde la app (sin correo entrante); auto-marcan el wedge (la app elige el reservable); IA = **DeepSeek** (API china nube) detrás del puerto `EstructuradorConfirmacion`, GATED por `DEEPSEEK_API_KEY`; **RGPD**: transferencia a China ACEPTADA por Andrea, con **consentimiento (app) + redacción de PII/tarjeta + minimización + SCCs**; salida estructurada + validación como defensa anti-prompt-injection; idempotencia por (activityId, member). Alternativas más limpias anotadas (on-device, modelo abierto auto-alojado UE). Enlaza el spec `docs/superpowers/specs/2026-07-25-dy5-confirmaciones-design.md`.
+- **Step 1: Escribe el ADR** (`_TEMPLATE.md`). Registra: confirmaciones suben desde la app (sin correo entrante); auto-marcan el wedge (la app elige el reservable); IA = **DeepSeek** (API china nube) detrás del puerto `EstructuradorConfirmacion`, GATED por `DEEPSEEK_API_KEY`; **RGPD**: transferencia a China ACEPTADA por Andrea, con **consentimiento (app) + redacción de PII/tarjeta + minimización + SCCs**; salida estructurada + validación como defensa anti-prompt-injection; idempotencia por (activityId, member). Alternativas más limpias anotadas (on-device, modelo abierto auto-alojado UE). Enlaza el spec `docs/superpowers/specs/2026-07-25-dy5-confirmaciones-design.md`.
 
-- [ ] **Step 2: Build + test completo.**
+- **Step 2: Build + test completo.**
 Run: `for p in TripSquadDomain TripSquadExpenses TripSquadExpensesPostgres TripSquadService; do swift build --package-path packages/$p && PG_TEST=1 swift test --package-path packages/$p; done`
 Expected: verde (los 4 fallos pre-existentes de `RepositorioFotoPostgresTests` son ajenos).
 
-- [ ] **Step 3: Commit.**
+- **Step 3: Commit.**
 ```bash
 git add docs/decisions/0026-confirmaciones-dy5.md
 git commit -m "docs(confirmaciones): ADR 0026 de dy5"

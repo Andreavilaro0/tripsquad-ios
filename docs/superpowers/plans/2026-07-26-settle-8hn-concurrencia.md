@@ -1,6 +1,6 @@
 # Concurrencia de `:settle` con DB real (8hn) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Referencia de diseño — no es un tracker.** El estado de ejecución y su avance viven en beads (bd), nunca en este documento. Los pasos de abajo son el plan de referencia (viñetas), no checkboxes de seguimiento. Ver AGENTS.md, sección Rules.
 
 **Goal:** Cerrar el corazón verificable del P0 `8hn` escribiendo el test de concurrencia real que faltaba (N `crear` del mismo settlement en paralelo → 1 fila), y reclasificar la parte de outbox/notificación a un bead diferido.
 
@@ -27,7 +27,7 @@
 - Consumes: `conBD(_:)` (helper del suite, entrega `(RepositorioPostgres, tripId)`), `Settlement.init(settlementId:tripId:from:to:transferIndex:amountMinor:createdBy:expiresAt:)`, `RepositorioPostgres.crear(_:) -> ResultadoSettle`, `RepositorioPostgres.pendientes(de:limit:ahora:) -> [(String, Settlement)]`, miembros `ana`/`ivan` del struct.
 - Produces: nada consumido por otras tareas (test terminal).
 
-- [ ] **Step 1: Escribir el test que falla/caracteriza**
+- **Step 1: Escribir el test que falla/caracteriza**
 
 Añadir dentro de `struct SettlementPostgresTests` (después de `crearEsIdempotentePorClaveNatural`, línea ~46):
 
@@ -65,7 +65,7 @@ Añadir dentro de `struct SettlementPostgresTests` (después de `crearEsIdempote
 }
 ```
 
-- [ ] **Step 2: Levantar Postgres local y aplicar migraciones**
+- **Step 2: Levantar Postgres local y aplicar migraciones**
 
 ```bash
 docker run -d --name tripsquad-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=tripsquad -p 5432:5432 postgres:16
@@ -74,7 +74,7 @@ cd "/Volumes/DiscoAndrea/Area de trabajo/02-Freelance/apps/TripSquad-iOS"
 for f in db/migrations/*.sql; do PGPASSWORD=postgres psql -h localhost -U postgres -d tripsquad -v ON_ERROR_STOP=1 -f "$f"; done
 ```
 
-- [ ] **Step 3: Correr el test**
+- **Step 3: Correr el test**
 
 ```bash
 PG_TEST=1 swift test --package-path packages/TripSquadExpensesPostgres \
@@ -85,11 +85,11 @@ Expected: **PASS**. (Es un test de caracterización/regresión: el `ON CONFLICT`
 correcto en producción, así que no hay fase "red" genuina — el valor es cerrar la brecha
 de cobertura concurrente que el bead daba por hecha.)
 
-- [ ] **Step 4 (opcional — confirmar que el test muerde):** mutación temporal, NO commitear
+- **Step 4 (opcional — confirmar que el test muerde):** mutación temporal, NO commitear
 
 En `RepositorioPostgres.crear` (`packages/TripSquadExpensesPostgres/Sources/TripSquadExpensesPostgres/RepositorioPostgres.swift:314`), cambiar temporalmente la línea `ON CONFLICT (...) DO NOTHING` por una clave imposible de colisionar (p. ej. `ON CONFLICT (id) DO NOTHING`, que ya no cubre la clave natural del test), volver a correr el Step 3 y confirmar que el test **FALLA** (aparecen errores de UNIQUE o múltiples `.creado`). Después `git checkout -- packages/TripSquadExpensesPostgres/Sources/TripSquadExpensesPostgres/RepositorioPostgres.swift` para revertir. Este paso valida la mordida del test sin dejar rastro.
 
-- [ ] **Step 5: SwiftLint del archivo de test**
+- **Step 5: SwiftLint del archivo de test**
 
 ```bash
 swiftlint lint packages/TripSquadExpensesPostgres/Tests/TripSquadExpensesPostgresTests/SettlementPostgresTests.swift
@@ -97,7 +97,7 @@ swiftlint lint packages/TripSquadExpensesPostgres/Tests/TripSquadExpensesPostgre
 
 Expected: sin violaciones nuevas.
 
-- [ ] **Step 6: Commit**
+- **Step 6: Commit**
 
 ```bash
 git add packages/TripSquadExpensesPostgres/Tests/TripSquadExpensesPostgresTests/SettlementPostgresTests.swift
@@ -110,7 +110,7 @@ secuencial. Ejerce el ON CONFLICT DO NOTHING sobre la clave natural.
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 7: Limpiar Postgres local**
+- **Step 7: Limpiar Postgres local**
 
 ```bash
 docker rm -f tripsquad-pg
@@ -122,8 +122,8 @@ docker rm -f tripsquad-pg
 
 **Files:** ninguno (revisión).
 
-- [ ] **Step 1:** Pasar el test nuevo por Codex (regla de validación cruzada, CLAUDE.md). Foco: ¿el `withThrowingTaskGroup` de verdad solapa las 8 inserciones sobre el pool del `PostgresClient`?, ¿hay alguna ventana en que un perdedor del `ON CONFLICT` vea "estado inconsistente" en lugar de `.duplicado`?, ¿`n=8` es suficiente sin ser caro?
-- [ ] **Step 2:** Aplicar los ajustes que sobrevivan a criterio de Andrea. Si Codex propone subir/bajar `n`, ajustar la constante y re-correr Task 1 Step 3.
+- **Step 1:** Pasar el test nuevo por Codex (regla de validación cruzada, CLAUDE.md). Foco: ¿el `withThrowingTaskGroup` de verdad solapa las 8 inserciones sobre el pool del `PostgresClient`?, ¿hay alguna ventana en que un perdedor del `ON CONFLICT` vea "estado inconsistente" en lugar de `.duplicado`?, ¿`n=8` es suficiente sin ser caro?
+- **Step 2:** Aplicar los ajustes que sobrevivan a criterio de Andrea. Si Codex propone subir/bajar `n`, ajustar la constante y re-correr Task 1 Step 3.
 
 ---
 
@@ -131,13 +131,13 @@ docker rm -f tripsquad-pg
 
 **Files:** ninguno (base de datos de beads).
 
-- [ ] **Step 1: Reescribir el criterio de `8hn` a ADR-0017**
+- **Step 1: Reescribir el criterio de `8hn` a ADR-0017**
 
 ```bash
 bd update TripSquad-iOS-8hn --acceptance "Test de integracion con DB real: N crear concurrentes del mismo settlement -> 1 fila, 1 .creado, resto .duplicado. (outbox/notificacion diferidos: ver bead dependiente)"
 ```
 
-- [ ] **Step 2: Crear el bead diferido de outbox/notificación**
+- **Step 2: Crear el bead diferido de outbox/notificación**
 
 ```bash
 bd create "Idempotencia del efecto lateral de :settle (1 evento/notificacion por transicion; reejecucion no duplica) via outbox" \
@@ -151,7 +151,7 @@ Anotar el id devuelto y marcarlo diferido:
 bd update <id-nuevo> --status deferred
 ```
 
-- [ ] **Step 3: Cerrar `8hn` — SOLO tras CI verde**
+- **Step 3: Cerrar `8hn` — SOLO tras CI verde**
 
 Tras mergear Task 1 y ver el job `adaptador-postgres` verde en CI (no en local):
 

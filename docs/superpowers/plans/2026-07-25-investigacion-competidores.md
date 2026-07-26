@@ -1,6 +1,8 @@
 # Investigación de Competidores (pre-front) — Runbook
 
-> **Para quien ejecuta:** esto es investigación MANUAL (teardown de apps), no código. La disciplina es la misma que TDD: cada tarea define su entregable VACÍO primero (la fila de matriz en blanco = el "test que falla"), lo rellenas (el trabajo), verificas que está completo (el "test pasa"), y guardas (commit del doc de research). No hay build ni tests automáticos; el "gate" de cada tarea es que su entregable esté completo con captura + las 4 lentes + anti-patrón.
+> **Referencia de diseño — no es un tracker.** El estado de ejecución y su avance viven en beads (bd), nunca en este documento. Los pasos de abajo son el plan de referencia (viñetas), no checkboxes de seguimiento. Ver AGENTS.md, sección Rules.
+>
+> _(Runbook de investigación MANUAL — teardown de apps, no código. El "gate" de cada tarea es que su entregable esté completo: captura + las 4 lentes + anti-patrón.)_
 
 **Goal:** Producir un mapa de huecos del FRONT (qué construir, en qué orden, qué es foso vs table stakes vs quick win) comparando 8 competidores con la misma plantilla, en ≤1 semana, para no construir el front a ciegas.
 
@@ -49,7 +51,7 @@
 **Interfaces:**
 - Produces: `viaje-de-prueba.md` (el guion que TODA tarea de teardown usa para montar la app) y `competidores-matriz.md` (donde cada tarea escribe su fila).
 
-- [ ] **Step 1: Escribe el guion del viaje de prueba**
+- **Step 1: Escribe el guion del viaje de prueba**
 
 Crea `docs/research/viaje-de-prueba.md` con EXACTAMENTE esto (rellena los nombres de tu squad real):
 
@@ -66,11 +68,11 @@ Las 3 tareas que se intentan en CADA app:
 Regla: se hace lo MISMO en las 8, para que la matriz compare manzana con manzana.
 ```
 
-- [ ] **Step 2: Verifica disponibilidad de las apps de nicho en la App Store europea**
+- **Step 2: Verifica disponibilidad de las apps de nicho en la App Store europea**
 
 Abre la App Store (región España) y busca: Troupe, Pilot, Mindtrip, Layla. Anota cuál existe. Si Troupe/Pilot no está, usa la que sí. Si ni Mindtrip ni Layla, usa ChatGPT o Gemini para la tarea IA (#6). Apunta la elección en `viaje-de-prueba.md` bajo un apartado `## Sustituciones`.
 
-- [ ] **Step 3: Crea la matriz vacía**
+- **Step 3: Crea la matriz vacía**
 
 Crea `docs/research/competidores-matriz.md` con una sección por competidor, cada una con este esqueleto (copia el bloque 8 veces, cambiando el nombre):
 
@@ -83,7 +85,7 @@ Crea `docs/research/competidores-matriz.md` con una sección por competidor, cad
 - **Anti-patrón:** _(la 1 cosa a NO copiar)_
 ```
 
-- [ ] **Step 4: Crea la carpeta de capturas y guarda**
+- **Step 4: Crea la carpeta de capturas y guarda**
 
 ```bash
 cd "/Volumes/DiscoAndrea/Area de trabajo/02-Freelance/apps/TripSquad-iOS"
@@ -92,7 +94,7 @@ git add docs/research/
 git commit -m "research(competidores): guion del viaje de prueba + matriz vacia (Task 0)"
 ```
 
-- [ ] **Step 5: Verifica que el andamio está**
+- **Step 5: Verifica que el andamio está**
 
 Run: `ls docs/research/ docs/research/img/`
 Expected: `viaje-de-prueba.md`, `competidores-matriz.md`, y la carpeta `img/`. Abre la matriz y confirma que tiene las 8 secciones con las 4 lentes cada una.
@@ -108,26 +110,26 @@ Expected: `viaje-de-prueba.md`, `competidores-matriz.md`, y la carpeta `img/`. A
 - Consumes: `viaje-de-prueba.md`
 - Produces: las 7 apps hands-on con el MISMO viaje de Lisboa montado, listas para el teardown. (Apple Cash #7 no se monta: es secundaria.)
 
-- [ ] **Step 1: Instala y crea cuenta en las 7 hands-on**
+- **Step 1: Instala y crea cuenta en las 7 hands-on**
 
 Wanderlog, TripIt, Splitwise, Tricount, la de grupo (Troupe/Pilot), la IA (Mindtrip/Layla/ChatGPT), y ten a mano el stack informal (WhatsApp + Splitwise + Fotos/álbum compartido + un Google Doc). Usa la misma cuenta/email en todas para no perder tiempo.
 
-- [ ] **Step 2: Monta el viaje de Lisboa idéntico en cada una**
+- **Step 2: Monta el viaje de Lisboa idéntico en cada una**
 
 En cada app: crea el viaje "Lisboa 12-14 sep", invita (o simula) a los 4, e intenta la Tarea 1 (añadir el vuelo). NO hagas las 3 tareas aún — solo deja el viaje creado y el grupo dentro. Aquí es donde vive la fricción de invitación; cronométrala mentalmente, es dato de L3.
 
-- [ ] **Step 3: Anota en caliente la fricción de onboarding**
+- **Step 3: Anota en caliente la fricción de onboarding**
 
 En cada sección de la matriz, rellena YA el L3 (onboarding) mientras lo tienes fresco: cuántos pasos hasta tener el grupo dentro, dónde te frenaste, qué te pidió antes de dejarte hacer nada.
 
-- [ ] **Step 4: Guarda el avance de L3**
+- **Step 4: Guarda el avance de L3**
 
 ```bash
 git add docs/research/competidores-matriz.md
 git commit -m "research(competidores): L3 onboarding de las 7 apps (Task 1, Dia 1)"
 ```
 
-- [ ] **Step 5: Verifica**
+- **Step 5: Verifica**
 
 Abre `competidores-matriz.md`. Las 7 filas hands-on deben tener el L3 relleno. Si alguna app te bloqueó el onboarding (no pudiste ni crear el viaje), anota "activación murió en: ___" — eso es un hallazgo, no un fallo.
 
@@ -143,30 +145,30 @@ Abre `competidores-matriz.md`. Las 7 filas hands-on deben tener el L3 relleno. S
 - Consumes: viaje de Lisboa montado en Wanderlog.
 - Produces: fila 1 de la matriz completa (L1-L4 + anti-patrón).
 
-- [ ] **Step 1: Haz las 3 tareas del guion en Wanderlog**
+- **Step 1: Haz las 3 tareas del guion en Wanderlog**
 
 Añade el vuelo (reenvía una confirmación real o mete uno a mano), decide dónde cenar, e intenta repartir el gasto. Fíjate en dónde te sentiste perdida: eso es el anti-patrón que ya detectaste ("confuso").
 
-- [ ] **Step 2: Captura el patrón fuerte (L1)**
+- **Step 2: Captura el patrón fuerte (L1)**
 
 Screenshot de la mejor pantalla (probablemente el mapa con sitios guardados por día). Guárdala como `docs/research/img/wanderlog-L1.png`. Escribe en L1 la frase de por qué funciona y marca `[ROBAR: ___]` si hay un patrón claro.
 
-- [ ] **Step 3: Rellena L2 y L4**
+- **Step 3: Rellena L2 y L4**
 
 L2: ¿en qué es bueno (itinerario visual en mapa) y dónde le gana el bento (él no tiene gastos/chat/votos integrados)? L4: el quick win pequeño que le viste y a ti te falta.
 
-- [ ] **Step 4: Escribe el anti-patrón**
+- **Step 4: Escribe el anti-patrón**
 
 La 1 cosa concreta que la hizo confusa (ej: "construcción manual del itinerario: arrastrar sitios y meter horas a mano"; "colaboración en vivo caótica"). Sé específica: es la que TripSquad NO hará.
 
-- [ ] **Step 5: Guarda**
+- **Step 5: Guarda**
 
 ```bash
 git add docs/research/competidores-matriz.md docs/research/img/wanderlog-L1.png
 git commit -m "research(competidores): teardown Wanderlog completo (Task 2)"
 ```
 
-- [ ] **Step 6: Verifica**
+- **Step 6: Verifica**
 
 La sección 1 de la matriz tiene L1-L4 + anti-patrón, todos con texto real (no `_(...)_`), y existe la captura. Si un campo quedó vacío, o lo rellenas o anotas por qué no aplica.
 
@@ -209,22 +211,22 @@ La sección 1 de la matriz tiene L1-L4 + anti-patrón, todos con texto real (no 
 **Interfaces:**
 - Produces: fila de Apple Cash con dato de specs (no captura hands-on — es solo-EEUU).
 
-- [ ] **Step 1: Lee las specs y mira 1-2 vídeos del flujo**
+- **Step 1: Lee las specs y mira 1-2 vídeos del flujo**
 
 Fuentes: el artículo de Bloomberg (jun 2026) y cualquier demo en vídeo del bill-split de iOS 27. Busca: cómo asigna ítems por persona, cómo cobra (Messages/Wallet), y la limitación (solo Apple Cash = solo EEUU).
 
-- [ ] **Step 2: Rellena la fila con L2 como foco**
+- **Step 2: Rellena la fila con L2 como foco**
 
 L1: describe el flujo por specs (marca "por specs, no hands-on"). L2 (el importante): DÓNDE le gana el bento — Apple Cash es genérico y solo-EEUU; el tuyo funciona en Europa y sabe quién está en el viaje. Anti-patrón: no aplica (es feature de plataforma). Guarda captura de spec/vídeo si puedes en `img/apple-cash-spec.png`.
 
-- [ ] **Step 3: Guarda**
+- **Step 3: Guarda**
 
 ```bash
 git add docs/research/competidores-matriz.md docs/research/img/ 2>/dev/null
 git commit -m "research(competidores): Apple Cash bill-split por specs (Task 8)"
 ```
 
-- [ ] **Step 4: Verifica**
+- **Step 4: Verifica**
 
 La sección 7 está rellena y marcada como "dato de specs". El Success Criteria del design doc permite esta excepción explícitamente.
 
@@ -238,26 +240,26 @@ La sección 7 está rellena y marcada como "dato de specs". El Success Criteria 
 **Interfaces:**
 - Produces: fila del stack informal, tratada como 4 herramientas (doble tiempo).
 
-- [ ] **Step 1: Haz las 3 tareas del guion con el stack informal**
+- **Step 1: Haz las 3 tareas del guion con el stack informal**
 
 Vuelo: pégalo en el chat de WhatsApp del grupo. Decisión: usa la **encuesta de WhatsApp** para votar dónde cenar (esto es tu benchmark de VOTACIONES, único sitio donde lo ves). Gasto: mételo en Splitwise. Fotos: un álbum compartido. Itinerario: un Google Doc.
 
-- [ ] **Step 2: Rellena las 4 lentes pensando en el CONJUNTO**
+- **Step 2: Rellena las 4 lentes pensando en el CONJUNTO**
 
 L1: qué patrón de cada herramienta funciona (la encuesta de WhatsApp es clave). L2: aquí el bento gana MÁS que contra nadie — el stack informal es 4 apps sin costuras. L3: el onboarding del stack informal es cero fricción (ya lo tienen todos), y ESE es el listón real a batir. L4: qué da cada herramienta que a ti te falta.
 
-- [ ] **Step 3: Anota el anti-patrón del stack**
+- **Step 3: Anota el anti-patrón del stack**
 
 El caos de tener el gasto en un sitio, la foto en otro, la decisión en un tercero. Ese caos ES tu oportunidad, pero anota también qué del stack informal la gente NO querrá abandonar (ej: el chat ya está en WhatsApp).
 
-- [ ] **Step 4: Guarda**
+- **Step 4: Guarda**
 
 ```bash
 git add docs/research/competidores-matriz.md
 git commit -m "research(competidores): teardown stack informal incl. votaciones WhatsApp (Task 9)"
 ```
 
-- [ ] **Step 5: Verifica que la matriz está COMPLETA**
+- **Step 5: Verifica que la matriz está COMPLETA**
 
 Las 8 secciones tienen las 4 lentes + anti-patrón. Ningún `_(...)_` sin rellenar. Este es el gate antes de sintetizar.
 
@@ -272,32 +274,32 @@ Las 8 secciones tienen las 4 lentes + anti-patrón. Ningún `_(...)_` sin rellen
 - Consumes: `competidores-matriz.md` (completa).
 - Produces: `hallazgos.md` — lo que alimenta el front y el `/spec` posterior.
 
-- [ ] **Step 1: Entregable 1 — la matriz ya está** (es `competidores-matriz.md`). Solo enlázala desde `hallazgos.md`.
+- **Step 1: Entregable 1 — la matriz ya está** (es `competidores-matriz.md`). Solo enlázala desde `hallazgos.md`.
 
-- [ ] **Step 2: Entregable 2 — lista de robo priorizada**
+- **Step 2: Entregable 2 — lista de robo priorizada**
 
 En `hallazgos.md`, lista todos los `[ROBAR: ___]` de la matriz. Ordénalos por impacto en el front. Marca cada uno como **FOSO** (costura de integración que nadie tiene) o **TABLE STAKES** (hay que tenerlo pero no diferencia). Regla de filtro: si viola "premium, no hoja de cálculo", va fuera.
 
-- [ ] **Step 3: Entregable 3 — los 3 momentos mágicos**
+- **Step 3: Entregable 3 — los 3 momentos mágicos**
 
 Escribe los 3 guiones de las costuras que ninguna app tiene (candidatos: votar en el chat → entra al itinerario → el gasto se reparte solo; recibo→split-en-contexto; tablero de "quién ya reservó"). Cada uno en 2-3 frases: qué ve el usuario y por qué ninguna app puede copiarlo. Estos son candidatos al PRIMER flujo del front.
 
-- [ ] **Step 4: Entregable 4 — lista de quick wins**
+- **Step 4: Entregable 4 — lista de quick wins**
 
 Junta todos los L4 de la matriz. Ordénalos por impacto ÷ esfuerzo (S/M ya anotado). Esta es la lista de relleno barato que se ataca en paralelo al construir los flujos grandes.
 
-- [ ] **Step 5: Marca las dependencias front→back**
+- **Step 5: Marca las dependencias front→back**
 
 Al final de `hallazgos.md`, por cada momento mágico y cada pieza de front grande, anota si NECESITA back que no existe (recibo→split OCR y tablero-de-reservas NO tienen back; fotos/brújula son stub → beads 7n3/3dk). Esto conecta con el mapa de huecos back+front y evita descubrirlo a mitad del front.
 
-- [ ] **Step 6: Guarda y cierra**
+- **Step 6: Guarda y cierra**
 
 ```bash
 git add docs/research/hallazgos.md docs/research/
 git commit -m "research(competidores): sintesis final — 4 entregables + dependencias front-back (Task 10)"
 ```
 
-- [ ] **Step 7: Verifica el Success Criteria del design doc**
+- **Step 7: Verifica el Success Criteria del design doc**
 
 Confirma: matriz completa con la misma plantilla (8×4+anti) · lista de robo distingue foso vs table stakes · 3 momentos mágicos escritos · lista de quick wins ordenada · dependencias front→back marcadas · terminado en ≤1 semana · cero patrón que viole "premium".
 

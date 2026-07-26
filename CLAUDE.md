@@ -47,6 +47,14 @@ finalizado; el WIP vive en `docs/design/design-direction-WIP.md`. Norte memorabl
 Estructura Diátaxis (tutorial / how-to / reference / explanation). Docs en git, versionados
 con el código. Changelog con Conventional Commits cuando arranque el código.
 
+**Planes/specs de superpowers y beads (regla de tracking).** Los skills de superpowers
+(`writing-plans`, `subagent-driven-development`, etc.) producen planes en `docs/superpowers/`.
+En ESTE repo esos documentos son **referencia de diseño, no trackers**: el estado y el avance
+de cada tarea viven SIEMPRE en **beads** (`bd`), nunca en el markdown. Escribe los pasos como
+**viñetas** (`-`), nunca como checkboxes de seguimiento (`- [ ]`), y registra cada tarea como
+un bead. Al usar un plan superpowers: crea/actualiza los beads correspondientes y deja el doc
+como material de referencia. Ver `AGENTS.md` §Rules.
+
 ## Skill routing (gstack)
 Cuando la petición encaje con una skill, invócala. Clave:
 - Idea/brainstorm → `/office-hours`
