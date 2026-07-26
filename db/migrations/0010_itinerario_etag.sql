@@ -12,11 +12,13 @@
 -- conflicto (412), no una lectura-antes-de-escribir que pueda perderse en una
 -- carrera (TOCTOU).
 --
--- `default gen_random_uuid()::text` sella las filas que ya existieran con un
--- etag inicial distinto por fila (no hay ninguna en dev/staging todavía, pero
--- la migración es correcta igual si las hubiera); `drop default` después deja
--- el mismo contrato que `expenses.etag`: el valor SIEMPRE lo genera la
--- aplicación en cada INSERT/UPDATE, nunca la base de datos por su cuenta.
+-- `default gen_random_uuid()::text` PERMANENTE (a diferencia de `expenses.etag`,
+-- que no lleva default): `itinerary_items` lo insertan MÁS caminos que a
+-- `expenses` — además del propio itinerario, los tests/flujos de reservas
+-- siembran actividades con INSERT que no conocen la columna `etag`. Un `drop
+-- default` los rompería con violación de NOT NULL. Con el default, la aplicación
+-- sigue generando y seteando el etag explícitamente en cada INSERT/UPDATE del
+-- itinerario (el UPDATE condicional por `If-Match` no depende del default); el
+-- default solo es la red que cubre los INSERT ajenos que no lo especifican.
 
 alter table itinerary_items add column etag text not null default gen_random_uuid()::text;
-alter table itinerary_items alter column etag drop default;
