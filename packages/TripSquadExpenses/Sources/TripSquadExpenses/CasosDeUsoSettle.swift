@@ -103,6 +103,14 @@ public struct CasosDeUsoSettle: Sendable {
         try await repo.confirmados(de: tripId)
     }
 
+    /// Barrido de caducidad (bead 1ea, ADR-0017): materializa como `cancelled` los
+    /// `pending` vencidos de todos los viajes. Pensado para dispararse desde un cron.
+    /// Devuelve cuántos caducó. La correctitud ya la garantiza la caducidad perezosa;
+    /// esto solo limpia el estado en BD para listados y consistencia.
+    public func caducarPendientes(ahora: Date) async throws -> Int {
+        try await repo.caducarPendientes(ahora: ahora)
+    }
+
     /// Autoriza según quién puede: confirm/reject → la CONTRAPARTE (parte ≠ createdBy);
     /// cancel → el CREADOR. Luego delega la aplicación (sobre pending no caducado) al repo.
     private func transicion(id: String, en tripId: String, a nuevo: EstadoSettlement,

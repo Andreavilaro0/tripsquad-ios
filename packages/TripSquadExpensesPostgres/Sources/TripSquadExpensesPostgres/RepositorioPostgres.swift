@@ -375,6 +375,22 @@ extension RepositorioPostgres: SettlementRepositorio {
         try await filasPorEstado(tripId, "pending", limit: limit, noCaducadosDesde: ahora)
     }
 
+    /// Barrido de caducidad (bead 1ea): materializa como `cancelled` los `pending`
+    /// vencidos de TODOS los viajes. `resolved_by` queda NULL (lo caduca el sistema, no
+    /// un actor). Cuenta las filas por el `RETURNING id`. Idempotente: una 2ª pasada no
+    /// encuentra ya pending vencidos. El índice parcial `idx_settlements_expires_at`
+    /// (WHERE status='pending') sirve exactamente este filtro.
+    public func caducarPendientes(ahora: Date) async throws -> Int {
+        let rows = try await client.query("""
+            UPDATE settlements SET status = 'cancelled', resolved_at = \(ahora)
+            WHERE status = 'pending' AND expires_at < \(ahora)
+            RETURNING id
+            """, logger: logger)
+        var n = 0
+        for try await _ in rows.decode(String.self) { n += 1 }
+        return n
+    }
+
     /// UNA sola query por estado (Gemini P1: antes era N+1 — un SELECT de ids + un SELECT
     /// por fila). Selecciona todas las columnas y decodifica el array completo.
     ///
