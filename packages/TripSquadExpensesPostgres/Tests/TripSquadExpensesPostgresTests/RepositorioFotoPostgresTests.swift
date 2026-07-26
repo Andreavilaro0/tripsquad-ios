@@ -37,6 +37,10 @@ struct RepositorioFotoPostgresTests {
         }
     }
 
+    /// Id único por foto: `photos.id` es PK GLOBAL (no compuesta con trip_id), así que no
+    /// se pueden reusar literales entre corridas del suite contra la misma DB.
+    func nuevaFotoId(_ sufijo: String) -> String { "foto-\(sufijo)-" + UUID().uuidString.prefix(8) }
+
     func nuevaFoto(_ id: String, tripId: String, caption: String? = nil, createdAt: Date = Date()) -> Foto {
         Foto(
             id: id, tripId: tripId, uploadedBy: ana, storageKey: "\(tripId)/\(id)",
@@ -46,52 +50,56 @@ struct RepositorioFotoPostgresTests {
 
     @Test func crearPendienteYListarSoloListasTrasMarcar() async throws {
         try await conRepo { repo, trip in
-            let a = nuevaFoto("foto-a", tripId: trip, createdAt: Date())
-            let b = nuevaFoto("foto-b", tripId: trip, createdAt: Date().addingTimeInterval(1))
+            let idA = nuevaFotoId("a")
+            let idB = nuevaFotoId("b")
+            let a = nuevaFoto(idA, tripId: trip, createdAt: Date())
+            let b = nuevaFoto(idB, tripId: trip, createdAt: Date().addingTimeInterval(1))
             try await repo.crearPendiente(a)
             try await repo.crearPendiente(b)
 
             // Ambas pending: listar(soloListas: false) las ve, soloListas: true no ve ninguna.
-            #expect(try await repo.listar(trip, soloListas: false, limit: 200).map(\.id) == ["foto-a", "foto-b"])
+            #expect(try await repo.listar(trip, soloListas: false, limit: 200).map(\.id) == [idA, idB])
             #expect(try await repo.listar(trip, soloListas: true, limit: 200).isEmpty)
 
-            let marcada = try await repo.marcarLista(id: "foto-a", en: trip)
+            let marcada = try await repo.marcarLista(id: idA, en: trip)
             #expect(marcada == true)
 
             let listas = try await repo.listar(trip, soloListas: true, limit: 200)
-            #expect(listas.map(\.id) == ["foto-a"])
+            #expect(listas.map(\.id) == [idA])
             #expect(listas.first?.status == .ready)
 
             // La todavía-pending sigue fuera del filtro soloListas.
             let todas = try await repo.listar(trip, soloListas: false, limit: 200)
-            #expect(todas.map(\.id) == ["foto-a", "foto-b"])
+            #expect(todas.map(\.id) == [idA, idB])
         }
     }
 
     @Test func marcarListaEsIdempotente() async throws {
         try await conRepo { repo, trip in
-            let f = nuevaFoto("foto-idem", tripId: trip)
+            let idIdem = nuevaFotoId("idem")
+            let f = nuevaFoto(idIdem, tripId: trip)
             try await repo.crearPendiente(f)
 
-            #expect(try await repo.marcarLista(id: "foto-idem", en: trip) == true)
+            #expect(try await repo.marcarLista(id: idIdem, en: trip) == true)
             // Segunda llamada sobre una foto ya `ready`: sigue devolviendo true (idempotente),
             // no un false engañoso.
-            #expect(try await repo.marcarLista(id: "foto-idem", en: trip) == true)
-            #expect(try await repo.foto(id: "foto-idem", en: trip)?.status == .ready)
+            #expect(try await repo.marcarLista(id: idIdem, en: trip) == true)
+            #expect(try await repo.foto(id: idIdem, en: trip)?.status == .ready)
 
             // No existe / trip equivocado -> false, sin fuga.
             #expect(try await repo.marcarLista(id: "no-existe", en: trip) == false)
-            #expect(try await repo.marcarLista(id: "foto-idem", en: "otro-trip") == false)
+            #expect(try await repo.marcarLista(id: idIdem, en: "otro-trip") == false)
         }
     }
 
     @Test func fotoPorIdScopeadaPorTrip() async throws {
         try await conRepo { repo, trip in
-            let f = nuevaFoto("foto-scope", tripId: trip, caption: "playa")
+            let idScope = nuevaFotoId("scope")
+            let f = nuevaFoto(idScope, tripId: trip, caption: "playa")
             try await repo.crearPendiente(f)
 
-            let leida = try await repo.foto(id: "foto-scope", en: trip)
-            #expect(leida?.id == "foto-scope")
+            let leida = try await repo.foto(id: idScope, en: trip)
+            #expect(leida?.id == idScope)
             #expect(leida?.caption == "playa")
             #expect(leida?.uploadedBy == ana)
             #expect(leida?.contentType == "image/jpeg")
@@ -99,22 +107,23 @@ struct RepositorioFotoPostgresTests {
             #expect(leida?.status == .pending)
 
             // Otro tripId no ve la foto (scope por trip, sin fuga).
-            #expect(try await repo.foto(id: "foto-scope", en: "otro-trip") == nil)
+            #expect(try await repo.foto(id: idScope, en: "otro-trip") == nil)
             #expect(try await repo.foto(id: "no-existe", en: trip) == nil)
         }
     }
 
     @Test func borrar() async throws {
         try await conRepo { repo, trip in
-            let f = nuevaFoto("foto-borrar", tripId: trip)
+            let idBorrar = nuevaFotoId("borrar")
+            let f = nuevaFoto(idBorrar, tripId: trip)
             try await repo.crearPendiente(f)
-            #expect(try await repo.foto(id: "foto-borrar", en: trip) != nil)
+            #expect(try await repo.foto(id: idBorrar, en: trip) != nil)
 
-            try await repo.borrar(fotoId: "foto-borrar", en: trip)
-            #expect(try await repo.foto(id: "foto-borrar", en: trip) == nil)
+            try await repo.borrar(fotoId: idBorrar, en: trip)
+            #expect(try await repo.foto(id: idBorrar, en: trip) == nil)
 
             let lista = try await repo.listar(trip, soloListas: false, limit: 200)
-            #expect(!lista.contains { $0.id == "foto-borrar" })
+            #expect(!lista.contains { $0.id == idBorrar })
 
             // Borrar algo que no existe es un no-op silencioso, sin lanzar.
             try await repo.borrar(fotoId: "no-existe", en: trip)
@@ -130,7 +139,7 @@ struct RepositorioFotoPostgresTests {
     @Test func listarRespetaElLimitYDesempataPorId() async throws {
         try await conRepo { repo, trip in
             let mismoInstante = Date()
-            let ids = ["foto-z-orden", "foto-a-orden", "foto-m-orden"]
+            let ids = [nuevaFotoId("z-orden"), nuevaFotoId("a-orden"), nuevaFotoId("m-orden")]
             for id in ids {
                 try await repo.crearPendiente(nuevaFoto(id, tripId: trip, createdAt: mismoInstante))
             }
