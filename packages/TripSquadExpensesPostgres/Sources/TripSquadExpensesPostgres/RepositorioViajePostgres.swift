@@ -210,6 +210,20 @@ extension RepositorioPostgres: ViajeRepositorio {
                 UPDATE trip_invites SET revoked_at = \(ahora)
                 WHERE trip_id = \(tripId) AND created_by = \(memberId.raw) AND revoked_at IS NULL
                 """, logger: self.logger)
+            // Limpia el estado de reserva de ese miembro en ESE viaje (Task 5, wedge
+            // "quién ya reservó", migración 0008): mismo criterio "expulsar revoca huella"
+            // que arriba con las invitaciones, en la MISMA transacción. `cada_uno` pierde
+            // su fila en itinerary_reservation_members; si era el responsable de un
+            // uno_para_todos, vuelve a quedar sin asignar (pendiente, no "de nadie").
+            _ = try await conn.query("""
+                DELETE FROM itinerary_reservation_members
+                WHERE member_id = \(memberId.raw)
+                  AND activity_id IN (SELECT activity_id FROM itinerary_reservations WHERE trip_id = \(tripId))
+                """, logger: self.logger)
+            _ = try await conn.query("""
+                UPDATE itinerary_reservations SET responsible_id = NULL, single_estado = 'pendiente'
+                WHERE trip_id = \(tripId) AND responsible_id = \(memberId.raw)
+                """, logger: self.logger)
         }
     }
 

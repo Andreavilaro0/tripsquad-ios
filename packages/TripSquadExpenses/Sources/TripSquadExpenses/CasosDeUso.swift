@@ -55,6 +55,7 @@ public struct CasosDeUsoGastos: Sendable {
         // gasto que sí se guardó (hallazgo P1 de Codex).
         if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
+        if let rechazo = try await validarMiembrosDelReparto(c.gasto, tripId: c.tripId) { return rechazo }
         if let rechazo = validarDominio(c.gasto) { return rechazo }
         return try await repo.guardar(c.gasto, en: c.tripId, por: c.actor, idempotencyKey: c.idempotencyKey)
     }
@@ -62,6 +63,7 @@ public struct CasosDeUsoGastos: Sendable {
     public func editar(_ c: ComandoEditarGasto) async throws -> ResultadoEscritura {
         if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
+        if let rechazo = try await validarMiembrosDelReparto(c.gasto, tripId: c.tripId) { return rechazo }
         if let rechazo = validarDominio(c.gasto) { return rechazo }
         return try await repo.actualizar(c.gasto, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
     }
@@ -72,6 +74,26 @@ public struct CasosDeUsoGastos: Sendable {
         return try await repo.eliminar(id: c.gastoId, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
     }
 
+    /// Construye el Gasto (.exacto) desde un recibo itemizado y delega en `crear`
+    /// (replay + auth + validación + persistencia, ADR-0011 momento mágico #2). El
+    /// importe se DERIVA del reparto (suma segura), no de un total externo a reconciliar.
+    public func crearDesdeRecibo(tripId: String, gastoId: String, pagadoPor: MiembroId,
+                                 items: [ItemRecibo], impuestosMinor: Int64, propinaMinor: Int64,
+                                 actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura {
+        let reparto: Reparto
+        do { reparto = try repartoDesdeRecibo(items: items, impuestosMinor: impuestosMinor, propinaMinor: propinaMinor) }
+        catch { return .rechazado(razon: "invalid_receipt") }
+        guard case .exacto(let totales) = reparto else { return .rechazado(razon: "invalid_receipt") }
+        var importe: Int64 = 0
+        for v in totales.values {
+            let (s, ov) = importe.addingReportingOverflow(v)
+            guard !ov else { return .rechazado(razon: "invalid_receipt") }
+            importe = s
+        }
+        let gasto = Gasto(id: gastoId, pagadoPor: pagadoPor, importeMinor: importe, reparto: reparto)
+        return try await crear(ComandoCrearGasto(tripId: tripId, gasto: gasto, actor: actor, idempotencyKey: idempotencyKey))
+    }
+
     // MARK: - Reglas comunes
 
     /// Rechazo permanente si no es miembro o el viaje está cerrado (ADR-0012 §4:
@@ -79,6 +101,31 @@ public struct CasosDeUsoGastos: Sendable {
     private func autorizar(actor: MiembroId, tripId: String) async throws -> ResultadoEscritura? {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .rechazado(razon: "not_member") }
         if try await membresia.viajeCerrado(tripId) { return .rechazado(razon: "trip_closed") }
+        return nil
+    }
+
+    /// Todos los `MiembroId` que un gasto referencia: quien paga y quienes cargan
+    /// con el reparto (los tres tipos de `Reparto`).
+    private func miembrosDe(_ gasto: Gasto) -> Set<MiembroId> {
+        var miembros: Set<MiembroId> = [gasto.pagadoPor]
+        switch gasto.reparto {
+        case .igual(let entre): miembros.formUnion(entre)
+        case .porPeso(let pesos): miembros.formUnion(pesos.keys)
+        case .exacto(let cuotas): miembros.formUnion(cuotas.keys)
+        }
+        return miembros
+    }
+
+    /// `pagadoPor` y todo el reparto deben ser miembros del viaje: si no, un
+    /// miembro podría atribuir el pago o el reparto a alguien de fuera, que
+    /// terminaría cargando saldo en el settle sin ser parte del viaje (hallazgo
+    /// P1 de dos revisores independientes).
+    private func validarMiembrosDelReparto(_ gasto: Gasto, tripId: String) async throws -> ResultadoEscritura? {
+        for miembro in miembrosDe(gasto) {
+            if try await !membresia.esMiembro(miembro, de: tripId) {
+                return .rechazado(razon: "member_not_in_trip")
+            }
+        }
         return nil
     }
 

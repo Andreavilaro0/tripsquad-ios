@@ -90,6 +90,27 @@ struct CasosDeUsoTests {
         #expect(r == .rechazado(razon: "trip_closed"))
     }
 
+    /// (bead epb) El reparto incluye a alguien que NO es miembro del viaje:
+    /// rechazado, no se persiste con un saldo colgado de un no-miembro.
+    @Test func repartoConNoMiembroEsRechazado() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        let malo = Gasto(id: "g1", pagadoPor: ana, importeMinor: 3000,
+                         reparto: .igual(entre: [ana, sara]))
+        let r = try await casos.crear(.init(tripId: trip, gasto: malo, actor: ana, idempotencyKey: "k1"))
+        #expect(r == .rechazado(razon: "member_not_in_trip"))
+        #expect(await repo.gastos(de: trip).isEmpty)
+    }
+
+    /// (bead epb) `pagadoPor` es alguien que NO es miembro del viaje: rechazado.
+    @Test func pagadoPorNoMiembroEsRechazado() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        let malo = Gasto(id: "g1", pagadoPor: sara, importeMinor: 3000,
+                         reparto: .igual(entre: [ana, ivan]))
+        let r = try await casos.crear(.init(tripId: trip, gasto: malo, actor: ana, idempotencyKey: "k1"))
+        #expect(r == .rechazado(razon: "member_not_in_trip"))
+        #expect(await repo.gastos(de: trip).isEmpty)
+    }
+
     /// Gasto con reparto que no cuadra: rechazado como inválido, no se persiste.
     @Test func gastoInvalidoEsRechazado() async throws {
         let (casos, _) = await nuevoEntorno()
@@ -117,6 +138,7 @@ struct CasosDeUsoTests {
     @Test func replayGanaAunTrasExpulsion() async throws {
         let repo = RepositorioEnMemoria()
         await repo.anadirMiembro(ana, a: trip)
+        await repo.anadirMiembro(ivan, a: trip)
         let casos = CasosDeUsoGastos(repo: repo, membresia: repo)
         let cmd = ComandoCrearGasto(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1")
         let primero = try await casos.crear(cmd)
