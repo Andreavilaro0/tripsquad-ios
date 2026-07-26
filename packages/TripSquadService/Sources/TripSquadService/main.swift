@@ -108,8 +108,11 @@ let repo = RepositorioPostgres(client: client, logger: logger)
 let estructurador: EstructuradorConfirmacion
 if let deepSeekKey = env["DEEPSEEK_API_KEY"], !deepSeekKey.isEmpty {
     logger.info("confirmaciones: estructurador = DeepSeek (real)")
+    // Modelo configurable por env; por defecto `deepseek-v4-flash` (el barato, y el que
+    // expone la cuenta — `deepseek-chat` no aparece en su lista de modelos).
     estructurador = EstructuradorConfirmacionDeepSeek(
         apiKey: deepSeekKey,
+        modelo: env["DEEPSEEK_MODEL"] ?? "deepseek-v4-flash",
         httpClient: ClienteHTTPDeepSeekReal(cliente: http))
 } else {
     logger.info("confirmaciones: estructurador = fake (DEEPSEEK_API_KEY no está en el entorno)")
