@@ -104,6 +104,11 @@ public enum ResultadoTransicion: Equatable, Sendable {
     case noEncontrado
     case estadoInvalido  // no está en `pending`
     case caducado        // pending vencido (expiresAt < ahora)
+    /// Violación de una regla de negocio ajena a la máquina de estados (bead mjp): hoy
+    /// solo `motivo` (rejectReason) demasiado largo. Mismo espíritu que `ErrorViaje
+    /// .reglaViolada`/`ErrorVotacion.reglaViolada`, pero `ResultadoTransicion` no es un
+    /// `Result` — es su propio enum de resultado (ADR-0017) — así que el código va aquí.
+    case reglaViolada(String)
 }
 
 public protocol SettlementRepositorio: Sendable {

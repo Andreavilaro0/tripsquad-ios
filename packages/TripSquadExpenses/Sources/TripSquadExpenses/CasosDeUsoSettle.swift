@@ -72,6 +72,11 @@ public struct CasosDeUsoSettle: Sendable {
         try await transicion(id: id, en: tripId, a: .cancelled, por: actor, ahora: ahora, esCreador: true, motivo: nil)
     }
 
+    /// Tope de longitud de `motivo`/`rejectReason` (bead mjp, "campos de texto libre sin
+    /// límite"): mismo criterio y unidad que `CasosDeUsoChat.enviar` (`unicodeScalars.count`
+    /// == `char_length` de Postgres).
+    private static let longitudMaximaMotivo = 500
+
     /// Tope máximo de un listado paginado, idéntico al de chat (`CasosDeUsoChat.listar`).
     /// Es `public` porque el `GET .../settlement/suggestion` lo pide explícitamente: ver
     /// `SettleRoutes`, donde los pendientes no son la página que se devuelve sino la fuente
@@ -119,6 +124,7 @@ public struct CasosDeUsoSettle: Sendable {
         // 403 exista o no el settlement (no filtra su existencia), y un expulsado con JWT
         // aún válido no puede seguir operando sobre sus settlements.
         guard try await membresia.esMiembro(actor, de: tripId) else { return .noAutorizado }
+        if let motivo, motivo.unicodeScalars.count > Self.longitudMaximaMotivo { return .reglaViolada("motivo_muy_largo") }
         guard let s = try await repo.settlement(id: id, en: tripId) else { return .noEncontrado }
         // Guardia defensiva (Codex P2): `createdBy` siempre es parte en filas creadas por
         // este código; si no lo fuera (fila legacy/corrupta), no es autorizable por nadie.

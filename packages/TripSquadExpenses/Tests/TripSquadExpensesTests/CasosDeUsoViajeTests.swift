@@ -21,7 +21,7 @@ struct CasosDeUsoViajeTests {
     /// Crea un viaje con `ana` de owner e invita, devolviendo el code. Atajo
     /// para no repetir el mismo boilerplate en cada test.
     func viajeConInvitacion(_ casos: CasosDeUsoViaje) async throws -> (tripId: String, code: String) {
-        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         guard case .success(let invitacion) = try await casos.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba invitar exitoso"); return (viaje.id, "")
         }
@@ -31,7 +31,7 @@ struct CasosDeUsoViajeTests {
     // 1. crear → el creador es owner y miembro; aparece en misViajes.
     @Test func crearHaceAlCreadorOwnerYMiembro() async throws {
         let (casos, _) = entorno()
-        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         #expect(viaje.createdBy == ana)
 
         let misViajes = try await casos.misViajes(actor: ana)
@@ -129,7 +129,7 @@ struct CasosDeUsoViajeTests {
     // 8. no-miembro NO ve el detalle → .noAutorizado, y da lo MISMO exista o no el viaje.
     @Test func noMiembroNoVeDetalleSinFugaDeExistencia() async throws {
         let (casos, _) = entorno()
-        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
 
         guard case .failure(let errorViajeReal) = try await casos.detalle(tripId: viaje.id, actor: sara) else {
             Issue.record("esperaba failure"); return
@@ -194,7 +194,7 @@ struct CasosDeUsoViajeTests {
     // 12. invitar requiere membresía: no-miembro invita → .noAutorizado.
     @Test func invitarRequiereMembresia() async throws {
         let (casos, _) = entorno()
-        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
 
         guard case .failure(let error) = try await casos.invitar(tripId: viaje.id, actor: sara, ahora: ahora) else {
             Issue.record("esperaba failure"); return
@@ -237,7 +237,7 @@ struct CasosDeUsoViajeTests {
     // Extra: invitar rechaza si el viaje está cerrado.
     @Test func invitarRechazaSiViajeCerrado() async throws {
         let (casos, _) = entorno()
-        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         guard case .success = try await casos.cerrar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba cerrar exitoso"); return
         }
@@ -254,7 +254,7 @@ struct CasosDeUsoViajeTests {
     @Test func misViajesClampaElLimiteEnVezDeRechazarlo() async throws {
         let (casos, _) = entorno()
         for nombre in ["Roma", "Lisboa", "Oslo"] {
-            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora)
+            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         }
 
         #expect(try await casos.misViajes(actor: ana, limit: 0).count == 1)      // 0 -> 1
@@ -269,7 +269,7 @@ struct CasosDeUsoViajeTests {
     @Test func misViajesTieneOrdenEstableYLaPaginaEsPrefijo() async throws {
         let (casos, _) = entorno()
         for nombre in ["Roma", "Lisboa", "Oslo"] {
-            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora)
+            _ = try await casos.crear(name: nombre, baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         }
 
         let completa = try await casos.misViajes(actor: ana, limit: 200).map(\.id)
@@ -282,7 +282,7 @@ struct CasosDeUsoViajeTests {
     // expulsado emitió, EN LA MISMA operación. Sin esto reingresaba con su propio code.
     @Test func expulsarRevocaLasInvitacionesDelExpulsado() async throws {
         let (casos, _) = entorno()
-        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
         // ivan entra (con el code de ana) y a su vez invita: crea SU code.
         guard case .success(let inviteAna) = try await casos.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba invitar de ana"); return
@@ -375,7 +375,7 @@ struct CasosDeUsoViajeTests {
     // sin miembros (a diferencia de "con miembros pero sin owner", eso SÍ es válido).
     @Test func salirOwnerUnicoMiembroDejaViajeSinMiembros() async throws {
         let (casos, _) = entorno()
-        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
 
         guard case .success = try await casos.salir(tripId: viaje.id, actor: ana, ahora: ahora) else {
             Issue.record("esperaba salir exitoso"); return
@@ -385,5 +385,34 @@ struct CasosDeUsoViajeTests {
             Issue.record("esperaba failure"); return
         }
         #expect(error == .noAutorizado)
+    }
+
+    // MARK: - Topes de longitud (bead mjp: campos de texto libre sin límite)
+
+    @Test func crearConNameMuyLargoSeRechaza() async throws {
+        let (casos, _) = entorno()
+        let nameLargo = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.crear(name: nameLargo, baseCurrency: "EUR", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("name_muy_largo"))
+    }
+
+    @Test func crearConNameDe200CaracteresSeAcepta() async throws {
+        let (casos, _) = entorno()
+        let nameLimite = String(repeating: "a", count: 200)
+        guard case .success(let viaje) = try await casos.crear(name: nameLimite, baseCurrency: "EUR", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        #expect(viaje.name.count == 200)
+    }
+
+    @Test func crearConBaseCurrencyMuyLargaSeRechaza() async throws {
+        let (casos, _) = entorno()
+        let monedaLarga = String(repeating: "a", count: 11)
+        guard case .failure(let error) = try await casos.crear(name: "Roma", baseCurrency: monedaLarga, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("base_currency_muy_largo"))
     }
 }

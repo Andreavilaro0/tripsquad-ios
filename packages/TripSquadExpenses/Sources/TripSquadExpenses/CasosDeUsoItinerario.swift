@@ -25,10 +25,27 @@ public struct CasosDeUsoItinerario: Sendable {
     private let membresia: Membresia
     private let viajes: ViajeRepositorio
 
+    /// Topes de longitud (bead mjp, "campos de texto libre sin límite"): mismo
+    /// criterio y unidad que `CasosDeUsoChat.enviar` (`unicodeScalars.count`
+    /// == `char_length` de Postgres). `title`/`location` son títulos cortos;
+    /// `notes` es texto libre más largo (mismo orden que `CasosDeUsoChat.body`).
+    private static let longitudMaximaTitle = 200
+    private static let longitudMaximaLocation = 200
+    private static let longitudMaximaNotes = 4000
+
     public init(repo: ItinerarioRepositorio, membresia: Membresia, viajes: ViajeRepositorio) {
         self.repo = repo
         self.membresia = membresia
         self.viajes = viajes
+    }
+
+    /// Valida los topes de longitud de `title`/`location`/`notes`, compartido
+    /// entre `crear` y `editar` (mismos campos, misma regla).
+    private func validarLongitudes(title: String, location: String?, notes: String?) -> String? {
+        guard title.unicodeScalars.count <= Self.longitudMaximaTitle else { return "title_muy_largo" }
+        if let location, location.unicodeScalars.count > Self.longitudMaximaLocation { return "location_muy_larga" }
+        if let notes, notes.unicodeScalars.count > Self.longitudMaximaNotes { return "notes_muy_largas" }
+        return nil
     }
 
     /// Cualquier miembro puede añadir actividades (plan §1). Rechaza si el
@@ -41,6 +58,7 @@ public struct CasosDeUsoItinerario: Sendable {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.reglaViolada("title_vacio")) }
+        if let codigo = validarLongitudes(title: title, location: location, notes: notes) { return .failure(.reglaViolada(codigo)) }
         let actividad = ActividadItinerario(id: UUID().uuidString, tripId: tripId, title: title, day: day, startTime: startTime, location: location, notes: notes, orderIndex: orderIndex, createdBy: actor)
         let conEtag = try await repo.crear(actividad, ahora: ahora)
         return .success(conEtag)
@@ -91,6 +109,7 @@ public struct CasosDeUsoItinerario: Sendable {
         guard existente.createdBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.reglaViolada("title_vacio")) }
+        if let codigo = validarLongitudes(title: title, location: location, notes: notes) { return .failure(.reglaViolada(codigo)) }
         let actualizada = ActividadItinerario(id: existente.id, tripId: existente.tripId, title: title, day: day, startTime: startTime, location: location, notes: notes, orderIndex: orderIndex, createdBy: existente.createdBy)
         switch try await repo.actualizar(actualizada, ifMatch: ifMatch, ahora: ahora) {
         case .ok(let conEtag):
