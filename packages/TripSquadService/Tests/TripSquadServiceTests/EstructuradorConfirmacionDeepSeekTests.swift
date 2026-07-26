@@ -85,4 +85,34 @@ struct EstructuradorConfirmacionDeepSeekTests {
             _ = try await sut.extraer(textoConfirmacion: "algo")
         }
     }
+
+    /// Cap de coste (endurecimiento post-dy5): el cuerpo de la petición a
+    /// `chat/completions` debe llevar `max_tokens: 512` — el JSON esperado es
+    /// diminuto, así que se acota la SALIDA para no pagar de más si el
+    /// modelo se desmadra.
+    @Test("extraer: el body de la petición incluye max_tokens: 512")
+    func extraerIncluyeMaxTokens() async throws {
+        let json = #"""
+        {"choices":[{"message":{"content":"{\"tipo\":\"vuelo\",\"fechaISO\":null,\"numeroConfirmacion\":null,\"proveedor\":null}"}}]}
+        """#
+        let cliente = ClienteHTTPFalso(respuesta: Data(json.utf8))
+        let sut = EstructuradorConfirmacionDeepSeek(apiKey: "clave-de-prueba", httpClient: cliente)
+
+        _ = try await sut.extraer(textoConfirmacion: "algo")
+
+        let body = try #require(await cliente.ultimoBody)
+        let decodificado = try JSONDecoder().decode([String: AnyDecodableParaTest].self, from: body)
+        #expect(decodificado["max_tokens"]?.valorEntero == 512)
+    }
+}
+
+/// Doble minúsculo solo para decodificar el JSON del body en el test de
+/// `max_tokens` sin acoplarse a la forma privada `PeticionChat` del SUT.
+private struct AnyDecodableParaTest: Decodable {
+    let valorEntero: Int?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        valorEntero = try? container.decode(Int.self)
+    }
 }

@@ -94,7 +94,8 @@ public struct EstructuradorConfirmacionDeepSeek: EstructuradorConfirmacion {
                     .init(role: "system", content: Self.promptSistema),
                     .init(role: "user", content: textoConfirmacion),
                 ],
-                responseFormat: .init(type: "json_object")
+                responseFormat: .init(type: "json_object"),
+                maxTokens: 512
             ))
         } catch {
             throw ErrorEstructurador.ilegible
@@ -140,10 +141,15 @@ public struct EstructuradorConfirmacionDeepSeek: EstructuradorConfirmacion {
         let model: String
         let messages: [Mensaje]
         let responseFormat: ResponseFormat
+        /// Cap de coste (endurecimiento post-dy5): acota la SALIDA del modelo.
+        /// El JSON esperado (`DatosJSON`) es diminuto — 512 tokens es techo de
+        /// sobra y evita pagar de más si el modelo se desmadra.
+        let maxTokens: Int
 
         enum CodingKeys: String, CodingKey {
             case model, messages
             case responseFormat = "response_format"
+            case maxTokens = "max_tokens"
         }
     }
 
