@@ -434,6 +434,7 @@ extension RepoQueLanza: SettlementRepositorio {
     func confirmados(de tripId: String) async throws -> [Settlement] { throw BDCaida() }
     func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)] { throw BDCaida() }
     func settlement(id: String, en tripId: String) async throws -> Settlement? { throw BDCaida() }
+    func caducarPendientes(ahora: Date) async throws -> Int { throw BDCaida() }
 }
 
 extension RepoInFlight: SettlementRepositorio {
@@ -443,4 +444,5 @@ extension RepoInFlight: SettlementRepositorio {
     func confirmados(de tripId: String) async throws -> [Settlement] { [] }
     func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)] { [] }
     func settlement(id: String, en tripId: String) async throws -> Settlement? { nil }
+    func caducarPendientes(ahora: Date) async throws -> Int { 0 }
 }

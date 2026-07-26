@@ -377,4 +377,5 @@ private struct RepoNoMiembroQueLanzaEnGastos: GastoRepositorio, Membresia, Settl
     func confirmados(de tripId: String) async throws -> [Settlement] { throw Boom() }
     func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)] { throw Boom() }
     func settlement(id: String, en tripId: String) async throws -> Settlement? { throw Boom() }
+    func caducarPendientes(ahora: Date) async throws -> Int { throw Boom() }
 }
