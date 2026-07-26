@@ -156,6 +156,36 @@ struct RepositorioPostgresTests {
         }
     }
 
+    /// (bead zkm) Al editar el importe, `amount_original` debe seguir a
+    /// `amount_reference`. El dominio hoy es mono-moneda (currency_original fijo en
+    /// 'EUR'), así que ambas columnas representan el mismo importe; el UPDATE se había
+    /// quedado corto y solo tocaba `amount_reference`, dejando `amount_original`
+    /// congelado con el valor de creación tras editar.
+    @Test func editarActualizaAmountOriginal() async throws {
+        try await conRepo { repo, trip in
+            let id = nuevoId()
+            _ = try await repo.guardar(gasto(id, importe: 3000), en: trip, por: ana, idempotencyKey: "\(id)-k1")
+            let etag = try #require(await repo.gasto(id: id, en: trip)).etag
+            _ = try await repo.actualizar(gasto(id, importe: 7500), en: trip, por: ana, ifMatch: etag, idempotencyKey: "\(id)-k2")
+
+            let host = ProcessInfo.processInfo.environment["PG_TEST_HOST"] ?? "localhost"
+            let config = PostgresClient.Configuration(
+                host: host, port: 5432, username: "postgres", password: "postgres",
+                database: "tripsquad", tls: .disable)
+            let client = PostgresClient(configuration: config)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { await client.run() }
+                let rows = try await client.query(
+                    "SELECT amount_reference, amount_original FROM expenses WHERE id = \(id)")
+                for try await (reference, original) in rows.decode((Int64, Int64).self) {
+                    #expect(reference == 7500)
+                    #expect(original == 7500, "amount_original debe seguir al importe editado")
+                }
+                group.cancelAll()
+            }
+        }
+    }
+
     /// (Codex P2) Al editar de reparto EXACTO a igual, las shares tipadas se limpian.
     @Test func editarDeExactoAIgualLimpiaShares() async throws {
         try await conRepo { repo, trip in

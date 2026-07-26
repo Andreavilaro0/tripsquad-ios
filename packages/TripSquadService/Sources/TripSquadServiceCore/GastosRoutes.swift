@@ -80,7 +80,24 @@ func respuestaDirecta(_ r: ResultadoEscritura) -> Response {
         return resp
     case .rechazado(let razon):
         // Rechazo de negocio permanente: 4xx en la API directa.
-        return errorJSON(HTTPResponse.Status(code: 422), razon)
+        //
+        // (bead 55x) `not_member`/`trip_closed` NO son reglas de negocio de gastos:
+        // son el mismo criterio de autorización/estado-de-viaje que los otros 7
+        // módulos (Settle/Itinerario/Votación/Viaje/Foto/Reserva/Chat) — todos
+        // mapean `not_member`→403 y `trip_closed`→409 (ver p.ej.
+        // `respuestaErrorItinerario`/`respuestaErrorReserva`). Gastos los dejaba caer
+        // en el 422 genérico junto con violaciones reales de reglas de negocio
+        // (`invalid_expense`, `member_not_in_trip`, `invalid_receipt`), que sí
+        // siguen siendo 422 aquí. Este switch es transversal: cubre crear, editar,
+        // eliminar y from-receipt (ADR-0025), que comparten este mismo helper.
+        switch razon {
+        case "not_member":
+            return errorJSON(.forbidden, razon)
+        case "trip_closed":
+            return errorJSON(.conflict, razon)
+        default:
+            return errorJSON(HTTPResponse.Status(code: 422), razon)
+        }
     }
 }
 

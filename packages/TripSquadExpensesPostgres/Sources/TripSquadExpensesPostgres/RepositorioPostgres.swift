@@ -110,8 +110,18 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia {
             // UPDATE condicional ATÓMICO (hallazgo P1 de Codex): el ETag va en el
             // WHERE, así dos ediciones concurrentes con el mismo If-Match no se pisan
             // — solo una encuentra la fila con ese etag; la otra afecta 0 filas.
+            //
+            // amount_original (bead zkm): el dominio hoy es mono-moneda (currency_original
+            // siempre 'EUR', fijado en `guardar`), así que amount_original y
+            // amount_reference representan el MISMO importe y deben coincidir. El INSERT
+            // de `guardar` ya pone ambas columnas; este UPDATE se había quedado corto y
+            // solo tocaba amount_reference, dejando amount_original congelado con el
+            // importe de creación tras cualquier edición — las dos columnas divergían con
+            // la misma moneda, irreconciliable para auditoría. Cuando llegue FX real
+            // (multi-moneda), esto se rediseña para no pisar un original en otra divisa.
             let upd = try await conn.query("""
                 UPDATE expenses SET paid_by = \(gasto.pagadoPor.raw), amount_reference = \(gasto.importeMinor),
+                    amount_original = \(gasto.importeMinor),
                     split_kind = \(kind), split = \(splitJSON)::jsonb, etag = \(nuevoEtag), updated_at = now()
                 WHERE id = \(gasto.id) AND trip_id = \(tripId) AND etag = \(etag) AND deleted_at IS NULL
                 RETURNING etag
