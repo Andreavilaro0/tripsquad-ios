@@ -200,4 +200,25 @@ struct CasosDeUsoSettleTests {
         #expect(sids.allSatisfy { $0.1.expiresAt >= despues }, "ningún caducado en la página")
         #expect(sids.contains { $0.1.settlementId == "nuevo" })
     }
+
+    /// Barrido de caducidad (bead 1ea): pasa a `cancelled` SOLO los `pending` vencidos.
+    /// No toca los `pending` vigentes ni los ya terminales (`confirmed`). Idempotente.
+    @Test func barridoCaducaSoloPendingsVencidos() async throws {
+        let (r, casos) = await setup()
+        // s1, s2 nacen en t0 (caducan t0+30d). Confirmo s2 → terminal, intocable.
+        let res = try await casos.crearPagos([cmd("s1"), cmd("s2")], ahora: t0)
+        guard case .creado(let id2) = res[1] else { Issue.record("esperaba creado"); return }
+        _ = try await casos.confirmar(id: id2, en: "t1", por: MiembroId("ana"), ahora: t0)
+        // s3: pending VIGENTE, creado 31 días después (caduca t0+61d).
+        let despues = t0.addingTimeInterval(31 * 24 * 3600)
+        _ = try await casos.crearPagos([cmd("s3", from: "ana", to: "ivan", actor: "ana")], ahora: despues)
+
+        // Barrido en t0+31d: solo s1 (pending vencido) caduca.
+        #expect(try await casos.caducarPendientes(ahora: despues) == 1)
+        // s3 queda como único pending vigente; s2 sigue confirmado.
+        #expect(try await casos.pendientes(tripId: "t1", ahora: despues).map(\.1.settlementId) == ["s3"])
+        #expect(try await r.confirmados(de: "t1").count == 1)
+        // Idempotente: la 2ª pasada no caduca nada (s1 ya quedó materializado cancelled).
+        #expect(try await casos.caducarPendientes(ahora: despues) == 0)
+    }
 }

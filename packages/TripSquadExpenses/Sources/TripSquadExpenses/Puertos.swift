@@ -112,6 +112,12 @@ public protocol SettlementRepositorio: Sendable {
     func pendientes(de tripId: String, limit: Int, ahora: Date) async throws -> [(String, Settlement)]
     /// Lee un settlement por id (para autorizar la transición en el caso de uso).
     func settlement(id: String, en tripId: String) async throws -> Settlement?
+    /// Barrido de mantenimiento (bead 1ea, ADR-0017): pasa a `cancelled` (marcando
+    /// `resolvedAt`) todos los `pending` vencidos (`expiresAt < ahora`) de TODOS los
+    /// viajes, y devuelve cuántos caducó. Pensado para un cron. Idempotente: una 2ª
+    /// pasada no cambia nada. La correctitud ya la da la caducidad perezosa
+    /// (`transicionar`/`pendientes`); esto solo materializa el estado terminal en BD.
+    func caducarPendientes(ahora: Date) async throws -> Int
 }
 
 /// Puerto de persistencia de viajes/miembros/invitaciones (ADR-0018). Firma

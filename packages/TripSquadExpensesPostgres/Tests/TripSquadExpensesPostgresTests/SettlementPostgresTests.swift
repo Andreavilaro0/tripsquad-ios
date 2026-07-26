@@ -163,4 +163,34 @@ struct SettlementPostgresTests {
             #expect(confirmados.map(\.settlementId) == repetida.map(\.settlementId))   // orden repetible
         }
     }
+
+    /// Barrido de caducidad (bead 1ea): el `pending` vencido queda `cancelled` en BD; el
+    /// vigente sigue `pending`. Se verifica por SELECT del status POR FILA (settlement_id),
+    /// no por el conteo global que devuelve el barrido — así es robusto a filas de otras
+    /// corridas en la misma DB de test.
+    @Test func barridoCaducaPendingVencidoEnBD() async throws {
+        try await conBD { repo, tripId in
+            let base = Date(timeIntervalSince1970: 1_700_000_000)
+            let vencido = Settlement(settlementId: "venc", tripId: tripId, from: ivan, to: ana,
+                                     transferIndex: 0, amountMinor: 1000, createdBy: ivan, expiresAt: base)
+            guard case .creado = try await repo.crear(vencido) else { Issue.record("crear venc"); return }
+            let vigente = Settlement(settlementId: "vig", tripId: tripId, from: ivan, to: ana,
+                                     transferIndex: 1, amountMinor: 1000, createdBy: ivan,
+                                     expiresAt: base.addingTimeInterval(100 * 24 * 3600))
+            guard case .creado = try await repo.crear(vigente) else { Issue.record("crear vig"); return }
+
+            // Barrido en base+1d: el vencido pasa a cancelled; el vigente no.
+            _ = try await repo.caducarPendientes(ahora: base.addingTimeInterval(24 * 3600))
+
+            func estado(_ sid: String) async throws -> String {
+                let rows = try await repo.client.query(
+                    "SELECT status FROM settlements WHERE trip_id = \(tripId) AND settlement_id = \(sid)",
+                    logger: repo.logger)
+                for try await s in rows.decode(String.self) { return s }
+                return "?"
+            }
+            #expect(try await estado("venc") == "cancelled")
+            #expect(try await estado("vig") == "pending")
+        }
+    }
 }

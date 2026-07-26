@@ -247,6 +247,20 @@ extension RepositorioEnMemoria: SettlementRepositorio {
         settlements[id].flatMap { $0.tripId == tripId ? $0 : nil }
     }
 
+    /// Barrido de caducidad (bead 1ea): materializa como `cancelled` los `pending`
+    /// vencidos. `resolvedBy` queda nil a propósito: lo caduca el sistema, no un actor.
+    public func caducarPendientes(ahora: Date) -> Int {
+        var n = 0
+        for (id, s) in settlements where s.status == .pending && s.expiresAt < ahora {
+            var caducado = s
+            caducado.status = .cancelled
+            caducado.resolvedAt = ahora
+            settlements[id] = caducado
+            n += 1
+        }
+        return n
+    }
+
     public func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
                              por actor: MiembroId, ahora: Date, rejectReason: String?) -> ResultadoTransicion {
         guard var s = settlements[id], s.tripId == tripId else { return .noEncontrado }
