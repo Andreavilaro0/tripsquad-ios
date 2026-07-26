@@ -1,6 +1,6 @@
 # `:settle` Confirmación (M1) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
+> **Referencia de diseño — no es un tracker.** El estado de ejecución y su avance viven en beads (bd), nunca en este documento. Los pasos de abajo son el plan de referencia (viñetas), no checkboxes de seguimiento. Ver AGENTS.md, sección Rules.
 
 **Goal:** Convertir la escritura de `:settle` en el flujo pendiente→confirmación de ADR-0017: un miembro (pagador o cobrador) crea una afirmación de pago que la contraparte confirma o rechaza; solo `confirmed` mueve saldos.
 
@@ -36,7 +36,7 @@
   - `struct ClaveSettlement: Hashable, Sendable { let tripId, settlementId: String; let from, to: MiembroId; let transferIndex: Int }` y `var Settlement.clave: ClaveSettlement`.
   - Se **elimina** `idDeterminista` (reemplazado por `clave`, que incluye `tripId` y no usa concatenación ambigua — fix B).
 
-- [ ] **Step 1: Escribir el test que falla**
+- **Step 1: Escribir el test que falla**
 
 Reemplaza el contenido de `SettlementTests.swift`:
 ```swift
@@ -76,12 +76,12 @@ struct SettlementTests {
 }
 ```
 
-- [ ] **Step 2: Ver que falla**
+- **Step 2: Ver que falla**
 
 Run: `cd packages/TripSquadExpenses && swift test --filter SettlementTests`
 Expected: FAIL — no compila (`status`, `createdBy`, `expiresAt`, `clave` no existen; `idDeterminista` aún referenciado en otros sitios se arregla en Task 2/3).
 
-- [ ] **Step 3: Reescribir `Settlement.swift`**
+- **Step 3: Reescribir `Settlement.swift`**
 ```swift
 import Foundation
 import TripSquadDomain
@@ -139,7 +139,7 @@ public extension Settlement {
 }
 ```
 
-- [ ] **Step 4: Migración 0002**
+- **Step 4: Migración 0002**
 
 Create `db/migrations/0002_settlements_confirmacion.sql`:
 ```sql
@@ -159,12 +159,12 @@ alter table settlements
 alter table settlements alter column round set default 0;
 ```
 
-- [ ] **Step 5: Ver que pasa**
+- **Step 5: Ver que pasa**
 
 Run: `cd packages/TripSquadExpenses && swift test --filter SettlementTests`
 Expected: PASS (4 tests). El resto del módulo aún no compila hasta Task 2 — es esperado; ejecuta solo el filtro.
 
-- [ ] **Step 6: Commit**
+- **Step 6: Commit**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/Settlement.swift \
         packages/TripSquadExpenses/Tests/TripSquadExpensesTests/SettlementTests.swift \
@@ -199,7 +199,7 @@ git commit -m "feat(settle): modelo de estados + clave natural con tripId (ADR-0
   - `func puedeSugerir(...)` y `func sugerir(...)` se conservan de M0.
 - Consumes: `Membresia` (esMiembro/viajeCerrado), `EstadoSettlement`, `Settlement`, `ClaveSettlement`.
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- **Step 1: Escribir los tests que fallan**
 
 Reemplaza `CasosDeUsoSettleTests.swift`:
 ```swift
@@ -308,12 +308,12 @@ struct CasosDeUsoSettleTests {
 }
 ```
 
-- [ ] **Step 2: Ver que falla**
+- **Step 2: Ver que falla**
 
 Run: `cd packages/TripSquadExpenses && swift test`
 Expected: FAIL — no compila (tipos/métodos nuevos no existen; el `registrar` viejo del repo se reemplaza).
 
-- [ ] **Step 3: Puertos.swift — reemplazar el puerto de settle**
+- **Step 3: Puertos.swift — reemplazar el puerto de settle**
 
 Sustituye el bloque `ResultadoSettle` + `SettlementRepositorio` de M0 por:
 ```swift
@@ -349,7 +349,7 @@ public protocol SettlementRepositorio: Sendable {
 ```
 > Nota: añade también `func settlement(id:en:)` al protocolo (usado por el caso de uso para saber quién es la contraparte antes de transicionar).
 
-- [ ] **Step 4: CasosDeUsoSettle.swift — la máquina de estados**
+- **Step 4: CasosDeUsoSettle.swift — la máquina de estados**
 
 Reemplaza `ComandoRegistrarPago`/`registrarPago` por:
 ```swift
@@ -416,7 +416,7 @@ Y dentro de `CasosDeUsoSettle` (conserva `puedeSugerir` y `sugerir` de M0), aña
     }
 ```
 
-- [ ] **Step 5: RepositorioEnMemoria.swift — implementar el puerto nuevo**
+- **Step 5: RepositorioEnMemoria.swift — implementar el puerto nuevo**
 
 Sustituye la extensión `SettlementRepositorio` de M0 por (el almacén pasa a indexar por `id`, con un índice de clave natural para el dedupe):
 ```swift
@@ -464,12 +464,12 @@ Corrección: la versión final de `pendientes`:
 ```
 Y borra la línea `settlementsPorId` (usa solo `settlements` indexado por id).
 
-- [ ] **Step 6: Ver que pasa**
+- **Step 6: Ver que pasa**
 
 Run: `cd packages/TripSquadExpenses && swift test`
 Expected: PASS — SettlementTests (4) + CasosDeUsoSettleTests (12) + los tests de gastos previos.
 
-- [ ] **Step 7: Commit**
+- **Step 7: Commit**
 ```bash
 git add packages/TripSquadExpenses/Sources/TripSquadExpenses/Puertos.swift \
         packages/TripSquadExpenses/Sources/TripSquadExpenses/CasosDeUsoSettle.swift \
@@ -488,7 +488,7 @@ git commit -m "feat(settle): maquina de estados pending/confirm/reject/cancel + 
 
 **Interfaces:** implementa el mismo `SettlementRepositorio` de Task 2 contra Postgres.
 
-- [ ] **Step 1: Test de integración (se salta sin BD, corre en CI con PG_TEST=1)**
+- **Step 1: Test de integración (se salta sin BD, corre en CI con PG_TEST=1)**
 
 Mira primero un test de integración existente para copiar el arranque de conexión:
 `grep -n "PG_TEST\|withConnection\|func haciaBD\|RepositorioPostgres(" packages/TripSquadExpensesPostgres/Tests/ -r`. Reusa ese helper. El test:
@@ -519,9 +519,9 @@ Mira primero un test de integración existente para copiar el arranque de conexi
 ```
 > `conBD(_:)` es el helper de integración a reutilizar/crear: abre conexión, crea un trip + miembros ivan/ana, ejecuta el bloque, limpia. Sigue el patrón de los tests Postgres de gastos.
 
-- [ ] **Step 2: Ver que falla** (en CI con BD, o local con `PG_TEST=1` y Docker): FAIL — métodos no implementados.
+- **Step 2: Ver que falla** (en CI con BD, o local con `PG_TEST=1` y Docker): FAIL — métodos no implementados.
 
-- [ ] **Step 3: Implementar en RepositorioPostgres.swift**
+- **Step 3: Implementar en RepositorioPostgres.swift**
 
 Sustituye la extensión `SettlementRepositorio` de M0 por:
 ```swift
@@ -597,8 +597,8 @@ extension RepositorioPostgres: SettlementRepositorio {
 }
 ```
 
-- [ ] **Step 4: Ver que pasa** (CI con BD o local `PG_TEST=1`): PASS.
-- [ ] **Step 5: Commit**
+- **Step 4: Ver que pasa** (CI con BD o local `PG_TEST=1`): PASS.
+- **Step 5: Commit**
 ```bash
 git add packages/TripSquadExpensesPostgres/
 git commit -m "feat(settle): adaptador Postgres del flujo de confirmacion + tests de integracion (cierra DB de 8hn)"
@@ -622,8 +622,8 @@ git commit -m "feat(settle): adaptador Postgres del flujo de confirmacion + test
 - `POST .../:id/cancel` → 200 · 403 · 409 · 404.
 - `GET /trips/:tripId/settlements?status=pending` → 200 `{"settlements":[…]}`.
 
-- [ ] **Step 1..N (TDD):** un test por ruta/estado (201 lote, 200 duplicate, 422 item inválido, 403 no-parte, confirm 200 por contraparte, confirm 403 por creador, 409 al reconfirmar, reject con reason, cancel, list pending). Implementar `montarSettle` con las 5 rutas, `actor = ctx.actor`, DTOs `Encodable`/`Decodable` serializados con `JSONEncoder`/`req.decode` (NUNCA interpolación a mano — finding A). Mapear `ResultadoTransicion`: `.ok→200`, `.noAutorizado→403`, `.noEncontrado→404`, `.estadoInvalido/.caducado→409`.
-- [ ] **Commit:** `feat(settle): endpoints crear-lote/confirm/reject/cancel/list (ADR-0017)`
+- **Step 1..N (TDD):** un test por ruta/estado (201 lote, 200 duplicate, 422 item inválido, 403 no-parte, confirm 200 por contraparte, confirm 403 por creador, 409 al reconfirmar, reject con reason, cancel, list pending). Implementar `montarSettle` con las 5 rutas, `actor = ctx.actor`, DTOs `Encodable`/`Decodable` serializados con `JSONEncoder`/`req.decode` (NUNCA interpolación a mano — finding A). Mapear `ResultadoTransicion`: `.ok→200`, `.noAutorizado→403`, `.noEncontrado→404`, `.estadoInvalido/.caducado→409`.
+- **Commit:** `feat(settle): endpoints crear-lote/confirm/reject/cancel/list (ADR-0017)`
 
 > Esta tarea se detalla a nivel de código en su propio brief al ejecutarla (subagent-driven-development), calcando el patrón de `montarGastos`/`SettleRoutes` ya en el repo. Se deja como una tarea porque es un único deliverable testable (la superficie HTTP del flujo).
 
@@ -640,9 +640,9 @@ git commit -m "feat(settle): adaptador Postgres del flujo de confirmacion + test
 - `func balancesConLiquidaciones(_ gastos: [Gasto], confirmados: [Settlement]) throws -> [MiembroId: Int64]` — parte de `balances(gastos)` y aplica cada pago confirmado (resta al `from`, suma al `to`, o el signo que corresponda al convenio del motor).
 - `GET suggestion` usa `balancesConLiquidaciones(gastos, confirmados)` y añade, por transferencia sugerida, `"pending": true` si existe un `pending` que la cubre (par from→to).
 
-- [ ] **Step 1: test de dominio** — un gasto que deja a Iván debiendo 2000 a Ana + un settlement confirmado de 2000 ivan→ana ⇒ saldo neto 0 ⇒ sugerencia vacía. Un settlement `pending` NO cambia el saldo.
-- [ ] **Step 2..4:** implementar, GET marca pendientes, tests de servicio.
-- [ ] **Commit:** `feat(settle): balances descuenta pagos confirmados + aviso de pendientes (cierra xsx)`
+- **Step 1: test de dominio** — un gasto que deja a Iván debiendo 2000 a Ana + un settlement confirmado de 2000 ivan→ana ⇒ saldo neto 0 ⇒ sugerencia vacía. Un settlement `pending` NO cambia el saldo.
+- **Step 2..4:** implementar, GET marca pendientes, tests de servicio.
+- **Commit:** `feat(settle): balances descuenta pagos confirmados + aviso de pendientes (cierra xsx)`
 
 ---
 
@@ -652,9 +652,9 @@ git commit -m "feat(settle): adaptador Postgres del flujo de confirmacion + test
 - Ya cubierta en Tasks 2/3 (transición devuelve `.caducado` si `expiresAt < ahora`; `pendientes` puede excluir vencidos).
 - Este task solo añade: (a) test de servicio de caducidad usando el reloj inyectable; (b) crear un **bead** para el cron de limpieza (`UPDATE ... SET status='cancelled' WHERE status='pending' AND expires_at < now()`), que encaja con la infra de cron/pinger existente.
 
-- [ ] **Step 1:** test de servicio: crear pending, avanzar el reloj +31d, confirmar → 409 caducado.
-- [ ] **Step 2:** `bd create` del cron de caducidad (P2).
-- [ ] **Commit:** `test(settle): caducidad perezosa a 30 dias + bead del cron de limpieza`
+- **Step 1:** test de servicio: crear pending, avanzar el reloj +31d, confirmar → 409 caducado.
+- **Step 2:** `bd create` del cron de caducidad (P2).
+- **Commit:** `test(settle): caducidad perezosa a 30 dias + bead del cron de limpieza`
 
 ---
 
