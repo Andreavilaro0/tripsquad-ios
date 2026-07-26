@@ -304,4 +304,86 @@ struct CasosDeUsoViajeTests {
         // El code de ANA (otro emisor) sigue vivo — solo se revocan los del expulsado.
         #expect(try await casos.unirse(code: inviteAna.code, actor: sara, ahora: ahora) == .unido)
     }
+
+    // MARK: - Sucesión de ownership al salir (enmienda ADR-0018, decisión de Andrea 2026-07-27)
+
+    // 13. Sale el ÚLTIMO owner (ana) → el miembro activo más antiguo (ivan, que
+    // entró antes que sara) pasa a owner. El viaje NUNCA queda sin owner.
+    @Test func salirUltimoOwnerTransfiereAlMasAntiguo() async throws {
+        let (casos, _) = entorno()
+        let (tripId, code) = try await viajeConInvitacion(casos)
+        #expect(try await casos.unirse(code: code, actor: ivan, ahora: ahora) == .unido)
+        let masTarde = ahora.addingTimeInterval(60)
+        #expect(try await casos.unirse(code: code, actor: sara, ahora: masTarde) == .unido)
+
+        guard case .success = try await casos.salir(tripId: tripId, actor: ana, ahora: masTarde) else {
+            Issue.record("esperaba salir exitoso"); return
+        }
+
+        guard case .success(let (_, miembros)) = try await casos.detalle(tripId: tripId, actor: ivan) else {
+            Issue.record("esperaba detalle exitoso"); return
+        }
+        let porId = Dictionary(uniqueKeysWithValues: miembros)
+        #expect(porId[ivan] == .owner)     // el más antiguo (excluyendo a ana) hereda
+        #expect(porId[sara] == .member)    // sara no se toca
+        #expect(porId[ana] == nil)         // ana ya no es miembro
+        #expect(miembros.count == 2)       // el viaje NO se queda sin owner
+    }
+
+    // 14. Sale un owner cuando hay OTRO owner activo → no hay transferencia (ivan
+    // conserva el rol que ya tenía, no lo gana por la salida de ana).
+    @Test func salirOwnerConOtroOwnerNoTransfiere() async throws {
+        let (casos, repo) = entorno()
+        let (tripId, code) = try await viajeConInvitacion(casos)
+        #expect(try await casos.unirse(code: code, actor: ivan, ahora: ahora) == .unido)
+        // Promueve a ivan a co-owner directamente en el repo — hoy no hay caso de uso
+        // público para nombrar un segundo owner, así que se siembra el escenario aquí.
+        try await repo.promoverAOwner(ivan, en: tripId)
+
+        guard case .success = try await casos.salir(tripId: tripId, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba salir exitoso"); return
+        }
+
+        guard case .success(let (_, miembros)) = try await casos.detalle(tripId: tripId, actor: ivan) else {
+            Issue.record("esperaba detalle exitoso"); return
+        }
+        let porId = Dictionary(uniqueKeysWithValues: miembros)
+        #expect(porId[ivan] == .owner)   // ya lo era, sigue siéndolo — sin cambio
+        #expect(porId[ana] == nil)       // ana ya no es miembro
+        #expect(miembros.count == 1)
+    }
+
+    // 15. Sale un `member` (no owner) → nunca dispara sucesión, ana sigue owner sin cambios.
+    @Test func salirMemberNoTransfiereOwnership() async throws {
+        let (casos, _) = entorno()
+        let (tripId, code) = try await viajeConInvitacion(casos)
+        #expect(try await casos.unirse(code: code, actor: ivan, ahora: ahora) == .unido)
+
+        guard case .success = try await casos.salir(tripId: tripId, actor: ivan, ahora: ahora) else {
+            Issue.record("esperaba salir exitoso"); return
+        }
+
+        guard case .success(let (_, miembros)) = try await casos.detalle(tripId: tripId, actor: ana) else {
+            Issue.record("esperaba detalle exitoso"); return
+        }
+        let porId = Dictionary(uniqueKeysWithValues: miembros)
+        #expect(porId[ana] == .owner)
+        #expect(miembros.count == 1)
+    }
+
+    // 16. Sale el owner siendo ÚNICO miembro del viaje → no falla, el viaje queda
+    // sin miembros (a diferencia de "con miembros pero sin owner", eso SÍ es válido).
+    @Test func salirOwnerUnicoMiembroDejaViajeSinMiembros() async throws {
+        let (casos, _) = entorno()
+        let viaje = try await casos.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora)
+
+        guard case .success = try await casos.salir(tripId: viaje.id, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba salir exitoso"); return
+        }
+
+        guard case .failure(let error) = try await casos.detalle(tripId: viaje.id, actor: ana) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .noAutorizado)
+    }
 }

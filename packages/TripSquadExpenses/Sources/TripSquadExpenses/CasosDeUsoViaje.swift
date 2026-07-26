@@ -81,12 +81,22 @@ public struct CasosDeUsoViaje: Sendable {
     /// es error). Un cliente que reintenta `DELETE /trips/:id/members/me` tras
     /// un timeout de red no debe ver un 4xx la segunda vez.
     ///
-    /// Nota abierta (no cerrada por este task): el owner puede salir por esta
-    /// vía y dejar el viaje sin owner. El plan no lo prohíbe explícitamente;
-    /// se deja así y se marca para revisión de Andrea si hace falta un
-    /// "transferir ownership" o "el último no puede salir".
+    /// Enmienda ADR-0018 (decisión de Andrea 2026-07-27, cierra el hueco descrito
+    /// en la nota anterior de este docstring): si `actor` es el ÚNICO `owner`
+    /// activo, ANTES de quitarlo se transfiere la propiedad al miembro activo más
+    /// antiguo por `joined_at` (excluyéndolo a él). Si no hay otro miembro activo,
+    /// el viaje queda sin miembros — eso sí es un estado válido (a diferencia de
+    /// "con miembros pero sin owner"). Un owner que NO es el último, o un
+    /// `member`, salen sin transferencia: solo el ÚLTIMO owner puede dejar el
+    /// viaje huérfano de autoridad.
     public func salir(tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorViaje> {
-        guard try await repo.rol(de: actor, en: tripId) != nil else { return .success(()) }
+        guard let rolActor = try await repo.rol(de: actor, en: tripId) else { return .success(()) }
+        if rolActor == .owner {
+            let owners = try await repo.miembros(de: tripId).filter { $0.1 == .owner }
+            if owners.count == 1, let sucesor = try await repo.miembroActivoMasAntiguo(de: tripId, excluyendo: actor) {
+                try await repo.promoverAOwner(sucesor, en: tripId)
+            }
+        }
         try await repo.quitarMiembro(actor, de: tripId, ahora: ahora)
         return .success(())
     }

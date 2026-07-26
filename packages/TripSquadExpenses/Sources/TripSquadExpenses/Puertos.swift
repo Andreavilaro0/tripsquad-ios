@@ -137,6 +137,18 @@ public protocol ViajeRepositorio: Sendable {
     func unirsePorCodigo(code: String, actor: MiembroId, ahora: Date, tope: Int) async throws -> ResultadoUnirse
     func quitarMiembro(_ memberId: MiembroId, de tripId: String, ahora: Date) async throws
     func cerrar(tripId: String, ahora: Date) async throws
+
+    /// Miembro ACTIVO más antiguo por `joined_at`, excluyendo a `actor` — usado por
+    /// `CasosDeUsoViaje.salir` para elegir sucesor cuando sale el ÚLTIMO owner
+    /// (enmienda ADR-0018, decisión de Andrea 2026-07-27). `miembros(de:)` no sirve
+    /// para esto: ordena por `member_id`, no por antigüedad. `nil` si `actor` es el
+    /// único miembro activo. Empate de `joined_at` se desempata por `member_id`
+    /// (mismo criterio de orden estable que el resto del puerto).
+    func miembroActivoMasAntiguo(de tripId: String, excluyendo actor: MiembroId) async throws -> MiembroId?
+    /// Promueve a `owner` a un miembro ACTIVO (no-op si ya no está activo o ya lo
+    /// es). Solo lo invoca el caso de uso tras decidir la sucesión — este método no
+    /// valida por sí mismo que haya un owner previo que ceda el puesto.
+    func promoverAOwner(_ memberId: MiembroId, en tripId: String) async throws
 }
 
 /// Puerto de persistencia de votaciones (M4, ADR-0019 borrador). Firma copiada

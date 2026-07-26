@@ -27,8 +27,10 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     /// Fila de membresía de `ViajeRepositorio`: `leftAt == nil` = miembro activo
     /// (salió/lo expulsaron deja `leftAt` puesto, no se borra la fila — igual
-    /// filosofía que los tombstones de gastos).
-    private struct FilaMiembro { var rol: RolMiembro; var leftAt: Date? }
+    /// filosofía que los tombstones de gastos). `joinedAt` replica la columna
+    /// `trip_members.joined_at` (0001) — necesaria para elegir sucesor de
+    /// ownership por antigüedad (enmienda ADR-0018).
+    private struct FilaMiembro { var rol: RolMiembro; var leftAt: Date?; var joinedAt: Date }
 
     private var viajes: [String: Viaje] = [:]                             // tripId -> Viaje
     private var miembrosDeViaje: [String: [MiembroId: FilaMiembro]] = [:] // tripId -> actor -> fila
@@ -85,7 +87,12 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
             fila.leftAt = nil
             miembrosDeViaje[tripId]?[m] = fila
         } else {
-            miembrosDeViaje[tripId, default: [:]][m] = FilaMiembro(rol: .member, leftAt: nil)
+            // `.distantPast`: este helper de test no recibe `ahora` (a diferencia de
+            // `crearViaje`/`unirsePorCodigo`), así que no hay una fecha de alta real que
+            // registrar. Usar una constante fija (en vez de `Date()`) mantiene
+            // `miembroActivoMasAntiguo` determinista sin importar el orden de las
+            // llamadas en un mismo test.
+            miembrosDeViaje[tripId, default: [:]][m] = FilaMiembro(rol: .member, leftAt: nil, joinedAt: .distantPast)
         }
     }
 
@@ -290,7 +297,7 @@ extension RepositorioEnMemoria: ViajeRepositorio {
         viajes[id] = viaje
         // El creador entra como owner en la misma operación (ADR-0018 §2): un
         // viaje sin owner no es un estado válido.
-        miembrosDeViaje[id, default: [:]][creador] = FilaMiembro(rol: .owner, leftAt: nil)
+        miembrosDeViaje[id, default: [:]][creador] = FilaMiembro(rol: .owner, leftAt: nil, joinedAt: ahora)
         return viaje
     }
 
@@ -348,7 +355,7 @@ extension RepositorioEnMemoria: ViajeRepositorio {
         }
         let activos = (miembrosDeViaje[inv.tripId] ?? [:]).values.filter { $0.leftAt == nil }.count
         guard activos < tope else { return .lleno }
-        miembrosDeViaje[inv.tripId, default: [:]][actor] = FilaMiembro(rol: .member, leftAt: nil)
+        miembrosDeViaje[inv.tripId, default: [:]][actor] = FilaMiembro(rol: .member, leftAt: nil, joinedAt: ahora)
         return .unido
     }
 
@@ -389,6 +396,28 @@ extension RepositorioEnMemoria: ViajeRepositorio {
     public func cerrar(tripId: String, ahora: Date) {
         guard let v = viajes[tripId] else { return }
         viajes[tripId] = Viaje(id: v.id, name: v.name, baseCurrency: v.baseCurrency, createdBy: v.createdBy, closedAt: ahora)
+    }
+
+    /// Ordena por `joinedAt` (empate por `member_id`, igual criterio estable que
+    /// `miembros(de:)`) y descarta a `actor` — enmienda ADR-0018, sucesión de
+    /// ownership en `salir`.
+    public func miembroActivoMasAntiguo(de tripId: String, excluyendo actor: MiembroId) -> MiembroId? {
+        (miembrosDeViaje[tripId] ?? [:])
+            .filter { $0.value.leftAt == nil && $0.key != actor }
+            .sorted { lhs, rhs in
+                if lhs.value.joinedAt != rhs.value.joinedAt { return lhs.value.joinedAt < rhs.value.joinedAt }
+                return lhs.key < rhs.key
+            }
+            .first?.key
+    }
+
+    /// No-op si `memberId` no es miembro activo — el caso de uso ya decidió a
+    /// quién promover a partir de `miembroActivoMasAntiguo`, este método solo
+    /// aplica el cambio.
+    public func promoverAOwner(_ memberId: MiembroId, en tripId: String) {
+        guard var fila = miembrosDeViaje[tripId]?[memberId], fila.leftAt == nil else { return }
+        fila.rol = .owner
+        miembrosDeViaje[tripId]?[memberId] = fila
     }
 }
 

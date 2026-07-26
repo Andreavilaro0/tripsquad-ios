@@ -231,4 +231,31 @@ extension RepositorioPostgres: ViajeRepositorio {
         _ = try await client.query(
             "UPDATE trips SET closed_at = \(ahora) WHERE id = \(tripId)", logger: logger)
     }
+
+    // MARK: - Sucesión de ownership (enmienda ADR-0018, decisión de Andrea 2026-07-27)
+
+    /// `ORDER BY joined_at ASC, member_id ASC`: mismo desempate estable que
+    /// `miembros(de:)` usa para `member_id` solo, aplicado aquí tras la antigüedad
+    /// real. `LIMIT 1` — solo se necesita el más antiguo.
+    public func miembroActivoMasAntiguo(de tripId: String, excluyendo actor: MiembroId) async throws -> MiembroId? {
+        let rows = try await client.query("""
+            SELECT member_id FROM trip_members
+            WHERE trip_id = \(tripId) AND left_at IS NULL AND member_id != \(actor.raw)
+            ORDER BY joined_at ASC, member_id ASC
+            LIMIT 1
+            """, logger: logger)
+        for try await (memberId) in rows.decode(String.self) {
+            return MiembroId(memberId)
+        }
+        return nil
+    }
+
+    /// `WHERE ... left_at IS NULL`: no-op si `memberId` ya no está activo (mismo
+    /// principio de idempotencia que `quitarMiembro`/`revocarInvitacion`).
+    public func promoverAOwner(_ memberId: MiembroId, en tripId: String) async throws {
+        _ = try await client.query("""
+            UPDATE trip_members SET role = 'owner'
+            WHERE trip_id = \(tripId) AND member_id = \(memberId.raw) AND left_at IS NULL
+            """, logger: logger)
+    }
 }
