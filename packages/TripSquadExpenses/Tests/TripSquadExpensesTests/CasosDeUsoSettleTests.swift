@@ -51,6 +51,13 @@ struct CasosDeUsoSettleTests {
         #expect(try await casos.crearPagos([cmd(amount: 0)], ahora: t0)[0] == .rechazado(razon: "invalid_amount"))
     }
 
+    @Test func crearEnViajeCerradoSeRechaza() async throws {   // fix F (revisión multi-modelo M1, bead 649)
+        let (r, casos) = await setup()
+        await r.cerrarViaje("t1")
+        // La creación de un pago sobre un viaje ya cerrado no debe entrar en `pending`.
+        #expect(try await casos.crearPagos([cmd()], ahora: t0)[0] == .rechazado(razon: "trip_closed"))
+    }
+
     @Test func contraparteConfirma() async throws {
         let (_, casos) = await setup()
         guard case .creado(let id) = try await casos.crearPagos([cmd()], ahora: t0)[0] else { return }
