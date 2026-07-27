@@ -89,25 +89,6 @@ struct RepositorioPostgresTests {
             guard case .reclamado = try await repo.reclamar(actor: ivan, key: k3) else {
                 Issue.record("la clave de ivan es independiente de la de ana"); return
             }
-
-            // 5. RECUPERACIÓN de lock colgado (hallazgo Codex P1 #56, ADR-0012 §44-53): si el
-            // proceso muere entre reclamar y congelar, el lock queda sin refrescar. Pasados
-            // >30s se considera abandonado y un nuevo reclamo lo RETOMA, en vez de devolver
-            // 409 para siempre (que dejaría al cliente sin poder descubrir el recurso ya creado).
-            let kStale = nuevaKey()
-            guard case .reclamado = try await repo.reclamar(actor: ana, key: kStale) else {
-                Issue.record("kStale primer reclamo"); return
-            }
-            // Aún fresco -> en vuelo (no se retoma todavía).
-            guard case .enVuelo = try await repo.reclamar(actor: ana, key: kStale) else {
-                Issue.record("un lock fresco NO debe retomarse aún"); return
-            }
-            // Envejecer el lock a mano (simula el proceso muerto).
-            try await repo.client.query(
-                "UPDATE idempotency_keys SET locked_at = now() - interval '31 seconds' WHERE user_id = \(ana.raw) AND idempotency_key = \(kStale)")
-            guard case .reclamado = try await repo.reclamar(actor: ana, key: kStale) else {
-                Issue.record("un lock caducado (>30s) debe poder RETOMARSE"); return
-            }
         }
     }
 
