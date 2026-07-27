@@ -41,5 +41,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Prefetch de las imágenes base con reintento (bead rkm): el pull directo desde
+      # Docker Hub falla de forma intermitente por i/o timeout del registry
+      # (`DeadlineExceeded ... registry-1.docker.io ... i/o timeout`), tumbando un build
+      # que por lo demás está sano. Reintentar absorbe el flake; el `docker build`
+      # posterior reutiliza la capa ya cacheada en local. Ambas etapas del Dockerfile
+      # (build y runtime slim) usan estas dos imágenes.
+      - name: Prefetch imágenes base (anti-flake pull Docker Hub, bead rkm)
+        run: |
+          for img in swift:6.1-jammy swift:6.1-jammy-slim; do
+            for intento in 1 2 3 4 5; do
+              if docker pull "$img"; then break; fi
+              echo "::warning::pull de $img falló (intento $intento/5); reintento en 15s"
+              sleep 15
+            done
+          done
       - name: Build imagen del servicio
         run: docker build -f packages/TripSquadService/Dockerfile -t tripsquad-service .
