@@ -136,7 +136,8 @@ let deps = Dependencias(
         do { _ = try await client.query("SELECT 1", logger: logger); return true }
         catch { return false }
     },
-    verificador: verificador
+    verificador: verificador,
+    idempotencia: repo   // durable en Postgres (bead 379); el default en memoria es solo para tests
 )
 
 let app = construirApp(deps, host: host, port: port)

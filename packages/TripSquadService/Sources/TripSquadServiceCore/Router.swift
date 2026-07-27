@@ -20,6 +20,10 @@ public struct Dependencias: Sendable {
     public let casosFoto: CasosDeUsoFoto           // fotos: presign/confirm/list/delete (M7, ADR-0022 borrador)
     public let casosBrujula: CasosDeUsoBrujula     // brújula IA: consulta con contexto de saldos (M8, ADR-0023 borrador)
     public let repo: GastoRepositorio
+    /// Idempotencia genérica de respuesta para los POST sin ETag (chat/itinerario/
+    /// votaciones/viaje), bead 379. Default en memoria: no rompe los call sites que no
+    /// la inyectan (tests); producción pasa el adaptador Postgres.
+    public let idempotencia: any Idempotencia
     public let pingBD: @Sendable () async -> Bool   // para /health
     public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
     /// Reloj inyectable (tests deterministas de caducidad). Default = reloj real; no rompe
@@ -39,6 +43,7 @@ public struct Dependencias: Sendable {
         repo: GastoRepositorio,
         pingBD: @escaping @Sendable () async -> Bool,
         verificador: any VerificadorDeToken,
+        idempotencia: any Idempotencia = IdempotenciaEnMemoria(),
         ahora: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.casos = casos
@@ -53,6 +58,7 @@ public struct Dependencias: Sendable {
         self.repo = repo
         self.pingBD = pingBD
         self.verificador = verificador
+        self.idempotencia = idempotencia
         self.ahora = ahora
     }
 }

@@ -98,18 +98,22 @@ private func respuestaJSONConEtag<T: Encodable>(_ status: HTTPResponse.Status, _
 func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
 
     // POST /trips/:tripId/itinerary — cualquier miembro añade actividades (plan §1).
+    // Idempotente (bead 379): exige Idempotency-Key; un reintento reproduce la respuesta
+    // (incluida la cabecera `etag`) sin crear una segunda actividad.
     router.post("trips/:tripId/itinerary") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: CrearItinerarioDTO.self, context: ctx)
-        switch try await deps.casosItinerario.crear(
-            tripId: tripId, title: dto.title, day: dto.day, startTime: dto.startTime,
-            location: dto.location, notes: dto.notes, orderIndex: dto.orderIndex ?? 0,
-            actor: ctx.actor, ahora: deps.ahora()
-        ) {
-        case .success(let conEtag):
-            return try respuestaJSONConEtag(.created, dtoDe(conEtag), etag: conEtag.etag)
-        case .failure(let error):
-            return respuestaErrorItinerario(error)
+        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+            switch try await deps.casosItinerario.crear(
+                tripId: tripId, title: dto.title, day: dto.day, startTime: dto.startTime,
+                location: dto.location, notes: dto.notes, orderIndex: dto.orderIndex ?? 0,
+                actor: ctx.actor, ahora: deps.ahora()
+            ) {
+            case .success(let conEtag):
+                return salidaOK(.created, Array(try JSONEncoder().encode(dtoDe(conEtag))), headers: ["etag": conEtag.etag])
+            case .failure(let error):
+                return salidaErrorItinerario(error)
+            }
         }
     }
 
@@ -205,5 +209,24 @@ private func respuestaErrorItinerario(_ error: ErrorItinerario) -> Response {
         var resp = errorJSON(.preconditionFailed, "conflict")
         resp.headers[HTTPField.Name("etag")!] = serverEtag
         return resp
+    }
+}
+
+/// Mismo mapeo que `respuestaErrorItinerario` pero como `SalidaIdem`, para el camino
+/// idempotente del POST. El create no produce `.conflicto` (eso es del PATCH con If-Match),
+/// pero se cubre por exhaustividad, preservando la cabecera `etag`.
+private func salidaErrorItinerario(_ error: ErrorItinerario) -> SalidaIdem {
+    switch error {
+    case .noAutorizado:
+        return salidaError(.forbidden, "not_member")
+    case .noEncontrado:
+        return salidaError(.notFound, "not_found")
+    case .viajeCerrado:
+        return salidaError(.conflict, "trip_closed")
+    case .reglaViolada(let code):
+        return salidaError(HTTPResponse.Status(code: 422), code)
+    case .conflicto(let serverEtag):
+        return SalidaIdem(.preconditionFailed, salidaError(.preconditionFailed, "conflict").bytes,
+                          headers: ["etag": serverEtag])
     }
 }
