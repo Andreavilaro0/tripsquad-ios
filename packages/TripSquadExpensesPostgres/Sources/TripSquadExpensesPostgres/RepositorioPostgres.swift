@@ -544,9 +544,22 @@ extension RepositorioPostgres {
             RETURNING user_id
             """, logger: logger)
         for try await _ in ins.decode(String.self) { return .reclamado }
-        // No reclamamos: la fila ya existía. Si ya está congelada -> replay; si no, en vuelo.
+        // No reclamamos: la fila ya existía. Si ya está congelada -> replay.
         if let previa = try await replayGenerico(actor: actor, key: key) { return .replay(previa) }
-        return .enVuelo
+        // Fila sin respuesta: o está EN VUELO de verdad, o quedó COLGADA (el proceso murió
+        // entre reclamar y congelar, o el UPDATE de congelar lanzó). ADR-0012 §44-53: un lock
+        // sin refrescar más de ~30s se considera abandonado y se puede retomar, para que el
+        // cliente no quede con un 409 permanente sin poder descubrir el recurso ya creado.
+        // El UPDATE condicional (locked_at viejo) es atómico: si dos peticiones intentan
+        // retomarlo, solo una afecta la fila.
+        let retomar = try await client.query("""
+            UPDATE idempotency_keys SET locked_at = now()
+            WHERE user_id = \(actor.raw) AND idempotency_key = \(key)
+              AND response_body IS NULL AND locked_at < now() - interval '30 seconds'
+            RETURNING user_id
+            """, logger: logger)
+        for try await _ in retomar.decode(String.self) { return .reclamado }   // lock caducado retomado
+        return .enVuelo   // lock fresco: otra petición sigue en curso
     }
 
     public func congelar(actor: MiembroId, key: String, respuesta: RespuestaCongelada) async throws {

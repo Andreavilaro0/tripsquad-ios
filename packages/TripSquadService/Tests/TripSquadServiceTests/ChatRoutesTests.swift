@@ -237,15 +237,18 @@ struct ChatRoutesTests {
                 headers: try await hdrPost("ana", key: "k-dup"), body: mensajeJSON("una vez")
             ) { res in
                 #expect(res.status == .created)
+                #expect(res.headers[HTTPField.Name("idempotency-result")!] == "created")   // ejecución fresca
                 primeraRespuesta = String(buffer: res.body)
             }
 
-            // Reintento con la MISMA clave: misma respuesta byte a byte (mismo id).
+            // Reintento con la MISMA clave: misma respuesta byte a byte (mismo id) y el header
+            // `Idempotency-Result: replayed` (bead 379, guía §169-174) para la cola offline.
             try await client.execute(
                 uri: "/trips/\(trip)/messages", method: .post,
                 headers: try await hdrPost("ana", key: "k-dup"), body: mensajeJSON("una vez")
             ) { res in
                 #expect(res.status == .created)
+                #expect(res.headers[HTTPField.Name("idempotency-result")!] == "replayed")
                 #expect(String(buffer: res.body) == primeraRespuesta)
             }
 

@@ -75,7 +75,11 @@ func conIdempotencia(
     guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
     switch try await idem.reclamar(actor: ctx.actor, key: key) {
     case .replay(let congelada):
-        return respuestaDeBytes(HTTPResponse.Status(code: congelada.code), congelada.body, headers: congelada.headers)
+        // `Idempotency-Result: replayed` (guía §169-174): la cola offline distingue una
+        // respuesta reproducida de una ejecución fresca.
+        var resp = respuestaDeBytes(HTTPResponse.Status(code: congelada.code), congelada.body, headers: congelada.headers)
+        resp.headers[HTTPField.Name("idempotency-result")!] = "replayed"
+        return resp
     case .enVuelo:
         return errorJSON(.conflict, "idempotency_in_flight")
     case .reclamado:
@@ -91,6 +95,8 @@ func conIdempotencia(
                                     respuesta: RespuestaCongelada(code: Int(salida.status.code),
                                                                   headers: salida.headers, body: salida.bytes))
         }
-        return respuestaDeBytes(salida.status, salida.bytes, headers: salida.headers)
+        var resp = respuestaDeBytes(salida.status, salida.bytes, headers: salida.headers)
+        resp.headers[HTTPField.Name("idempotency-result")!] = "created"   // ejecución fresca
+        return resp
     }
 }
