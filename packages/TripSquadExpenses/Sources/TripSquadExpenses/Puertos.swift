@@ -272,7 +272,17 @@ public protocol ItinerarioRepositorio: Sendable {
     /// `GastoRepositorio.actualizar`): dos ediciones concurrentes con el mismo
     /// `If-Match` no se pisan — solo una encuentra la fila con ese etag.
     func actualizar(_ a: ActividadItinerario, ifMatch etag: String, ahora: Date) async throws -> ResultadoEscrituraItinerario
-    func borrar(id: String, en tripId: String) async throws
+    /// Borra atómicamente scopeado por membresía ACTUAL (bead 48g): la mutación solo
+    /// ocurre si `actor` sigue siendo miembro del viaje EN EL MISMO statement (con lock
+    /// `FOR SHARE` sobre `trip_members` para serializar contra la revocación), cerrando la
+    /// ventana TOCTOU que el re-check en el caso de uso solo estrechaba.
+    ///
+    /// El `Bool` es «¿la MEMBRESÍA seguía vigente?», NO «¿borró una fila?»: devuelve `true`
+    /// mientras el actor siga siendo miembro —aun si el recurso ya no existía o desapareció
+    /// concurrentemente— para PRESERVAR la idempotencia (borrar algo ausente es éxito). Solo
+    /// devuelve `false` si la membresía fue revocada → el caso de uso da `.noAutorizado`.
+    /// Un conformer nuevo DEBE seguir esta semántica, no la de «fila borrada».
+    func borrar(id: String, en tripId: String, por actor: MiembroId) async throws -> Bool
 }
 
 /// Puerto de persistencia de chat (M6, ADR-0021 borrador). Firma copiada
@@ -284,7 +294,11 @@ public protocol ChatRepositorio: Sendable {
     func enviar(tripId: String, autor: MiembroId, body: String, ahora: Date) async throws -> Mensaje
     func mensajes(tripId: String, since: Int64?, limit: Int) async throws -> [Mensaje]   // cronológico, id > since
     func mensaje(id: Int64, en tripId: String) async throws -> Mensaje?
-    func borrar(id: Int64, en tripId: String, ahora: Date) async throws
+    /// Borra (soft-delete) atómicamente scopeado por membresía ACTUAL (bead 48g): ver
+    /// `ItinerarioRepositorio.borrar`. El `Bool` es «¿membresía vigente?» (idempotente),
+    /// NO «¿mutó una fila?»: `true` mientras el actor siga siendo miembro; `false` solo si
+    /// fue revocada → `.noAutorizado`.
+    func borrar(id: Int64, en tripId: String, por actor: MiembroId, ahora: Date) async throws -> Bool
 }
 
 /// Puerto de persistencia de fotos (M7 Task 1, ADR-0022 borrador). Firma
@@ -303,6 +317,10 @@ public protocol FotoRepositorio: Sendable {
     /// implementa `ItinerarioRepositorio.borrar(id:en:)` con la misma forma
     /// `(String, String) async throws`; un selector idéntico sería una
     /// redeclaración inválida en el mismo tipo conformante.
+    /// Fotos QUEDA FUERA de la atomicidad de 48g a propósito: su borrado es binario→metadato
+    /// en ESE orden (evita binarios huérfanos, hallazgo M7 P2), lo que impide un delete de
+    /// metadato atómico-por-membresía como único gate. `CasosDeUsoFoto.borrar` conserva el
+    /// re-check de membresía en la capa de aplicación (bead iou ronda 3), suficiente aquí.
     func borrar(fotoId: String, en tripId: String) async throws
 }
 
@@ -333,7 +351,11 @@ public protocol ReservaRepositorio: Sendable {
     /// Fija el estado de UN miembro (cadaUnoElSuyo, `miembro` no-nil) o del estado único
     /// (unoParaTodos, `miembro == nil`). No valida autorización (eso es del caso de uso).
     func marcarEstado(activityId: String, en tripId: String, miembro: MiembroId?, estado: EstadoReserva) async throws
-    func borrar(activityId: String, en tripId: String) async throws
+    /// Quita el aspecto reserva atómicamente scopeado por membresía ACTUAL (bead 48g): ver
+    /// `ItinerarioRepositorio.borrar`. El `Bool` es «¿membresía vigente?» (idempotente:
+    /// quitar un aspecto ausente con membresía vigente devuelve `true`), NO «¿borró una
+    /// fila?»; `false` solo si fue revocada → `.noAutorizado`.
+    func borrar(activityId: String, en tripId: String, por actor: MiembroId) async throws -> Bool
     /// Guarda la confirmación extraída para UN miembro de UNA actividad (dy5).
     /// Reemplaza si ya existía (mismo criterio que `upsert` de `Reserva`).
     func guardarConfirmacion(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws

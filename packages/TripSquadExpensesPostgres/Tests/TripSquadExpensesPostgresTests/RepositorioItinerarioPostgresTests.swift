@@ -171,11 +171,28 @@ struct RepositorioItinerarioPostgresTests {
             try await repo.crear(actividad(id, tripId: trip), ahora: Date())
             #expect(try await repo.item(id: id, en: trip) != nil)
 
-            try await repo.borrar(id: id, en: trip)
+            _ = try await repo.borrar(id: id, en: trip, por: ana)
             #expect(try await repo.item(id: id, en: trip) == nil)
 
             let lista = try await repo.listar(trip, limit: 200)
             #expect(!lista.contains { $0.actividad.id == id })
+        }
+    }
+
+    // Bead 48g: el borrado es ATÓMICO por membresía en el MISMO statement (CTE). Si la
+    // membresía del actor fue revocada (expulsión intra-request), `borrar` devuelve `false`
+    // y la actividad NO se borra — cierra del todo la ventana TOCTOU a nivel de BD.
+    @Test func borrarConMembresiaRevocadaDevuelveFalseYNoBorra() async throws {
+        try await conRepo { repo, trip in
+            let id = nuevoId()
+            try await repo.crear(actividad(id, tripId: trip), ahora: Date())
+            // Revocar la membresía de ana (simula la expulsión que ocurre durante la request).
+            try await repo.client.query(
+                "UPDATE trip_members SET left_at = now() WHERE trip_id = \(trip) AND member_id = \(ana.raw)")
+
+            let borrado = try await repo.borrar(id: id, en: trip, por: ana)
+            #expect(borrado == false)                                  // membresía revocada -> no autoriza
+            #expect(try await repo.item(id: id, en: trip) != nil)      // la actividad SIGUE (atómico)
         }
     }
 

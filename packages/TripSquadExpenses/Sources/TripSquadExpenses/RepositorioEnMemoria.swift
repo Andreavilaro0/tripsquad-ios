@@ -554,8 +554,10 @@ extension RepositorioEnMemoria: ItinerarioRepositorio {
         return .ok(ActividadConEtag(actividad: a, etag: nuevoEtag))
     }
 
-    public func borrar(id: String, en tripId: String) {
-        actividades[tripId]?[id] = nil
+    public func borrar(id: String, en tripId: String, por actor: MiembroId) -> Bool {
+        guard esMiembro(actor, de: tripId) else { return false }   // membresía atómica (bead 48g)
+        actividades[tripId]?[id] = nil                             // idempotente
+        return true                                                // miembro vigente = éxito
     }
 }
 
@@ -588,9 +590,12 @@ extension RepositorioEnMemoria: ChatRepositorio {
 
     /// Idempotente: borrar dos veces el mismo mensaje deja el `deletedAt` de
     /// la primera vez (mismo criterio de tombstone que el resto del módulo).
-    public func borrar(id: Int64, en tripId: String, ahora: Date) {
-        guard let existente = mensajesPorViaje[tripId]?[id], existente.deletedAt == nil else { return }
-        mensajesPorViaje[tripId]![id] = Mensaje(id: existente.id, tripId: existente.tripId, autor: existente.autor, body: Mensaje.marcadorBorrado, deletedAt: ahora, createdAt: existente.createdAt)
+    public func borrar(id: Int64, en tripId: String, por actor: MiembroId, ahora: Date) -> Bool {
+        guard esMiembro(actor, de: tripId) else { return false }   // membresía atómica (bead 48g)
+        if let existente = mensajesPorViaje[tripId]?[id], existente.deletedAt == nil {   // idempotente
+            mensajesPorViaje[tripId]![id] = Mensaje(id: existente.id, tripId: existente.tripId, autor: existente.autor, body: Mensaje.marcadorBorrado, deletedAt: ahora, createdAt: existente.createdAt)
+        }
+        return true                                                // miembro vigente = éxito
     }
 }
 
@@ -667,8 +672,10 @@ extension RepositorioEnMemoria: ReservaRepositorio {
         }
     }
 
-    public func borrar(activityId: String, en tripId: String) {
-        reservas[claveReserva(tripId, activityId)] = nil
+    public func borrar(activityId: String, en tripId: String, por actor: MiembroId) -> Bool {
+        guard esMiembro(actor, de: tripId) else { return false }   // membresía atómica (bead 48g)
+        reservas[claveReserva(tripId, activityId)] = nil           // idempotente (quitar aspecto ausente = ok)
+        return true                                                // miembro vigente = éxito
     }
 
     private func claveConfirmacion(_ tripId: String, _ activityId: String, _ miembro: MiembroId) -> String {

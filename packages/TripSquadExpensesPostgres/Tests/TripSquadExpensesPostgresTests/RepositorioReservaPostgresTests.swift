@@ -185,7 +185,7 @@ struct RepositorioReservaPostgresTests {
             let antes = try await repo.reserva(activityId: activityId, en: trip)
             #expect(antes != nil)
 
-            try await repo.borrar(activityId: activityId, en: trip)
+            _ = try await repo.borrar(activityId: activityId, en: trip, por: ana)
 
             let despues = try await repo.reserva(activityId: activityId, en: trip)
             #expect(despues == nil)
@@ -270,7 +270,7 @@ struct RepositorioReservaPostgresTests {
             try await repo.guardarConfirmacion(activityId: activityId, en: trip, miembro: bea,
                 Confirmacion(tipo: .tren, fechaISO: "2026-08-01", numeroConfirmacion: "XYZ2", proveedor: "Renfe"))
 
-            try await repo.borrar(activityId: activityId, en: trip)
+            _ = try await repo.borrar(activityId: activityId, en: trip, por: ana)
 
             let leidaAna = try await repo.confirmacion(activityId: activityId, en: trip, miembro: ana)
             let leidaBea = try await repo.confirmacion(activityId: activityId, en: trip, miembro: bea)

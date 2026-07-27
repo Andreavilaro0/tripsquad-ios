@@ -123,9 +123,24 @@ extension RepositorioPostgres: ItinerarioRepositorio {
         return nil
     }
 
-    public func borrar(id: String, en tripId: String) async throws {
-        _ = try await client.query(
-            "DELETE FROM itinerary_items WHERE id = \(id) AND trip_id = \(tripId)",
-            logger: logger)
+    public func borrar(id: String, en tripId: String, por actor: MiembroId) async throws -> Bool {
+        // Bead 48g (hallazgo Codex #58): DELETE scopeado por membresía ACTUAL en el mismo
+        // statement (CTE) Y bloqueando `trip_members` con `FOR SHARE` para serializar contra un
+        // `quitarMiembro` concurrente. Ver `RepositorioChatPostgres.borrar` para el detalle.
+        let rows = try await client.query("""
+            WITH miembro AS (
+                SELECT 1 FROM trip_members
+                WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL
+                FOR SHARE
+            ),
+            borrado AS (
+                DELETE FROM itinerary_items
+                WHERE id = \(id) AND trip_id = \(tripId) AND EXISTS(SELECT 1 FROM miembro)
+                RETURNING 1
+            )
+            SELECT EXISTS(SELECT 1 FROM miembro) AS es_miembro
+            """, logger: logger)
+        for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
+        return false
     }
 }

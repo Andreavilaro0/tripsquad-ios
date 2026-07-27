@@ -99,7 +99,7 @@ struct RepositorioChatPostgresTests {
         try await conRepo { repo, trip in
             let enviado = try await repo.enviar(tripId: trip, autor: ana, body: "hola", ahora: Date())
             let ahoraBorrado = Date()
-            try await repo.borrar(id: enviado.id, en: trip, ahora: ahoraBorrado)
+            _ = try await repo.borrar(id: enviado.id, en: trip, por: ana, ahora: ahoraBorrado)
 
             // El mensaje NO desaparece del hilo: sigue estando en `mensaje` y en
             // `mensajes`, pero con el body sustituido por el marcador.
@@ -117,12 +117,12 @@ struct RepositorioChatPostgresTests {
         try await conRepo { repo, trip in
             let enviado = try await repo.enviar(tripId: trip, autor: ana, body: "hola", ahora: Date())
             let primerBorrado = Date()
-            try await repo.borrar(id: enviado.id, en: trip, ahora: primerBorrado)
+            _ = try await repo.borrar(id: enviado.id, en: trip, por: ana, ahora: primerBorrado)
             let leidoTrasPrimero = try await repo.mensaje(id: enviado.id, en: trip)
 
             // Segundo borrado, con otra fecha: no debe pisar `deleted_at`.
             let segundoBorrado = primerBorrado.addingTimeInterval(3600)
-            try await repo.borrar(id: enviado.id, en: trip, ahora: segundoBorrado)
+            _ = try await repo.borrar(id: enviado.id, en: trip, por: ana, ahora: segundoBorrado)
             let leidoTrasSegundo = try await repo.mensaje(id: enviado.id, en: trip)
 
             #expect(leidoTrasSegundo?.body == Mensaje.marcadorBorrado)
