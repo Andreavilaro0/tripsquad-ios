@@ -140,17 +140,27 @@ public struct CasosDeUsoFoto: Sendable {
     /// SOLO el subidor de la foto O el owner del viaje borran (plan
     /// §Endpoints) — y el actor debe ser miembro ACTUAL (mismo hallazgo que
     /// M5/Codex P1: un ex-miembro que subió la foto no puede seguir
-    /// borrándola tras salir del viaje, aunque `uploadedBy` coincida). Se
-    /// carga la foto primero: si no existe (o pertenece a otro tripId),
-    /// `.noAutorizado` — sin fuga de existencia. Borra metadato + binario.
+    /// borrándola tras salir del viaje, aunque `uploadedBy` coincida). Borra
+    /// metadato + binario.
     ///
     /// Política de viaje cerrado (decisión explícita, revisión integrada): borrar SÍ se
     /// permite con el viaje cerrado — es limpieza terminal, no contenido nuevo, mismo
     /// criterio que `CasosDeUsoItinerario.borrar` y `CasosDeUsoVotacion.cerrar`. Subir
     /// (presign + confirmar) sí se bloquea.
+    ///
+    /// Enmienda ADR-0014 §2 (bead iou, hallazgo Codex ronda 2): la membresía
+    /// del `tripId` del path se comprueba SIEMPRE primero, ANTES de cargar la
+    /// foto — un no-miembro no puede usar este endpoint como oráculo para
+    /// sondear si `fotoId` existe (aquí o en otro viaje). Con la membresía ya
+    /// verificada, un `fotoId` inexistente EN ESTE viaje (nunca existió, ya se
+    /// borró, o es de OTRO viaje) es un no-op idempotente — `.success`, sin
+    /// tocar `storage` (no hay `storageKey` que borrar). Solo si la foto SÍ
+    /// existe en este viaje se evalúa "subidor u owner"; si no lo es,
+    /// `.noAutorizado` (403) — la respuesta nunca varía según si `fotoId`
+    /// existe en otro viaje.
     public func borrar(fotoId: String, tripId: String, actor: MiembroId) async throws -> Result<Void, ErrorFoto> {
-        guard let existente = try await repo.foto(id: fotoId, en: tripId) else { return .failure(.noAutorizado) }
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }   // miembro ACTUAL
+        guard let existente = try await repo.foto(id: fotoId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)
         guard existente.uploadedBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }
         // Orden: PRIMERO el binario, DESPUÉS el metadato (bot GitHub M7 P2). Con un

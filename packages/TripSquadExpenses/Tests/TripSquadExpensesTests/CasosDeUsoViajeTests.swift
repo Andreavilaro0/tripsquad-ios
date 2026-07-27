@@ -179,6 +179,65 @@ struct CasosDeUsoViajeTests {
         #expect(error == .noAutorizado)
     }
 
+    // Bead iou (Codex ronda 2): un owner que expulsa un `memberId` que NUNCA fue
+    // miembro de su viaje, o que ya salió/fue expulsado antes, obtiene éxito
+    // idempotente — no `.noEncontrado`. `repo.quitarMiembro` ya es un no-op seguro
+    // para un `memberId` no-activo; el caso de uso no debía convertir eso en un
+    // error que rompiera el reintento de una expulsión ya aplicada.
+    @Test func expulsarMiembroInexistenteEsIdempotente() async throws {
+        let (casos, _) = entorno()
+        let (tripId, _) = try await viajeConInvitacion(casos)
+
+        // sara nunca se unió a este viaje.
+        guard case .success = try await casos.expulsar(tripId: tripId, memberId: sara, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba expulsar exitoso (idempotente) para no-miembro"); return
+        }
+
+        // ivan se unió y ya fue expulsado antes: reintentar la expulsión sigue siendo éxito.
+        let (tripId2, code2) = try await viajeConInvitacion(casos)
+        #expect(try await casos.unirse(code: code2, actor: ivan, ahora: ahora) == .unido)
+        guard case .success = try await casos.expulsar(tripId: tripId2, memberId: ivan, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba expulsar exitoso (1ª vez)"); return
+        }
+        guard case .success = try await casos.expulsar(tripId: tripId2, memberId: ivan, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba expulsar exitoso (reintento idempotente)"); return
+        }
+    }
+
+    // Bead iou (Codex ronda 2): la respuesta de `revocar` NUNCA distingue "code que
+    // nunca existió" de "code que existe en OTRO viaje" — mismo `.noEncontrado` en
+    // ambos casos, sin fuga. Y revocar una invitación YA revocada sigue siendo éxito
+    // (idempotente, `RepositorioEnMemoria.revocarInvitacion`).
+    @Test func revocarCodigoInexistenteOdeOtroViajeEsNoEncontradoSinFuga() async throws {
+        let (casos, _) = entorno()
+        let (tripId, _) = try await viajeConInvitacion(casos)
+        let (_, codeDeOtroViaje) = try await viajeConInvitacion(casos)   // segundo viaje, otro owner ana
+
+        // Nunca existió.
+        guard case .failure(let e1) = try await casos.revocar(code: "no-existe", tripId: tripId, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure para code inexistente"); return
+        }
+        // Code real, pero de OTRO viaje.
+        guard case .failure(let e2) = try await casos.revocar(code: codeDeOtroViaje, tripId: tripId, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure para code de otro viaje"); return
+        }
+        #expect(e1 == .noEncontrado)
+        #expect(e2 == .noEncontrado)
+        #expect(e1 == e2, "misma respuesta exista o no el code en otro viaje: sin fuga de existencia")
+    }
+
+    @Test func revocarInvitacionYaRevocadaEsIdempotente() async throws {
+        let (casos, _) = entorno()
+        let (tripId, code) = try await viajeConInvitacion(casos)
+
+        guard case .success = try await casos.revocar(code: code, tripId: tripId, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba revocar exitoso (1ª vez)"); return
+        }
+        guard case .success = try await casos.revocar(code: code, tripId: tripId, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba revocar exitoso (reintento idempotente)"); return
+        }
+    }
+
     // 11. no se puede expulsar al owner: owner intenta expulsarse por `expulsar` → reglaViolada.
     @Test func noSePuedeExpulsarAlOwner() async throws {
         let (casos, _) = entorno()

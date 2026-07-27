@@ -218,6 +218,37 @@ struct CasosDeUsoReservaTests {
         #expect(error == .noAutorizado)
     }
 
+    // Bead iou (Codex ronda 2): un NO-miembro no puede usar DELETE como oráculo — 403
+    // uniforme, sin depender de si `activityId` tiene reserva.
+    @Test func quitarNoMiembroEsNoAutorizado() async throws {
+        let f = try await fixture()
+        let extrano = MiembroId("extrano")   // no forma parte de t1
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
+            modo: .cadaUnoElSuyo(participantes: [f.b]), actor: f.b, ahora: Date())
+        let r = try await f.casos.quitar(tripId: "t1", activityId: "act1", actor: extrano, ahora: Date())
+        guard case .failure(let error) = r else { Issue.record("esperaba failure"); return }
+        #expect(error == .noAutorizado)
+    }
+
+    // Bead iou (Codex ronda 2): un miembro que quita el aspecto reserva de un
+    // `activityId` que nunca existió EN SU viaje, o que existe pero en OTRO viaje,
+    // obtiene éxito idempotente — nunca 403. La respuesta es la MISMA en ambos casos.
+    @Test func quitarActividadInexistenteOdeOtroViajeEsIdempotente() async throws {
+        let f = try await fixture()
+
+        // Nunca existió en t1.
+        let r1 = try await f.casos.quitar(tripId: "t1", activityId: "no-existe", actor: f.b, ahora: Date())
+        guard case .success = r1 else { Issue.record("esperaba quitar exitoso (idempotente) para actividad inexistente"); return }
+
+        // Existe, pero en OTRO viaje (t2) — quitarla "desde" t1 no debe filtrar que existe
+        // en t2.
+        _ = await f.repo.crearViaje(id: "t2", name: "Paris", baseCurrency: "EUR", creador: f.a, ahora: ahora)
+        await f.repo.anadirMiembro(f.b, a: "t2")
+        await f.repo.crear(ActividadItinerario(id: "act-t2", tripId: "t2", title: "Vuelo a Paris", day: "2026-09-01", createdBy: f.b), ahora: ahora)
+        let r2 = try await f.casos.quitar(tripId: "t1", activityId: "act-t2", actor: f.b, ahora: Date())
+        guard case .success = r2 else { Issue.record("esperaba quitar exitoso (idempotente) para actividad de otro viaje"); return }
+    }
+
     // MARK: - marcar: viaje cerrado / reserva inexistente (fix round 1: cobertura ausente)
 
     @Test func marcarEnViajeCerradoEsViajeCerrado() async throws {

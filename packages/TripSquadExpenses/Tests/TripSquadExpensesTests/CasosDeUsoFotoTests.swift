@@ -205,6 +205,49 @@ struct CasosDeUsoFotoTests {
         #expect(try await r.foto(id: presign.fotoId, en: "t1") != nil)   // sigue existiendo
     }
 
+    // Bead iou (Codex ronda 2): un NO-miembro no puede usar DELETE como oráculo — 403
+    // uniforme, sin depender de si `fotoId` existe.
+    @Test func borrarNoMiembroEsNoAutorizado() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoFoto(repo: r, membresia: r, viajes: r, storage: storage())
+        guard case .success(let presign) = try await casos.presignSubida(tripId: "t1", contentType: "image/jpeg", sizeBytes: 1024, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba presign exitoso"); return
+        }
+        // sara no es miembro de t1: borra la foto de ana → noAutorizado, no 204.
+        guard case .failure(let error) = try await casos.borrar(fotoId: presign.fotoId, tripId: "t1", actor: sara) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .noAutorizado)
+        #expect(try await r.foto(id: presign.fotoId, en: "t1") != nil)   // sigue existiendo
+    }
+
+    // Bead iou (Codex ronda 2): un miembro que borra un `fotoId` que nunca existió EN SU
+    // viaje, o que existe pero en OTRO viaje, obtiene éxito idempotente — nunca 403. La
+    // respuesta es la MISMA en ambos casos (sin fuga), y no toca `storage` (no hay
+    // `storageKey` que borrar).
+    @Test func borrarFotoInexistenteOdeOtroViajeEsIdempotente() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        await r.anadirMiembro(ana, a: "t2")
+        let casos = CasosDeUsoFoto(repo: r, membresia: r, viajes: r, storage: storage())
+
+        // Nunca existió en t1.
+        guard case .success = try await casos.borrar(fotoId: "no-existe", tripId: "t1", actor: ana) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para foto inexistente"); return
+        }
+
+        // Existe, pero en OTRO viaje (t2) — borrarla "desde" t1 no debe filtrar que existe
+        // en t2: mismo resultado, y sigue intacta en t2.
+        guard case .success(let presignT2) = try await casos.presignSubida(tripId: "t2", contentType: "image/jpeg", sizeBytes: 1024, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba presign exitoso en t2"); return
+        }
+        guard case .success = try await casos.borrar(fotoId: presignT2.fotoId, tripId: "t1", actor: ana) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para foto de otro viaje"); return
+        }
+        #expect(try await r.foto(id: presignT2.fotoId, en: "t2") != nil)   // sigue intacta en t2
+    }
+
     // Viaje cerrado (decisión de la revisión integrada): SUBIR se bloquea (presign y
     // confirmar), BORRAR se permite — limpieza terminal, mismo criterio que itinerario.
     // Antes fotos era el único módulo mutante sin este gate y sin documentar por qué.

@@ -202,16 +202,35 @@ struct CasosDeUsoChatTests {
         #expect(error == .noAutorizado)
     }
 
-    // 8. borrar mensaje inexistente → noAutorizado (sin fuga de existencia).
-    @Test func borrarMensajeInexistenteEsNoAutorizado() async throws {
+    // 8. Bead iou (Codex ronda 2): un MIEMBRO que borra un `msgId` que nunca existió EN SU
+    // viaje, o que existe pero en OTRO viaje, obtiene éxito idempotente — NO `.noAutorizado`.
+    // Un 403 exclusivo para "no existe" sería un oráculo, y además rompería el reintento de
+    // un borrado ya aplicado (ADR-0013 §2, mismo criterio que `RepositorioEnMemoria.eliminar`
+    // de gastos). `.noAutorizado` solo aparece si el mensaje SÍ existe en el viaje pero el
+    // actor no es su autor (ver `soloElAutorBorra`/`noMiembroNoBorra`).
+    @Test func borrarMensajeInexistenteOdeOtroViajeEsIdempotente() async throws {
         let r = repo()
         await r.anadirMiembro(ana, a: "t1")
+        await r.anadirMiembro(ana, a: "t2")
         let casos = CasosDeUsoChat(repo: r, membresia: r)
 
-        guard case .failure(let error) = try await casos.borrar(msgId: 999, tripId: "t1", actor: ana, ahora: ahora) else {
-            Issue.record("esperaba failure"); return
+        // Nunca existió en t1.
+        guard case .success = try await casos.borrar(msgId: 999, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para mensaje inexistente"); return
         }
-        #expect(error == .noAutorizado)
+
+        // Existe, pero en OTRO viaje (t2) — borrarlo "desde" t1 no debe filtrar que existe
+        // en t2: mismo resultado, y sigue intacto (sin `deletedAt`) en t2.
+        guard case .success(let enT2) = try await casos.enviar(tripId: "t2", body: "Hola", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba enviar en t2"); return
+        }
+        guard case .success = try await casos.borrar(msgId: enT2.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para mensaje de otro viaje"); return
+        }
+        guard case .success(let mensajesT2) = try await casos.listar(tripId: "t2", actor: ana) else {
+            Issue.record("esperaba listar en t2"); return
+        }
+        #expect(mensajesT2.first?.deletedAt == nil)
     }
 
     // 9. el id del mensaje es monotónico GLOBAL, no reinicia por viaje.
