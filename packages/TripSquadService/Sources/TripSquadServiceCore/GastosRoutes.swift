@@ -45,6 +45,7 @@ func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     router.post("trips/:tripId/expenses") { req, ctx -> Response in
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
+        if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: GastoDTO.self, context: ctx)
         let gasto = try dto.aDominio()
@@ -56,6 +57,7 @@ func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     router.post("trips/:tripId/expenses/from-receipt") { req, ctx -> Response in
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
+        if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: ReciboDTO.self, context: ctx)
         let items = dto.items.map { ItemRecibo(importeMinor: $0.importeMinor, sharers: $0.sharers.map(MiembroId.init)) }
@@ -70,6 +72,7 @@ func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     router.patch("trips/:tripId/expenses/:id") { req, ctx -> Response in
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
+        if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")
         let id = try ctx.parameters.require("id")
@@ -85,6 +88,7 @@ func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     router.delete("trips/:tripId/expenses/:id") { req, ctx -> Response in
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
+        if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")
         let id = try ctx.parameters.require("id")

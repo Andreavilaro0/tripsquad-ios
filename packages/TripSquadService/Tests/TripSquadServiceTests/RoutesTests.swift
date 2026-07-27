@@ -87,7 +87,7 @@ struct RoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in
                 #expect(res.status == .created)
@@ -114,7 +114,7 @@ struct RoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in
                 #expect(res.status == .unauthorized)
@@ -128,7 +128,7 @@ struct RoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1", amount: "30.00")
             ) { res in #expect(res.status == .created) }
         }
@@ -181,7 +181,7 @@ struct RoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in
                 #expect(res.status == .unauthorized)
@@ -212,7 +212,7 @@ struct RoutesTests {
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
                 headers: [.authorization: "Bearer \(intruso)",
-                          HTTPField.Name("idempotency-key")!: "k1"],
+                          HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in
                 #expect(res.status == .unauthorized)

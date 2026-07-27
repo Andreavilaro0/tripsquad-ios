@@ -70,6 +70,24 @@ func salidaError(_ status: HTTPResponse.Status, _ code: String) -> SalidaIdem {
 /// `Idempotency-First-Sent` sea más antiguo se rechaza en vez de ejecutarse a ciegas.
 private let ventanaDedupe: TimeInterval = 60 * 24 * 60 * 60
 
+/// Valida `Idempotency-First-Sent` (bead 5ln, guía §175-180): el cliente firma cuándo generó
+/// la operación en la generación local. Devuelve un `Response` de error si la cabecera falta
+/// (400), no es ISO-8601 (400), o cae fuera de la ventana de 60 días (422 `idempotency_key_expired`);
+/// `nil` si es válida. Compartido por el helper genérico `conIdempotencia` y las rutas de Gastos
+/// (que tienen su propio camino de idempotencia pero el MISMO contrato de cabeceras).
+func errorSiFirstSentInvalido(_ req: Request, _ ahora: Date) -> Response? {
+    guard let raw = req.idempotencyFirstSent() else {
+        return errorJSON(.badRequest, "missing_idempotency_first_sent")
+    }
+    guard let firstSent = ISO8601DateFormatter().date(from: raw) else {
+        return errorJSON(.badRequest, "invalid_idempotency_first_sent")
+    }
+    guard ahora.timeIntervalSince(firstSent) <= ventanaDedupe else {
+        return errorJSON(HTTPResponse.Status(code: 422), "idempotency_key_expired")
+    }
+    return nil
+}
+
 func conIdempotencia(
     _ req: Request,
     _ ctx: ContextoAutenticado,
@@ -78,17 +96,7 @@ func conIdempotencia(
     _ producir: () async throws -> SalidaIdem
 ) async throws -> Response {
     guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
-    // `Idempotency-First-Sent` obligatorio (bead 5ln): el cliente firma cuándo generó la
-    // operación; el servidor NO la ejecuta a ciegas si cae fuera de la ventana de 60 días.
-    guard let firstSentRaw = req.idempotencyFirstSent() else {
-        return errorJSON(.badRequest, "missing_idempotency_first_sent")
-    }
-    guard let firstSent = ISO8601DateFormatter().date(from: firstSentRaw) else {
-        return errorJSON(.badRequest, "invalid_idempotency_first_sent")
-    }
-    guard ahora.timeIntervalSince(firstSent) <= ventanaDedupe else {
-        return errorJSON(HTTPResponse.Status(code: 422), "idempotency_key_expired")
-    }
+    if let err = errorSiFirstSentInvalido(req, ahora) { return err }   // bead 5ln
     switch try await idem.reclamar(actor: ctx.actor, key: key) {
     case .replay(let congelada):
         // `Idempotency-Result: replayed` (guía §169-174): la cola offline distingue una

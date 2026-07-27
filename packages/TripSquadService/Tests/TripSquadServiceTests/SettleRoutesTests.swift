@@ -61,7 +61,7 @@ struct SettleRoutesTests {
             let body = ByteBuffer(string: #"{"id":"g1","paidBy":"ana","amount":"40.00","currency":"EUR","split":{"kind":"equal","among":["ana","ivan"]}}"#)
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-deuda"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-deuda", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: body
             ) { res in
                 #expect(res.status == .created)

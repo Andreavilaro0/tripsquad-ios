@@ -57,7 +57,7 @@ struct GastosDesdeReciboRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses/from-receipt", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: reciboJSON(gastoId: "g1")
             ) { res in
                 #expect(res.status == .created)
@@ -84,7 +84,7 @@ struct GastosDesdeReciboRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses/from-receipt", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: reciboJSON(gastoId: "g1", items: #"[{"importeMinor":100,"sharers":[]}]"#)
             ) { res in
                 #expect(res.status == HTTPResponse.Status(code: 422))
@@ -100,7 +100,7 @@ struct GastosDesdeReciboRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses/from-receipt", method: .post,
-                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: reciboJSON(gastoId: "g1", pagadoPor: "sara",
                                  items: #"[{"importeMinor":100,"sharers":["sara"]}]"#)
             ) { res in
