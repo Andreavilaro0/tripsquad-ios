@@ -27,13 +27,17 @@
 // identity, así que `since=0` en la siguiente llamada equivale a "desde el
 // principio").
 //
-// DELETE /messages/:messageId: el dominio (`CasosDeUsoChat.borrar`) SOLO
-// devuelve `.noAutorizado` (403) — ni siquiera para mensaje inexistente, para
-// no filtrar existencia (ver Chat.swift). El único origen real de un 404 en
-// esta ruta es un `:messageId` que ni siquiera parsea a `Int64` (no es un
-// cursor válido en absoluto, nunca lo sería) — se corta ANTES de llamar al
-// dominio, y es la única fuga aceptada: "esto no es un id" no es "no tienes
-// permiso sobre ESTE mensaje".
+// DELETE /messages/:messageId (enmienda ADR-0014 §2, bead iou): el dominio
+// (`CasosDeUsoChat.borrar`) autoriza SIEMPRE la membresía del `tripId` del
+// path primero (403 sin fuga si no es miembro); con eso ya verificado, un
+// `messageId` inexistente EN ESE viaje (nunca existió, ya se borró, o es de
+// OTRO viaje) es 204 idempotente — no `.noAutorizado`, para no romper el
+// reintento de un borrado ya aplicado. `.noAutorizado` (403) solo aparece si
+// el mensaje SÍ existe en este viaje pero el actor no es su autor. El único
+// origen real de un 404 en esta ruta es un `:messageId` que ni siquiera
+// parsea a `Int64` (no es un cursor válido en absoluto, nunca lo sería) — se
+// corta ANTES de llamar al dominio, y es la única fuga aceptada: "esto no es
+// un id" no es "no tienes permiso sobre ESTE mensaje".
 
 import Foundation
 import Hummingbird

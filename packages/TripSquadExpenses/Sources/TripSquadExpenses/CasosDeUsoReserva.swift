@@ -67,11 +67,27 @@ public struct CasosDeUsoReserva: Sendable {
     /// Quita el aspecto reserva. Mismo gate que `definir` (creador de la
     /// actividad u owner del viaje). Idempotente vía `repo.borrar` (borrar
     /// algo que no existe no es error).
+    ///
+    /// Enmienda ADR-0014 §2 (bead iou, hallazgo Codex ronda 2): la membresía
+    /// del `tripId` del path se comprueba SIEMPRE primero, ANTES de cargar la
+    /// actividad — un no-miembro no puede usar este endpoint como oráculo
+    /// para sondear si `activityId` existe (aquí o en otro viaje). Con la
+    /// membresía ya verificada, un `activityId` inexistente EN ESTE viaje
+    /// (nunca existió, la actividad ya se borró, o es de OTRO viaje) es un
+    /// no-op idempotente — `.success` (no hay aspecto reserva que quitar).
+    /// Solo si la actividad SÍ existe en este viaje se evalúa "creador u
+    /// owner"; si no lo es, `.noAutorizado` (403) — la respuesta nunca varía
+    /// según si `activityId` existe en otro viaje.
     public func quitar(tripId: String, activityId: String, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorReserva> {
-        guard let act = try await itinerario.item(id: activityId, en: tripId) else { return .failure(.noAutorizado) }
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
+        guard let act = try await itinerario.item(id: activityId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         let rol = try await viajes.rol(de: actor, en: tripId)
         guard act.createdBy == actor || rol == .owner else { return .failure(.noAutorizado) }
+        // Re-verificar membresía DESPUÉS de la carga (Codex bead iou ronda 3): cierra la
+        // ventana TOCTOU —una expulsión mientras corría el await de carga no debe permitir
+        // quitar el aspecto reserva, aunque `createdBy` siga coincidiendo—. Complementa al
+        // gate previo (que preserva el no-oráculo del caso idempotente), no lo sustituye.
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         try await repo.borrar(activityId: activityId, en: tripId)
         return .success(())
     }

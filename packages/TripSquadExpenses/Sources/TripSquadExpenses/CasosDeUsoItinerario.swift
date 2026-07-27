@@ -125,11 +125,28 @@ public struct CasosDeUsoItinerario: Sendable {
     /// El plan NO bloquea borrar en viaje cerrado (solo crear/editar, plan
     /// §5) — igual criterio que `CasosDeUsoVotacion.cerrar`: una acción
     /// terminal de limpieza no es una mutación de contenido.
+    ///
+    /// Enmienda ADR-0014 §2 (bead iou, hallazgo Codex ronda 2): el gate de
+    /// membresía del `tripId` del path va SIEMPRE primero, ANTES de tocar el
+    /// recurso — así un no-miembro nunca puede usar este endpoint como oráculo
+    /// para sondear si `itemId` existe (aquí o en otro viaje). Una vez pasada
+    /// la membresía, `itemId` inexistente EN ESTE viaje (nunca existió, ya se
+    /// borró, o pertenece a OTRO viaje) es un no-op idempotente — `.success`,
+    /// igual criterio que `RepositorioEnMemoria.eliminar` de gastos (ADR-0013
+    /// §2: reintentar un borrado ya hecho no es error). Solo si la actividad
+    /// SÍ existe en este viaje se evalúa "creador u owner"; si no lo es,
+    /// `.noAutorizado` (403) — la respuesta nunca varía según si `itemId`
+    /// existe en otro viaje.
     public func borrar(itemId: String, tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorItinerario> {
-        guard let existente = try await repo.item(id: itemId, en: tripId) else { return .failure(.noAutorizado) }
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }   // miembro ACTUAL (Codex M5 P1)
+        guard let existente = try await repo.item(id: itemId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)
         guard existente.createdBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }
+        // Re-verificar membresía DESPUÉS de la carga (Codex bead iou ronda 3): cierra la
+        // ventana TOCTOU —una expulsión mientras corría el await de carga no debe permitir
+        // completar el borrado, aunque `createdBy` siga coincidiendo—. Complementa al gate
+        // previo (que preserva el no-oráculo del caso idempotente), no lo sustituye.
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         try await repo.borrar(id: itemId, en: tripId)
         return .success(())
     }

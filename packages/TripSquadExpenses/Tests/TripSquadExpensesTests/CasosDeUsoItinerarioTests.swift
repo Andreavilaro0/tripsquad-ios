@@ -265,6 +265,51 @@ struct CasosDeUsoItinerarioTests {
         #expect(eBorrar == .noAutorizado)
     }
 
+    // Bead iou (Codex ronda 2): un NO-miembro no puede usar DELETE como oráculo — 403
+    // uniforme, sin depender de si `itemId` existe.
+    @Test func borrarNoMiembroEsNoAutorizado() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear"); return
+        }
+        // sara no es miembro de t1: borra la actividad de ana → noAutorizado, no 204.
+        guard case .failure(let error) = try await casos.borrar(itemId: creada.actividad.id, tripId: "t1", actor: sara, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .noAutorizado)
+    }
+
+    // Bead iou (Codex ronda 2): un miembro que borra un `itemId` que nunca existió EN SU
+    // viaje, o que existe pero en OTRO viaje, obtiene éxito idempotente — nunca 403/404 (eso
+    // habría roto el reintento de un borrado ya aplicado, y un 403 exclusivo para "no
+    // existe" sería un oráculo). La respuesta es la MISMA en ambos casos: sin fuga.
+    @Test func borrarItemInexistenteOdeOtroViajeEsIdempotente() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        await r.anadirMiembro(ana, a: "t2")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        // Nunca existió en t1.
+        guard case .success = try await casos.borrar(itemId: "no-existe", tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para item inexistente"); return
+        }
+
+        // Existe, pero en OTRO viaje (t2) — borrarlo "desde" t1 tampoco debe filtrar
+        // que existe en t2: mismo resultado, y sigue intacto en t2.
+        guard case .success(let creadaEnT2) = try await casos.crear(tripId: "t2", title: "Museo", day: "2026-08-05", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear en t2"); return
+        }
+        guard case .success = try await casos.borrar(itemId: creadaEnT2.actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para item de otro viaje"); return
+        }
+        guard case .success(let sigueEnT2) = try await casos.detalle(itemId: creadaEnT2.actividad.id, tripId: "t2", actor: ana) else {
+            Issue.record("el item de t2 no debia verse afectado"); return
+        }
+        #expect(sigueEnT2.id == creadaEnT2.actividad.id)
+    }
+
     // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
 
     /// Siembra 3 actividades EN EL MISMO día y con el MISMO `orderIndex`: así el único
@@ -339,5 +384,26 @@ struct CasosDeUsoItinerarioTests {
             Issue.record("una actividad inexistente es noAutorizado, sin fuga"); return
         }
         #expect(errorInexistente == .noAutorizado)
+    }
+
+    // Bead iou (Codex ronda 3, carrera TOCTOU): si el creador es EXPULSADO mientras corre el
+    // await de carga de la actividad, el borrado NO debe completarse aunque `createdBy` siga
+    // coincidiendo. El gate-oráculo pasa; la re-comprobación de membresía tras la carga ve al
+    // ex-miembro y devuelve `.noAutorizado`. La actividad sigue existiendo.
+    @Test func expulsadoDuranteLaCargaNoBorra() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let seed = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await seed.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear"); return
+        }
+        let membresia = MembresiaExpulsaTrasPrimerCheck(real: r, expulsando: ana, de: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: membresia, viajes: r)
+
+        guard case .failure(let error) = try await casos.borrar(itemId: creada.actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba .noAutorizado: expulsado durante la carga no debe poder borrar"); return
+        }
+        #expect(error == .noAutorizado)
+        #expect(await r.item(id: creada.actividad.id, en: "t1") != nil)   // sigue existiendo
     }
 }

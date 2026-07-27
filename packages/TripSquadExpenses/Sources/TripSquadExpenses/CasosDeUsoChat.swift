@@ -58,13 +58,27 @@ public struct CasosDeUsoChat: Sendable {
     }
 
     /// SOLO el autor del mensaje borra (plan §Decisión 3) — ni siquiera el
-    /// owner del viaje, a diferencia de itinerario/votaciones. Se carga el
-    /// mensaje primero: si no existe (o pertenece a otro tripId),
-    /// `.noAutorizado` — sin fuga de existencia.
+    /// owner del viaje, a diferencia de itinerario/votaciones.
+    ///
+    /// Enmienda ADR-0014 §2 (bead iou, hallazgo Codex ronda 2): la membresía
+    /// del `tripId` del path se comprueba SIEMPRE primero, ANTES de cargar el
+    /// mensaje — un no-miembro no puede usar este endpoint como oráculo para
+    /// sondear si `msgId` existe (aquí o en otro viaje). Con la membresía ya
+    /// verificada, un `msgId` inexistente EN ESTE viaje (nunca existió, ya se
+    /// borró, o es de OTRO viaje) es un no-op idempotente — `.success`, mismo
+    /// criterio que `RepositorioEnMemoria.eliminar` de gastos (ADR-0013 §2).
+    /// Solo si el mensaje SÍ existe en este viaje se exige ser el autor; si no
+    /// lo es, `.noAutorizado` (403) — la respuesta nunca varía según si
+    /// `msgId` existe en otro viaje.
     public func borrar(msgId: Int64, tripId: String, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorChat> {
-        guard let existente = try await repo.mensaje(id: msgId, en: tripId) else { return .failure(.noAutorizado) }
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
+        guard let existente = try await repo.mensaje(id: msgId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         guard existente.autor == actor else { return .failure(.noAutorizado) }
+        // Re-verificar membresía DESPUÉS de la carga (Codex bead iou ronda 3): cierra la
+        // ventana TOCTOU —si el actor es expulsado mientras corría el await de carga, el
+        // gate-oráculo de arriba ya pasó, pero la mutación NO debe completarse—. No sustituye
+        // al gate previo (que preserva el no-oráculo del caso idempotente), lo complementa.
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         try await repo.borrar(id: msgId, en: tripId, ahora: ahora)
         return .success(())
     }

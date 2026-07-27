@@ -115,9 +115,20 @@ public struct CasosDeUsoViaje: Sendable {
 
     /// SOLO el owner expulsa (ADR-0018 §2). El owner NUNCA puede ser expulsado
     /// por esta vía — ni siquiera a sí mismo: para quitarse usa `salir`.
+    ///
+    /// Enmienda ADR-0014 §2 (bead iou, hallazgo Codex ronda 2): la
+    /// autorización — ser owner ACTIVO del `tripId` del path — se comprueba
+    /// SIEMPRE primero, ANTES de mirar al `memberId` objetivo; así un no-owner
+    /// nunca puede usar este endpoint como oráculo. Con eso ya verificado, si
+    /// `memberId` no es miembro ACTIVO de este viaje (nunca lo fue, ya salió/
+    /// fue expulsado, o es miembro de OTRO viaje) es un no-op idempotente —
+    /// `.success` en vez de `.noEncontrado`, mismo criterio "sin fuga" y mismo
+    /// idempotente-por-reintento que `repo.quitarMiembro` (ya es un no-op
+    /// seguro si `memberId` no está activo). La respuesta nunca varía según si
+    /// `memberId` es miembro de otro viaje.
     public func expulsar(tripId: String, memberId: MiembroId, actor: MiembroId, ahora: Date) async throws -> Result<Void, ErrorViaje> {
         guard try await repo.rol(de: actor, en: tripId) == .owner else { return .failure(.noAutorizado) }
-        guard let rolObjetivo = try await repo.rol(de: memberId, en: tripId) else { return .failure(.noEncontrado) }
+        guard let rolObjetivo = try await repo.rol(de: memberId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         guard rolObjetivo != .owner else { return .failure(.reglaViolada("no_se_expulsa_al_owner")) }
         try await repo.quitarMiembro(memberId, de: tripId, ahora: ahora)
         return .success(())
