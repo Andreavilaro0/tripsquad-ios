@@ -94,20 +94,27 @@ extension RepositorioPostgres: ChatRepositorio {
     /// `RepositorioViajePostgres.revocarInvitacion`); `body` se sustituye por
     /// el marcador en la propia fila, igual que `RepositorioEnMemoria`.
     public func borrar(id: Int64, en tripId: String, por actor: MiembroId, ahora: Date) async throws -> Bool {
-        // Bead 48g: la mutación va scopeada por membresía ACTUAL en el MISMO statement (CTE),
-        // y se devuelve si el actor seguía siendo miembro. El UPDATE del `WITH` se ejecuta
-        // siempre (Postgres ejecuta los statements modificadores del WITH a completitud
-        // aunque el SELECT no los referencie); si la membresía fue revocada, el `EXISTS` del
-        // WHERE lo deja en 0 filas y el SELECT devuelve `false` → el caso de uso da 403.
+        // Bead 48g (hallazgo Codex #58): la mutación va scopeada por membresía ACTUAL en el
+        // MISMO statement (CTE) Y bloqueando la fila de `trip_members` con `FOR SHARE`. El lock
+        // es lo clave: bajo READ COMMITTED un simple `EXISTS` comparte snapshot pero NO serializa
+        // contra un `quitarMiembro` concurrente (su `UPDATE ... left_at` toma FOR UPDATE). Con
+        // `FOR SHARE` las dos operaciones se serializan: si la revocación gana, este SELECT espera
+        // y re-lee la fila ya con `left_at` puesto → `miembro` vacío → no borra y devuelve false;
+        // si gana este statement, la revocación espera al commit. El UPDATE del WITH se ejecuta
+        // siempre (Postgres corre los statements modificadores del WITH a completitud).
         let rows = try await client.query("""
-            WITH borrado AS (
+            WITH miembro AS (
+                SELECT 1 FROM trip_members
+                WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL
+                FOR SHARE
+            ),
+            borrado AS (
                 UPDATE messages
                 SET deleted_at = coalesce(deleted_at, \(ahora)), body = \(Mensaje.marcadorBorrado)
-                WHERE id = \(id) AND trip_id = \(tripId)
-                  AND EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL)
+                WHERE id = \(id) AND trip_id = \(tripId) AND EXISTS(SELECT 1 FROM miembro)
                 RETURNING 1
             )
-            SELECT EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL) AS es_miembro
+            SELECT EXISTS(SELECT 1 FROM miembro) AS es_miembro
             """, logger: logger)
         for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
         return false

@@ -182,17 +182,22 @@ extension RepositorioPostgres: ReservaRepositorio {
     /// `itinerary_reservation_members` se limpia sola por el `ON DELETE
     /// CASCADE` de la migración 0008 (FK a `itinerary_reservations.activity_id`).
     public func borrar(activityId: String, en tripId: String, por actor: MiembroId) async throws -> Bool {
-        // Bead 48g: DELETE del aspecto reserva scopeado por membresía ACTUAL en el mismo
-        // statement (CTE); devuelve si el actor seguía siendo miembro. Sigue siendo idempotente
-        // (quitar un aspecto ausente con membresía vigente devuelve true). Ver `RepositorioChatPostgres.borrar`.
+        // Bead 48g (hallazgo Codex #58): DELETE del aspecto reserva scopeado por membresía ACTUAL
+        // en el mismo statement (CTE) Y bloqueando `trip_members` con `FOR SHARE` para serializar
+        // contra un `quitarMiembro` concurrente. Sigue siendo idempotente (quitar un aspecto
+        // ausente con membresía vigente devuelve true). Ver `RepositorioChatPostgres.borrar`.
         let rows = try await client.query("""
-            WITH borrado AS (
+            WITH miembro AS (
+                SELECT 1 FROM trip_members
+                WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL
+                FOR SHARE
+            ),
+            borrado AS (
                 DELETE FROM itinerary_reservations
-                WHERE activity_id = \(activityId) AND trip_id = \(tripId)
-                  AND EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL)
+                WHERE activity_id = \(activityId) AND trip_id = \(tripId) AND EXISTS(SELECT 1 FROM miembro)
                 RETURNING 1
             )
-            SELECT EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL) AS es_miembro
+            SELECT EXISTS(SELECT 1 FROM miembro) AS es_miembro
             """, logger: logger)
         for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
         return false
