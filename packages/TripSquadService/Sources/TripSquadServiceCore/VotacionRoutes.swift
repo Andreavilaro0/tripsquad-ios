@@ -71,16 +71,20 @@ private func respuestaJSON<T: Encodable>(_ status: HTTPResponse.Status, _ valor:
 func montarVotaciones(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
 
     // POST /trips/:tripId/polls — cualquier miembro crea (plan §1).
+    // Idempotente (bead 379): exige Idempotency-Key; un reintento reproduce la respuesta
+    // sin crear una segunda votación.
     router.post("trips/:tripId/polls") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: CrearPollDTO.self, context: ctx)
-        switch try await deps.casosVotacion.crear(
-            tripId: tripId, question: dto.question, options: dto.options, actor: ctx.actor, ahora: deps.ahora()
-        ) {
-        case .success(let votacion):
-            return try respuestaJSON(.created, dtoDe(votacion))
-        case .failure(let error):
-            return respuestaErrorVotacion(error)
+        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+            switch try await deps.casosVotacion.crear(
+                tripId: tripId, question: dto.question, options: dto.options, actor: ctx.actor, ahora: deps.ahora()
+            ) {
+            case .success(let votacion):
+                return salidaOK(.created, Array(try JSONEncoder().encode(dtoDe(votacion))))
+            case .failure(let error):
+                return salidaErrorVotacion(error)
+            }
         }
     }
 
@@ -156,6 +160,20 @@ private func respuestaErrorVotacion(_ error: ErrorVotacion) -> Response {
         return errorJSON(.conflict, "trip_closed")
     case .reglaViolada(let code):
         return errorJSON(HTTPResponse.Status(code: 422), code)
+    }
+}
+
+/// Igual que `respuestaErrorVotacion` pero como `SalidaIdem`, para el camino idempotente del POST.
+private func salidaErrorVotacion(_ error: ErrorVotacion) -> SalidaIdem {
+    switch error {
+    case .noAutorizado:
+        return salidaError(.forbidden, "not_member")
+    case .noEncontrado:
+        return salidaError(.notFound, "not_found")
+    case .viajeCerrado:
+        return salidaError(.conflict, "trip_closed")
+    case .reglaViolada(let code):
+        return salidaError(HTTPResponse.Status(code: 422), code)
     }
 }
 

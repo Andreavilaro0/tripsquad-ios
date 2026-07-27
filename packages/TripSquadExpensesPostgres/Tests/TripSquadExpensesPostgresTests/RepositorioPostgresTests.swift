@@ -47,6 +47,51 @@ struct RepositorioPostgresTests {
         Gasto(id: id, pagadoPor: ana, importeMinor: importe, reparto: .igual(entre: [ana, ivan]))
     }
 
+    /// Clave única por test: `idempotency_keys` es (user_id, key) global y el contenedor de
+    /// CI persiste entre tests, así que no se pueden reusar cadenas de clave.
+    func nuevaKey() -> String { "idem-" + UUID().uuidString }
+
+    // Idempotencia genérica de respuesta (bead 379) contra Postgres real: claim-first,
+    // replay con headers+body byte-exacto, en-vuelo, liberar y scope por actor.
+    @Test func idempotenciaGenericaPostgres() async throws {
+        try await conRepo { repo, _ in
+            // 1. reclamar -> reclamado; congelar; reclamar -> replay idéntico (code+headers+body).
+            let k1 = nuevaKey()
+            guard case .reclamado = try await repo.reclamar(actor: ana, key: k1) else {
+                Issue.record("primer reclamo debe ser reclamado"); return
+            }
+            let resp = RespuestaCongelada(code: 201, headers: ["etag": "abc-123"], body: Array(#"{"id":"x"}"#.utf8))
+            try await repo.congelar(actor: ana, key: k1, respuesta: resp)
+            guard case .replay(let reproducida) = try await repo.reclamar(actor: ana, key: k1) else {
+                Issue.record("tras congelar debe reproducir"); return
+            }
+            #expect(reproducida == resp)   // code, headers y body byte-exacto
+
+            // 2. reclamar dos veces sin congelar -> el segundo es enVuelo.
+            let k2 = nuevaKey()
+            guard case .reclamado = try await repo.reclamar(actor: ana, key: k2) else {
+                Issue.record("k2 primer reclamo"); return
+            }
+            guard case .enVuelo = try await repo.reclamar(actor: ana, key: k2) else {
+                Issue.record("k2 segundo reclamo sin congelar debe ser enVuelo"); return
+            }
+
+            // 3. liberar un reclamo no congelado permite volver a reclamarlo.
+            try await repo.liberar(actor: ana, key: k2)
+            guard case .reclamado = try await repo.reclamar(actor: ana, key: k2) else {
+                Issue.record("tras liberar, debe poder reclamarse de nuevo"); return
+            }
+
+            // 4. scope por actor: la misma clave de ivan es independiente de la de ana.
+            let k3 = nuevaKey()
+            _ = try await repo.reclamar(actor: ana, key: k3)
+            try await repo.congelar(actor: ana, key: k3, respuesta: resp)
+            guard case .reclamado = try await repo.reclamar(actor: ivan, key: k3) else {
+                Issue.record("la clave de ivan es independiente de la de ana"); return
+            }
+        }
+    }
+
     @Test func crearYLeer() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()

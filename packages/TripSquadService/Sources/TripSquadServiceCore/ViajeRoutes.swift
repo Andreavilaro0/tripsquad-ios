@@ -53,14 +53,19 @@ private func respuestaJSON<T: Encodable>(_ status: HTTPResponse.Status, _ valor:
 func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
 
     // POST /trips — crear; el actor entra como owner.
+    // Idempotente (bead 379): un reintento con la misma Idempotency-Key reproduce el viaje
+    // creado sin crear un segundo.
     router.post("trips") { req, ctx -> Response in
         let dto = try await req.decode(as: CrearViajeDTO.self, context: ctx)
-        switch try await deps.casosViaje.crear(
-            name: dto.name, baseCurrency: dto.baseCurrency ?? "EUR", actor: ctx.actor, ahora: deps.ahora()) {
-        case .success(let viaje):
-            return try respuestaJSON(.created, ViajeCreadoDTO(id: viaje.id, name: viaje.name, baseCurrency: viaje.baseCurrency))
-        case .failure(let error):
-            return respuestaErrorViaje(error)
+        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+            switch try await deps.casosViaje.crear(
+                name: dto.name, baseCurrency: dto.baseCurrency ?? "EUR", actor: ctx.actor, ahora: deps.ahora()) {
+            case .success(let viaje):
+                return salidaOK(.created, Array(try jsonEncoderViajes.encode(
+                    ViajeCreadoDTO(id: viaje.id, name: viaje.name, baseCurrency: viaje.baseCurrency))))
+            case .failure(let error):
+                return salidaErrorViaje(error)
+            }
         }
     }
 
@@ -92,14 +97,19 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     }
 
     // POST /trips/:id/invites — cualquier miembro puede invitar; 403 si no es miembro.
-    router.post("trips/:tripId/invites") { _, ctx -> Response in
+    // Idempotente (bead 379): un reintento con la misma Idempotency-Key reproduce la misma
+    // invitación en vez de generar un segundo código.
+    router.post("trips/:tripId/invites") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
-        let ahora = deps.ahora()
-        switch try await deps.casosViaje.invitar(tripId: tripId, actor: ctx.actor, ahora: ahora) {
-        case .success(let invitacion):
-            return try respuestaJSON(.created, InviteDTO(code: invitacion.code, expiresAt: invitacion.expiresAt))
-        case .failure(let error):
-            return respuestaErrorViaje(error)
+        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+            let ahora = deps.ahora()
+            switch try await deps.casosViaje.invitar(tripId: tripId, actor: ctx.actor, ahora: ahora) {
+            case .success(let invitacion):
+                return salidaOK(.created, Array(try jsonEncoderViajes.encode(
+                    InviteDTO(code: invitacion.code, expiresAt: invitacion.expiresAt))))
+            case .failure(let error):
+                return salidaErrorViaje(error)
+            }
         }
     }
 
@@ -165,6 +175,21 @@ private func respuestaErrorViaje(_ error: ErrorViaje) -> Response {
         return errorJSON(.conflict, "trip_closed")
     case .reglaViolada(let code):
         return errorJSON(HTTPResponse.Status(code: 422), code)
+    }
+}
+
+/// Igual que `respuestaErrorViaje` pero como `SalidaIdem`, para el camino idempotente de
+/// POST /trips y POST /trips/:id/invites.
+private func salidaErrorViaje(_ error: ErrorViaje) -> SalidaIdem {
+    switch error {
+    case .noAutorizado:
+        return salidaError(.forbidden, "not_member")
+    case .noEncontrado:
+        return salidaError(.notFound, "not_found")
+    case .viajeCerrado:
+        return salidaError(.conflict, "trip_closed")
+    case .reglaViolada(let code):
+        return salidaError(HTTPResponse.Status(code: 422), code)
     }
 }
 

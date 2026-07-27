@@ -13,7 +13,7 @@ import PostgresNIO
 import TripSquadDomain
 import TripSquadExpenses
 
-public struct RepositorioPostgres: GastoRepositorio, Membresia {
+public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
     let client: PostgresClient
     let logger: Logger
 
@@ -495,4 +495,77 @@ extension RepositorioPostgres: SettlementRepositorio {
 struct SettlementInconsistente: Error {
     let tripId: String
     let settlementId: String
+}
+
+// MARK: - Idempotencia genérica de respuesta (bead 379)
+
+/// Adaptador Postgres del puerto `Idempotencia`: congela la RESPUESTA HTTP (código +
+/// body) por `(user_id, idempotency_key)` en la MISMA tabla `idempotency_keys` que
+/// Gastos (columnas `response_code`/`response_body`), reusando su patrón claim-first
+/// (ADR-0012 §2). A diferencia de Gastos —que serializa un `ResultadoEscritura` tipado—
+/// aquí `response_body` guarda el JSON de la respuesta tal cual (los 4 POST devuelven
+/// JSON). NOTA: `response_body` es `jsonb`, así que el body reproducido es JSON
+/// semánticamente idéntico pero puede diferir en orden de claves/espacios respecto a
+/// los bytes originales (el cliente parsea por clave; el in-memory sí es byte-idéntico).
+extension RepositorioPostgres {
+
+    /// Formato serializado en `response_body` (jsonb) para la idempotencia genérica: el
+    /// body se guarda como STRING dentro del wrapper (no como jsonb directo), así se
+    /// preserva byte a byte —igual que el in-memory— y no lo normaliza jsonb.
+    private struct Congelada: Codable {
+        let code: Int
+        let headers: [String: String]
+        let body: String
+    }
+
+    private func replayGenerico(actor: MiembroId, key: String) async throws -> RespuestaCongelada? {
+        let rows = try await client.query("""
+            SELECT response_body::text FROM idempotency_keys
+            WHERE user_id = \(actor.raw) AND idempotency_key = \(key) AND response_body IS NOT NULL
+            """, logger: logger)
+        for try await (wire) in rows.decode(String.self) {
+            guard let data = wire.data(using: .utf8),
+                  let c = try? JSONDecoder().decode(Congelada.self, from: data) else { return nil }
+            return RespuestaCongelada(code: c.code, headers: c.headers, body: Array(c.body.utf8))
+        }
+        return nil
+    }
+
+    public func reclamar(actor: MiembroId, key: String) async throws -> ReclamoIdempotencia {
+        // ¿Ya hay respuesta congelada? -> replay directo, sin re-ejecutar.
+        if let previa = try await replayGenerico(actor: actor, key: key) { return .replay(previa) }
+        // Reclamar el hueco: el INSERT ON CONFLICT DO NOTHING se serializa contra
+        // inserciones concurrentes del mismo par en el índice único (autocommit): la
+        // ganadora recibe la fila (RETURNING), la perdedora no inserta y cae al replay.
+        let ins = try await client.query("""
+            INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, first_sent, locked_at)
+            VALUES (\(actor.raw), \(key), '', now(), now())
+            ON CONFLICT (user_id, idempotency_key) DO NOTHING
+            RETURNING user_id
+            """, logger: logger)
+        for try await _ in ins.decode(String.self) { return .reclamado }
+        // No reclamamos: la fila ya existía. Si ya está congelada -> replay; si no, en vuelo.
+        if let previa = try await replayGenerico(actor: actor, key: key) { return .replay(previa) }
+        return .enVuelo
+    }
+
+    public func congelar(actor: MiembroId, key: String, respuesta: RespuestaCongelada) async throws {
+        let wire = Congelada(code: respuesta.code, headers: respuesta.headers,
+                             body: String(decoding: respuesta.body, as: UTF8.self))
+        let json = String(decoding: try JSONEncoder().encode(wire), as: UTF8.self)
+        _ = try await client.query("""
+            UPDATE idempotency_keys
+            SET response_code = \(respuesta.code), response_body = \(json)::jsonb, locked_at = NULL
+            WHERE user_id = \(actor.raw) AND idempotency_key = \(key)
+            """, logger: logger)
+    }
+
+    public func liberar(actor: MiembroId, key: String) async throws {
+        // Solo borra el reclamo NO congelado (el efecto falló antes de producir respuesta),
+        // para no bloquear reintentos con un 409 permanente. Si ya estaba congelado, no toca.
+        _ = try await client.query("""
+            DELETE FROM idempotency_keys
+            WHERE user_id = \(actor.raw) AND idempotency_key = \(key) AND response_body IS NULL
+            """, logger: logger)
+    }
 }

@@ -90,13 +90,16 @@ public protocol Membresia: Sendable {
     func viajeCerrado(_ tripId: String) async throws -> Bool
 }
 
-/// Respuesta HTTP congelada para replay idempotente (bead 379): el código y los
-/// bytes exactos del body de la primera ejecución de una `(actor, key)`.
+/// Respuesta HTTP congelada para replay idempotente (bead 379): el código, los
+/// headers relevantes (p.ej. `etag` del create de itinerario, bead 201) y los bytes
+/// exactos del body de la primera ejecución de una `(actor, key)`.
 public struct RespuestaCongelada: Equatable, Sendable {
     public let code: Int
+    public let headers: [String: String]
     public let body: [UInt8]
-    public init(code: Int, body: [UInt8]) {
+    public init(code: Int, headers: [String: String] = [:], body: [UInt8]) {
         self.code = code
+        self.headers = headers
         self.body = body
     }
 }

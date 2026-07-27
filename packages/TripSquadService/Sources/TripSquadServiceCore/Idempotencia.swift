@@ -21,19 +21,27 @@ import Hummingbird
 import HTTPTypes
 import TripSquadExpenses
 
-/// Respuesta de una ruta como (status, bytes ya serializados), lista para congelar.
+/// Respuesta de una ruta como (status, headers extra, bytes ya serializados), lista para
+/// congelar. `headers` son los que van MÁS ALLÁ de `content-type` (p.ej. `etag` del create
+/// de itinerario, bead 201) — se preservan también en el replay.
 struct SalidaIdem: Sendable {
     let status: HTTPResponse.Status
+    let headers: [String: String]
     let bytes: [UInt8]
-    init(_ status: HTTPResponse.Status, _ bytes: [UInt8]) {
+    init(_ status: HTTPResponse.Status, _ bytes: [UInt8], headers: [String: String] = [:]) {
         self.status = status
+        self.headers = headers
         self.bytes = bytes
     }
 }
 
-private func respuestaDeBytes(_ status: HTTPResponse.Status, _ bytes: [UInt8]) -> Response {
-    Response(status: status, headers: [.contentType: "application/json"],
-             body: .init(byteBuffer: ByteBuffer(bytes: bytes)))
+private func respuestaDeBytes(_ status: HTTPResponse.Status, _ bytes: [UInt8], headers: [String: String]) -> Response {
+    var resp = Response(status: status, headers: [.contentType: "application/json"],
+                        body: .init(byteBuffer: ByteBuffer(bytes: bytes)))
+    for (nombre, valor) in headers {
+        if let campo = HTTPField.Name(nombre) { resp.headers[campo] = valor }
+    }
+    return resp
 }
 
 // Cuerpo de error para el camino idempotente. MISMA forma que `errorJSON`
@@ -45,8 +53,11 @@ private struct CuerpoErrorIdem: Encodable {
 }
 private let jsonEncoderIdem = JSONEncoder()
 
-/// `SalidaIdem` de una respuesta de ÉXITO ya serializada por el llamante.
-func salidaOK(_ status: HTTPResponse.Status, _ bytes: [UInt8]) -> SalidaIdem { SalidaIdem(status, bytes) }
+/// `SalidaIdem` de una respuesta de ÉXITO ya serializada por el llamante. `headers` para
+/// los que deben sobrevivir al replay (p.ej. `["etag": ...]` en el create de itinerario).
+func salidaOK(_ status: HTTPResponse.Status, _ bytes: [UInt8], headers: [String: String] = [:]) -> SalidaIdem {
+    SalidaIdem(status, bytes, headers: headers)
+}
 
 /// `SalidaIdem` de un error (status + code), con el body `{"error":{"code":code}}`.
 func salidaError(_ status: HTTPResponse.Status, _ code: String) -> SalidaIdem {
@@ -64,7 +75,7 @@ func conIdempotencia(
     guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
     switch try await idem.reclamar(actor: ctx.actor, key: key) {
     case .replay(let congelada):
-        return respuestaDeBytes(HTTPResponse.Status(code: congelada.code), congelada.body)
+        return respuestaDeBytes(HTTPResponse.Status(code: congelada.code), congelada.body, headers: congelada.headers)
     case .enVuelo:
         return errorJSON(.conflict, "idempotency_in_flight")
     case .reclamado:
@@ -77,8 +88,9 @@ func conIdempotencia(
         }
         if salida.status.code < 500 {          // 5xx es transitorio: no se congela
             try await idem.congelar(actor: ctx.actor, key: key,
-                                    respuesta: RespuestaCongelada(code: Int(salida.status.code), body: salida.bytes))
+                                    respuesta: RespuestaCongelada(code: Int(salida.status.code),
+                                                                  headers: salida.headers, body: salida.bytes))
         }
-        return respuestaDeBytes(salida.status, salida.bytes)
+        return respuestaDeBytes(salida.status, salida.bytes, headers: salida.headers)
     }
 }
