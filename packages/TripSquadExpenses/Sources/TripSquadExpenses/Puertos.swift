@@ -273,9 +273,15 @@ public protocol ItinerarioRepositorio: Sendable {
     /// `If-Match` no se pisan — solo una encuentra la fila con ese etag.
     func actualizar(_ a: ActividadItinerario, ifMatch etag: String, ahora: Date) async throws -> ResultadoEscrituraItinerario
     /// Borra atómicamente scopeado por membresía ACTUAL (bead 48g): la mutación solo
-    /// ocurre si `actor` sigue siendo miembro del viaje EN EL MISMO statement, cerrando la
-    /// ventana TOCTOU que el re-check en el caso de uso solo estrechaba. Devuelve `true` si
-    /// borró (miembro vigente + existía); `false` si la membresía ya no vale → `.noAutorizado`.
+    /// ocurre si `actor` sigue siendo miembro del viaje EN EL MISMO statement (con lock
+    /// `FOR SHARE` sobre `trip_members` para serializar contra la revocación), cerrando la
+    /// ventana TOCTOU que el re-check en el caso de uso solo estrechaba.
+    ///
+    /// El `Bool` es «¿la MEMBRESÍA seguía vigente?», NO «¿borró una fila?»: devuelve `true`
+    /// mientras el actor siga siendo miembro —aun si el recurso ya no existía o desapareció
+    /// concurrentemente— para PRESERVAR la idempotencia (borrar algo ausente es éxito). Solo
+    /// devuelve `false` si la membresía fue revocada → el caso de uso da `.noAutorizado`.
+    /// Un conformer nuevo DEBE seguir esta semántica, no la de «fila borrada».
     func borrar(id: String, en tripId: String, por actor: MiembroId) async throws -> Bool
 }
 
@@ -289,8 +295,9 @@ public protocol ChatRepositorio: Sendable {
     func mensajes(tripId: String, since: Int64?, limit: Int) async throws -> [Mensaje]   // cronológico, id > since
     func mensaje(id: Int64, en tripId: String) async throws -> Mensaje?
     /// Borra (soft-delete) atómicamente scopeado por membresía ACTUAL (bead 48g): ver
-    /// `ItinerarioRepositorio.borrar`. `true` si mutó (miembro vigente + existía y no estaba
-    /// ya borrado); `false` si la membresía ya no vale → `.noAutorizado`.
+    /// `ItinerarioRepositorio.borrar`. El `Bool` es «¿membresía vigente?» (idempotente),
+    /// NO «¿mutó una fila?»: `true` mientras el actor siga siendo miembro; `false` solo si
+    /// fue revocada → `.noAutorizado`.
     func borrar(id: Int64, en tripId: String, por actor: MiembroId, ahora: Date) async throws -> Bool
 }
 
@@ -345,8 +352,9 @@ public protocol ReservaRepositorio: Sendable {
     /// (unoParaTodos, `miembro == nil`). No valida autorización (eso es del caso de uso).
     func marcarEstado(activityId: String, en tripId: String, miembro: MiembroId?, estado: EstadoReserva) async throws
     /// Quita el aspecto reserva atómicamente scopeado por membresía ACTUAL (bead 48g): ver
-    /// `ItinerarioRepositorio.borrar`. `true` si borró (miembro vigente); `false` si la
-    /// membresía ya no vale → `.noAutorizado`.
+    /// `ItinerarioRepositorio.borrar`. El `Bool` es «¿membresía vigente?» (idempotente:
+    /// quitar un aspecto ausente con membresía vigente devuelve `true`), NO «¿borró una
+    /// fila?»; `false` solo si fue revocada → `.noAutorizado`.
     func borrar(activityId: String, en tripId: String, por actor: MiembroId) async throws -> Bool
     /// Guarda la confirmación extraída para UN miembro de UNA actividad (dy5).
     /// Reemplaza si ya existía (mismo criterio que `upsert` de `Reserva`).
