@@ -181,10 +181,21 @@ extension RepositorioPostgres: ReservaRepositorio {
 
     /// `itinerary_reservation_members` se limpia sola por el `ON DELETE
     /// CASCADE` de la migración 0008 (FK a `itinerary_reservations.activity_id`).
-    public func borrar(activityId: String, en tripId: String) async throws {
-        _ = try await client.query(
-            "DELETE FROM itinerary_reservations WHERE activity_id = \(activityId) AND trip_id = \(tripId)",
-            logger: logger)
+    public func borrar(activityId: String, en tripId: String, por actor: MiembroId) async throws -> Bool {
+        // Bead 48g: DELETE del aspecto reserva scopeado por membresía ACTUAL en el mismo
+        // statement (CTE); devuelve si el actor seguía siendo miembro. Sigue siendo idempotente
+        // (quitar un aspecto ausente con membresía vigente devuelve true). Ver `RepositorioChatPostgres.borrar`.
+        let rows = try await client.query("""
+            WITH borrado AS (
+                DELETE FROM itinerary_reservations
+                WHERE activity_id = \(activityId) AND trip_id = \(tripId)
+                  AND EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL)
+                RETURNING 1
+            )
+            SELECT EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL) AS es_miembro
+            """, logger: logger)
+        for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
+        return false
     }
 
     // MARK: - Confirmaciones (dy5)

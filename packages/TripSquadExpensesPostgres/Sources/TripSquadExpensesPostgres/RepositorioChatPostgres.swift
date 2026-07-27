@@ -93,11 +93,23 @@ extension RepositorioPostgres: ChatRepositorio {
     /// fecha del primer borrado (mismo criterio que
     /// `RepositorioViajePostgres.revocarInvitacion`); `body` se sustituye por
     /// el marcador en la propia fila, igual que `RepositorioEnMemoria`.
-    public func borrar(id: Int64, en tripId: String, ahora: Date) async throws {
-        _ = try await client.query("""
-            UPDATE messages
-            SET deleted_at = coalesce(deleted_at, \(ahora)), body = \(Mensaje.marcadorBorrado)
-            WHERE id = \(id) AND trip_id = \(tripId)
+    public func borrar(id: Int64, en tripId: String, por actor: MiembroId, ahora: Date) async throws -> Bool {
+        // Bead 48g: la mutación va scopeada por membresía ACTUAL en el MISMO statement (CTE),
+        // y se devuelve si el actor seguía siendo miembro. El UPDATE del `WITH` se ejecuta
+        // siempre (Postgres ejecuta los statements modificadores del WITH a completitud
+        // aunque el SELECT no los referencie); si la membresía fue revocada, el `EXISTS` del
+        // WHERE lo deja en 0 filas y el SELECT devuelve `false` → el caso de uso da 403.
+        let rows = try await client.query("""
+            WITH borrado AS (
+                UPDATE messages
+                SET deleted_at = coalesce(deleted_at, \(ahora)), body = \(Mensaje.marcadorBorrado)
+                WHERE id = \(id) AND trip_id = \(tripId)
+                  AND EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL)
+                RETURNING 1
+            )
+            SELECT EXISTS(SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL) AS es_miembro
             """, logger: logger)
+        for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
+        return false
     }
 }

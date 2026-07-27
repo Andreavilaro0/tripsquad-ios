@@ -74,12 +74,11 @@ public struct CasosDeUsoChat: Sendable {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         guard let existente = try await repo.mensaje(id: msgId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         guard existente.autor == actor else { return .failure(.noAutorizado) }
-        // Re-verificar membresía DESPUÉS de la carga (Codex bead iou ronda 3): cierra la
-        // ventana TOCTOU —si el actor es expulsado mientras corría el await de carga, el
-        // gate-oráculo de arriba ya pasó, pero la mutación NO debe completarse—. No sustituye
-        // al gate previo (que preserva el no-oráculo del caso idempotente), lo complementa.
-        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
-        try await repo.borrar(id: msgId, en: tripId, ahora: ahora)
+        // Borrado ATÓMICO scopeado por membresía (bead 48g): la mutación comprueba la
+        // membresía ACTUAL en el mismo statement y devuelve `false` si fue revocada mientras
+        // corría la request — cierra del todo la ventana TOCTOU que el re-check de iou ronda 3
+        // solo estrechaba. Un `false` con el mensaje ya cargado = expulsión intra-request.
+        guard try await repo.borrar(id: msgId, en: tripId, por: actor, ahora: ahora) else { return .failure(.noAutorizado) }
         return .success(())
     }
 }
