@@ -162,21 +162,45 @@ func respuestaDirecta(_ r: ResultadoEscritura) -> Response {
     }
 }
 
+// Cuerpos de salida compartidos por TODAS las rutas (bead db0). Antes se
+// interpolaban a mano —única superficie de salida que no pasaba por JSONEncoder—:
+// con valores server-side (UUID/etag y códigos literales) no era explotable, pero
+// en cuanto un `reglaViolada(code)` futuro llevase texto de usuario, un `"` o un `\`
+// rompían el JSON. Ahora se codifican con `jsonEncoderGastos`, igual que
+// `respuestaJSON` en el resto de rutas: el escaping es responsabilidad del encoder.
+struct CuerpoEtagResultado: Encodable { let etag: String; let result: String }
+struct CuerpoError: Encodable {
+    struct Codigo: Encodable { let code: String }
+    let error: Codigo
+}
+
+/// JSON del body de `conEtag`, aislado y puro para poder testearlo sin montar el
+/// `Response`. El fallback (valores vacíos) es un literal estático SIN interpolación;
+/// para structs de solo-String `encode` no falla nunca, así que en la práctica no se usa.
+func cuerpoEtagResultadoJSON(etag: String, resultado: String) -> Data {
+    (try? jsonEncoderGastos.encode(CuerpoEtagResultado(etag: etag, result: resultado)))
+        ?? Data(#"{"etag":"","result":""}"#.utf8)
+}
+
+/// JSON del body de `errorJSON`, mismo criterio que `cuerpoEtagResultadoJSON`.
+func cuerpoErrorJSON(_ code: String) -> Data {
+    (try? jsonEncoderGastos.encode(CuerpoError(error: .init(code: code))))
+        ?? Data(#"{"error":{"code":""}}"#.utf8)
+}
+
 func conEtag(_ status: HTTPResponse.Status, _ etag: String, resultado: String) -> Response {
     Response(
         status: status,
         headers: [.contentType: "application/json", HTTPField.Name("etag")!: etag,
                   HTTPField.Name("idempotency-result")!: resultado],
-        body: .init(byteBuffer: .init(string: #"{"etag":"\#(etag)","result":"\#(resultado)"}"#))
+        body: .init(byteBuffer: ByteBuffer(bytes: cuerpoEtagResultadoJSON(etag: etag, resultado: resultado)))
     )
 }
 
 func errorJSON(_ status: HTTPResponse.Status, _ code: String) -> Response {
-    var resp = Response(
+    Response(
         status: status,
         headers: [.contentType: "application/json", HTTPField.Name("x-error-code")!: code],
-        body: .init(byteBuffer: .init(string: #"{"error":{"code":"\#(code)"}}"#))
+        body: .init(byteBuffer: ByteBuffer(bytes: cuerpoErrorJSON(code)))
     )
-    resp.headers[.contentType] = "application/json"
-    return resp
 }
