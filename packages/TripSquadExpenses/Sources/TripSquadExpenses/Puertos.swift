@@ -90,6 +90,46 @@ public protocol Membresia: Sendable {
     func viajeCerrado(_ tripId: String) async throws -> Bool
 }
 
+/// Respuesta HTTP congelada para replay idempotente (bead 379): el código y los
+/// bytes exactos del body de la primera ejecución de una `(actor, key)`.
+public struct RespuestaCongelada: Equatable, Sendable {
+    public let code: Int
+    public let body: [UInt8]
+    public init(code: Int, body: [UInt8]) {
+        self.code = code
+        self.body = body
+    }
+}
+
+/// Resultado de RECLAMAR una `(actor, key)` (patrón claim-first de Brandur,
+/// ADR-0012 §2), para el puerto `Idempotencia`.
+public enum ReclamoIdempotencia: Equatable, Sendable {
+    /// Primera vez: el llamante ejecuta el efecto y luego llama a `congelar`.
+    case reclamado
+    /// Ya se ejecutó: reproducir esta respuesta EXACTA (mismo code + body), sin re-ejecutar.
+    case replay(RespuestaCongelada)
+    /// Otra petición con la misma `(actor, key)` sigue en vuelo (reclamada, aún sin congelar) → 409.
+    case enVuelo
+}
+
+/// Idempotencia GENÉRICA a nivel de respuesta (bead 379), para los POST mutantes que
+/// NO tienen ETag/If-Match ni dedupe estructural por id (chat/itinerario/votaciones/
+/// viaje). A diferencia de `GastoRepositorio` —que congela un `ResultadoEscritura`
+/// tipado y dedupea por id de cliente— aquí se congela el (código, bytes) de la
+/// respuesta HTTP tal cual y se reproduce en el reintento. Reusa la MISMA tabla
+/// `idempotency_keys` (columnas `response_code`/`response_body`) y su scope
+/// `(user_id, idempotency_key)`. `reclamar` es claim-first (atómico): dos peticiones
+/// concurrentes con la misma clave no ejecutan el efecto dos veces — una recibe
+/// `.reclamado`, la otra `.enVuelo` (o `.replay` si la primera ya congeló).
+public protocol Idempotencia: Sendable {
+    func reclamar(actor: MiembroId, key: String) async throws -> ReclamoIdempotencia
+    func congelar(actor: MiembroId, key: String, respuesta: RespuestaCongelada) async throws
+    /// Libera un reclamo que NO llegó a congelarse (el efecto falló antes de producir
+    /// respuesta): borra el hueco `.enVuelo` para que un reintento pueda volver a
+    /// intentarlo en vez de quedar bloqueado con 409. No hace nada si ya estaba congelado.
+    func liberar(actor: MiembroId, key: String) async throws
+}
+
 /// Resultado de CREAR una afirmación de pago (ADR-0017).
 public enum ResultadoSettle: Equatable, Sendable {
     case creado(id: String)

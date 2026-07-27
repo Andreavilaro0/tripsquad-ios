@@ -100,16 +100,21 @@ private func dtoListaDe(_ m: Mensaje) -> MensajeListaDTO {
 func montarChat(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dependencias) {
 
     // POST /trips/:tripId/messages — cualquier miembro envía (plan §Decisión 1).
+    // Idempotente (bead 379): exige Idempotency-Key; un reintento con la misma clave
+    // reproduce la respuesta sin crear un segundo mensaje. El body se decodifica ANTES
+    // de reclamar la clave (un body ilegible no debe consumir la clave).
     router.post("trips/:tripId/messages") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: EnviarMensajeDTO.self, context: ctx)
-        switch try await deps.casosChat.enviar(
-            tripId: tripId, body: dto.body, actor: ctx.actor, ahora: deps.ahora()
-        ) {
-        case .success(let mensaje):
-            return try respuestaJSON(.created, dtoCreadoDe(mensaje))
-        case .failure(let error):
-            return respuestaErrorChat(error)
+        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+            switch try await deps.casosChat.enviar(
+                tripId: tripId, body: dto.body, actor: ctx.actor, ahora: deps.ahora()
+            ) {
+            case .success(let mensaje):
+                return salidaOK(.created, Array(try jsonEncoderChat.encode(dtoCreadoDe(mensaje))))
+            case .failure(let error):
+                return salidaErrorChat(error)
+            }
         }
     }
 
@@ -160,5 +165,18 @@ private func respuestaErrorChat(_ error: ErrorChat) -> Response {
         return errorJSON(.notFound, "not_found")
     case .reglaViolada(let code):
         return errorJSON(HTTPResponse.Status(code: 422), code)
+    }
+}
+
+/// Mismo mapeo que `respuestaErrorChat` pero como `SalidaIdem` (status + code), para el
+/// camino idempotente del POST — así una respuesta de error también se congela y reproduce.
+private func salidaErrorChat(_ error: ErrorChat) -> SalidaIdem {
+    switch error {
+    case .noAutorizado:
+        return salidaError(.forbidden, "not_member")
+    case .noEncontrado:
+        return salidaError(.notFound, "not_found")
+    case .reglaViolada(let code):
+        return salidaError(HTTPResponse.Status(code: 422), code)
     }
 }

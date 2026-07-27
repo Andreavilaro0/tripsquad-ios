@@ -41,6 +41,13 @@ struct ChatRoutesTests {
         ByteBuffer(string: #"{"body":"\#(body)"}"#)
     }
 
+    /// Cabeceras de un POST: auth + `Idempotency-Key` (obligatoria desde bead 379).
+    func hdrPost(_ sub: String, key: String) async throws -> HTTPFields {
+        var h: HTTPFields = [.authorization: try await bearer(sub)]
+        h[HTTPField.Name("idempotency-key")!] = key
+        return h
+    }
+
     /// Extrae crudamente el `"id":...` (número, sin comillas) del primer match del body.
     func idDe(_ body: String) -> String {
         guard let r = body.range(of: #""id":"#) else { return "" }
@@ -55,7 +62,7 @@ struct ChatRoutesTests {
             var msgId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/messages", method: .post,
-                headers: [.authorization: try await bearer("ana")], body: mensajeJSON("Hola squad")
+                headers: try await hdrPost("ana", key: "k-enviar"), body: mensajeJSON("Hola squad")
             ) { res in
                 #expect(res.status == .created)
                 let body = String(buffer: res.body)
@@ -84,7 +91,7 @@ struct ChatRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/messages", method: .post,
-                headers: [.authorization: try await bearer("sara")], body: mensajeJSON()
+                headers: try await hdrPost("sara", key: "k-nomiembro"), body: mensajeJSON()
             ) { res in
                 #expect(res.status == .forbidden)
             }
@@ -106,12 +113,12 @@ struct ChatRoutesTests {
             var primerId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/messages", method: .post,
-                headers: [.authorization: try await bearer("ana")], body: mensajeJSON("primero")
+                headers: try await hdrPost("ana", key: "k-primero"), body: mensajeJSON("primero")
             ) { res in primerId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
                 uri: "/trips/\(trip)/messages", method: .post,
-                headers: [.authorization: try await bearer("ivan")], body: mensajeJSON("segundo")
+                headers: try await hdrPost("ivan", key: "k-segundo"), body: mensajeJSON("segundo")
             ) { res in #expect(res.status == .created) }
 
             // Sin since: los dos mensajes, en orden cronológico.
@@ -153,7 +160,7 @@ struct ChatRoutesTests {
             var msgId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/messages", method: .post,
-                headers: [.authorization: try await bearer("ana")], body: mensajeJSON("borrame")
+                headers: try await hdrPost("ana", key: "k-borrame"), body: mensajeJSON("borrame")
             ) { res in msgId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -183,7 +190,7 @@ struct ChatRoutesTests {
             // ana envía; ivan es solo miembro.
             try await client.execute(
                 uri: "/trips/\(trip)/messages", method: .post,
-                headers: [.authorization: try await bearer("ana")], body: mensajeJSON()
+                headers: try await hdrPost("ana", key: "k-borrar-otro"), body: mensajeJSON()
             ) { res in msgId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -201,6 +208,56 @@ struct ChatRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(uri: "/trips/\(trip)/messages", method: .get) { res in
                 #expect(res.status == .unauthorized)
+            }
+        }
+    }
+
+    // 6. Idempotencia (bead 379): un POST sin `Idempotency-Key` se rechaza con 400.
+    @Test func postSinIdempotencyKeyEs400() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/trips/\(trip)/messages", method: .post,
+                headers: [.authorization: try await bearer("ana")], body: mensajeJSON("sin key")
+            ) { res in
+                #expect(res.status == .badRequest)
+                #expect(String(buffer: res.body).contains("missing_idempotency_key"))
+            }
+        }
+    }
+
+    // 7. Idempotencia (bead 379): dos POST con la MISMA `Idempotency-Key` reproducen la
+    // misma respuesta (mismo id) y NO crean un segundo mensaje — el reintento es un no-op.
+    @Test func postConMismaKeyReproduceYNoDuplica() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            var primeraRespuesta = ""
+            try await client.execute(
+                uri: "/trips/\(trip)/messages", method: .post,
+                headers: try await hdrPost("ana", key: "k-dup"), body: mensajeJSON("una vez")
+            ) { res in
+                #expect(res.status == .created)
+                primeraRespuesta = String(buffer: res.body)
+            }
+
+            // Reintento con la MISMA clave: misma respuesta byte a byte (mismo id).
+            try await client.execute(
+                uri: "/trips/\(trip)/messages", method: .post,
+                headers: try await hdrPost("ana", key: "k-dup"), body: mensajeJSON("una vez")
+            ) { res in
+                #expect(res.status == .created)
+                #expect(String(buffer: res.body) == primeraRespuesta)
+            }
+
+            // La lista tiene UN solo mensaje (el reintento no creó otro).
+            try await client.execute(
+                uri: "/trips/\(trip)/messages", method: .get,
+                headers: [.authorization: try await bearer("ana")]
+            ) { res in
+                let body = String(buffer: res.body)
+                // "una vez" aparece exactamente una vez en el body de la lista.
+                let ocurrencias = body.components(separatedBy: "una vez").count - 1
+                #expect(ocurrencias == 1)
             }
         }
     }
