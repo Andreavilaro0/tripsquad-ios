@@ -58,6 +58,16 @@ struct EditarItinerarioDTO: Decodable {
 
 // MARK: - DTOs de salida (Encodable) — SIEMPRE serializados con JSONEncoder.
 
+/// Badge compacto de reserva por actividad (bead iab, spec del wedge
+/// 2026-07-25-wedge-reserva-por-persona §GET): el resumen que la vista de día pinta sin
+/// tener que pedir aparte `GET /reservations`. `nil` si la actividad no es reservable.
+private struct ReservaBadgeDTO: Encodable {
+    let kind: String       // vuelo/hotel/coche/tren/seguro/otro
+    let reserved: Int      // cuántos ya reservaron
+    let total: Int         // total de responsables/participantes del aspecto reserva
+    let complete: Bool     // todos reservados
+}
+
 private struct ActividadDTO: Encodable {
     let id: String
     let tripId: String
@@ -69,15 +79,33 @@ private struct ActividadDTO: Encodable {
     let orderIndex: Int
     let createdBy: String
     let etag: String   // bead 201: control de concurrencia optimista (ADR-0013)
+    let reservation: ReservaBadgeDTO?   // bead iab: resumen de reserva para el badge (nil si no aplica)
 }
 
 private struct ItemsListDTO: Encodable { let items: [ActividadDTO] }
 
-private func dtoDe(_ a: ActividadConEtag) -> ActividadDTO {
+/// Deriva el badge del modo de reserva: en `cadaUnoElSuyo` cuenta los estados
+/// `.reservado` sobre los participantes; en `unoParaTodos` es 1 responsable (reservado o no).
+private func badgeDe(_ r: Reserva) -> ReservaBadgeDTO {
+    let reserved: Int, total: Int
+    switch r.mode {
+    case .cadaUnoElSuyo(let estados):
+        total = estados.count
+        reserved = estados.values.filter { $0 == .reservado }.count
+    case .unoParaTodos(_, let estado):
+        total = 1
+        reserved = estado == .reservado ? 1 : 0
+    }
+    return ReservaBadgeDTO(kind: r.kind.rawValue, reserved: reserved, total: total,
+                           complete: total > 0 && reserved == total)
+}
+
+private func dtoDe(_ a: ActividadConEtag, reserva: Reserva? = nil) -> ActividadDTO {
     ActividadDTO(
         id: a.actividad.id, tripId: a.actividad.tripId, title: a.actividad.title, day: a.actividad.day,
         startTime: a.actividad.startTime, location: a.actividad.location, notes: a.actividad.notes,
-        orderIndex: a.actividad.orderIndex, createdBy: a.actividad.createdBy.raw, etag: a.etag)
+        orderIndex: a.actividad.orderIndex, createdBy: a.actividad.createdBy.raw, etag: a.etag,
+        reservation: reserva.map(badgeDe))
 }
 
 private func respuestaJSON<T: Encodable>(_ status: HTTPResponse.Status, _ valor: T) throws -> Response {
@@ -127,7 +155,16 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
         let limit = req.uri.queryParameters["limit"].flatMap { Int($0) } ?? 50
         switch try await deps.casosItinerario.listar(tripId: tripId, actor: ctx.actor, limit: limit) {
         case .success(let actividades):
-            return try respuestaJSON(.ok, ItemsListDTO(items: actividades.map(dtoDe)))
+            // Badge de reserva por actividad (bead iab): un solo `tablero` del viaje, mapeado
+            // por activityId, sin pedir aparte `GET /reservations`. Si el tablero falla (no
+            // debería: el actor ya pasó el gate de `listar`), se degrada a sin-badges.
+            var porActividad: [String: Reserva] = [:]
+            if case .success(let reservas) = try await deps.casosReserva.tablero(tripId: tripId, actor: ctx.actor) {
+                porActividad = Dictionary(reservas.map { ($0.activityId, $0) }, uniquingKeysWith: { primera, _ in primera })
+            }
+            return try respuestaJSON(.ok, ItemsListDTO(items: actividades.map {
+                dtoDe($0, reserva: porActividad[$0.actividad.id])
+            }))
         case .failure(let error):
             return respuestaErrorItinerario(error)
         }
