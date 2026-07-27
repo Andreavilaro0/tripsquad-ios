@@ -83,6 +83,11 @@ public struct CasosDeUsoReserva: Sendable {
         guard let act = try await itinerario.item(id: activityId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         let rol = try await viajes.rol(de: actor, en: tripId)
         guard act.createdBy == actor || rol == .owner else { return .failure(.noAutorizado) }
+        // Re-verificar membresía DESPUÉS de la carga (Codex bead iou ronda 3): cierra la
+        // ventana TOCTOU —una expulsión mientras corría el await de carga no debe permitir
+        // quitar el aspecto reserva, aunque `createdBy` siga coincidiendo—. Complementa al
+        // gate previo (que preserva el no-oráculo del caso idempotente), no lo sustituye.
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         try await repo.borrar(activityId: activityId, en: tripId)
         return .success(())
     }

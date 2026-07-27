@@ -267,4 +267,26 @@ struct CasosDeUsoReservaTests {
             estado: .reservado, actor: f.b, ahora: Date())
         #expect(r == .failure(.noAutorizado))
     }
+
+    // Bead iou (Codex ronda 3, carrera TOCTOU): si el creador de la actividad es EXPULSADO
+    // mientras corre el await de carga, `quitar` NO debe completarse aunque `createdBy` siga
+    // coincidiendo. El gate-oráculo pasa; la re-comprobación de membresía tras la carga ve al
+    // ex-miembro y devuelve `.noAutorizado`. El aspecto reserva sigue existiendo.
+    @Test func expulsadoDuranteLaCargaNoQuita() async throws {
+        let f = try await fixture()
+        // b (creador de act1) define un aspecto reserva sobre act1.
+        guard case .success = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
+            modo: .cadaUnoElSuyo(participantes: [f.b]), actor: f.b, ahora: ahora) else {
+            Issue.record("esperaba definir exitoso"); return
+        }
+        let membresia = MembresiaExpulsaTrasPrimerCheck(real: f.repo, expulsando: f.b, de: "t1")
+        let fake = EstructuradorConfirmacionFake(datos: DatosConfirmacion(tipo: .vuelo, fechaISO: nil, numeroConfirmacion: nil, proveedor: nil))
+        let casos = CasosDeUsoReserva(repo: f.repo, itinerario: f.repo, membresia: membresia, viajes: f.repo, estructurador: fake)
+
+        guard case .failure(let error) = try await casos.quitar(tripId: "t1", activityId: "act1", actor: f.b, ahora: ahora) else {
+            Issue.record("esperaba .noAutorizado: expulsado durante la carga no debe poder quitar"); return
+        }
+        #expect(error == .noAutorizado)
+        #expect(await f.repo.reserva(activityId: "act1", en: "t1") != nil)   // el aspecto reserva sigue
+    }
 }

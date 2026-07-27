@@ -385,4 +385,25 @@ struct CasosDeUsoItinerarioTests {
         }
         #expect(errorInexistente == .noAutorizado)
     }
+
+    // Bead iou (Codex ronda 3, carrera TOCTOU): si el creador es EXPULSADO mientras corre el
+    // await de carga de la actividad, el borrado NO debe completarse aunque `createdBy` siga
+    // coincidiendo. El gate-oráculo pasa; la re-comprobación de membresía tras la carga ve al
+    // ex-miembro y devuelve `.noAutorizado`. La actividad sigue existiendo.
+    @Test func expulsadoDuranteLaCargaNoBorra() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let seed = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await seed.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear"); return
+        }
+        let membresia = MembresiaExpulsaTrasPrimerCheck(real: r, expulsando: ana, de: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: membresia, viajes: r)
+
+        guard case .failure(let error) = try await casos.borrar(itemId: creada.actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba .noAutorizado: expulsado durante la carga no debe poder borrar"); return
+        }
+        #expect(error == .noAutorizado)
+        #expect(await r.item(id: creada.actividad.id, en: "t1") != nil)   // sigue existiendo
+    }
 }

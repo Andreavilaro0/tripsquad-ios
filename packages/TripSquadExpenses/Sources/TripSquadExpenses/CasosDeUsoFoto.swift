@@ -163,6 +163,11 @@ public struct CasosDeUsoFoto: Sendable {
         guard let existente = try await repo.foto(id: fotoId, en: tripId) else { return .success(()) }   // idempotente, sin fuga (bead iou)
         let rolDelActor = try await viajes.rol(de: actor, en: tripId)
         guard existente.uploadedBy == actor || rolDelActor == .owner else { return .failure(.noAutorizado) }
+        // Re-verificar membresía DESPUÉS de la carga (Codex bead iou ronda 3): cierra la
+        // ventana TOCTOU —una expulsión mientras corría el await de carga no debe permitir
+        // completar el borrado (metadato + binario), aunque `uploadedBy` siga coincidiendo—.
+        // Complementa al gate previo (que preserva el no-oráculo del caso idempotente).
+        guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         // Orden: PRIMERO el binario, DESPUÉS el metadato (bot GitHub M7 P2). Con un
         // FotoStorage real que puede lanzar, si borrásemos el metadato primero y el
         // binario fallase, el binario quedaría HUÉRFANO — fuga de storage sin puntero

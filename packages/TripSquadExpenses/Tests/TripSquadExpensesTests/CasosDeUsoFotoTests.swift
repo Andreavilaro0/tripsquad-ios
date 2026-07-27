@@ -363,6 +363,27 @@ struct CasosDeUsoFotoTests {
         #expect(pagina.count == 1)
         #expect(await contador.lecturas == 1, "3 fotos en la tabla, 1 en la página -> 1 prefirmada")
     }
+
+    // Bead iou (Codex ronda 3, carrera TOCTOU): si el subidor es EXPULSADO mientras corre el
+    // await de carga de la foto, el borrado (metadato + binario) NO debe completarse aunque
+    // `uploadedBy` siga coincidiendo. El gate-oráculo pasa; la re-comprobación de membresía
+    // tras la carga ve al ex-miembro y devuelve `.noAutorizado`. La foto sigue existiendo.
+    @Test func expulsadoDuranteLaCargaNoBorra() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let seed = CasosDeUsoFoto(repo: r, membresia: r, viajes: r, storage: storage())
+        guard case .success(let presign) = try await seed.presignSubida(tripId: "t1", contentType: "image/jpeg", sizeBytes: 1024, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba presign exitoso"); return
+        }
+        let membresia = MembresiaExpulsaTrasPrimerCheck(real: r, expulsando: ana, de: "t1")
+        let casos = CasosDeUsoFoto(repo: r, membresia: membresia, viajes: r, storage: storage())
+
+        guard case .failure(let error) = try await casos.borrar(fotoId: presign.fotoId, tripId: "t1", actor: ana) else {
+            Issue.record("esperaba .noAutorizado: expulsado durante la carga no debe poder borrar"); return
+        }
+        #expect(error == .noAutorizado)
+        #expect(await r.foto(id: presign.fotoId, en: "t1") != nil)   // sigue existiendo
+    }
 }
 
 /// Storage que cuenta cuántas URLs de LECTURA se han pedido — para demostrar que el
