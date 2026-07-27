@@ -110,7 +110,7 @@ func montarChat(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Depen
     router.post("trips/:tripId/messages") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: EnviarMensajeDTO.self, context: ctx)
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora()) {
             switch try await deps.casosChat.enviar(
                 tripId: tripId, body: dto.body, actor: ctx.actor, ahora: deps.ahora()
             ) {

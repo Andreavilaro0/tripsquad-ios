@@ -69,6 +69,10 @@ func jwks(_ claves: ClaveDePrueba...) -> String {
 let issDePrueba = "https://proyecto.supabase.co/auth/v1"
 let audDePrueba = "authenticated"
 
+/// `Idempotency-First-Sent` reciente (ISO-8601 de ahora) para los tests de POST idempotentes
+/// (bead 5ln): siempre dentro de la ventana de 60 días respecto al reloj real del test.
+func isoReciente() -> String { ISO8601DateFormatter().string(from: Date()) }
+
 /// Firma un token ES256 con la clave dada. Los claims por defecto son válidos;
 /// cada test tuerce solo el que quiere probar.
 func firmar(

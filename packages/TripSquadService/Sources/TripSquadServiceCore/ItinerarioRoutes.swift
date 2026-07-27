@@ -131,7 +131,7 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
     router.post("trips/:tripId/itinerary") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: CrearItinerarioDTO.self, context: ctx)
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora()) {
             switch try await deps.casosItinerario.crear(
                 tripId: tripId, title: dto.title, day: dto.day, startTime: dto.startTime,
                 location: dto.location, notes: dto.notes, orderIndex: dto.orderIndex ?? 0,

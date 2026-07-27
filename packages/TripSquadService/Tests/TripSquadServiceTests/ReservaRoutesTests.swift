@@ -83,7 +83,7 @@ struct ReservaRoutesTests {
         var itemId = ""
         try await client.execute(
             uri: "/trips/\(tripId)/itinerary", method: .post,
-            headers: [.authorization: try await bearer(creador), HTTPField.Name("idempotency-key")!: "k-auto-24"], body: crearItemJSON()
+            headers: [.authorization: try await bearer(creador), HTTPField.Name("idempotency-key")!: "k-auto-24", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
         ) { res in itemId = idDe(String(buffer: res.body)) }
         return itemId
     }

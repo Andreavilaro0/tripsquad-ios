@@ -76,7 +76,7 @@ func montarVotaciones(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
     router.post("trips/:tripId/polls") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: CrearPollDTO.self, context: ctx)
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora()) {
             switch try await deps.casosVotacion.crear(
                 tripId: tripId, question: dto.question, options: dto.options, actor: ctx.actor, ahora: deps.ahora()
             ) {

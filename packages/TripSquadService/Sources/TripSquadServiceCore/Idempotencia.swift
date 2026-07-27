@@ -66,13 +66,29 @@ func salidaError(_ status: HTTPResponse.Status, _ code: String) -> SalidaIdem {
     return SalidaIdem(status, Array(data))
 }
 
+/// Ventana de deduplicación (ADR-0012 §3, guía §175-180): 60 días. Una operación cuyo
+/// `Idempotency-First-Sent` sea más antiguo se rechaza en vez de ejecutarse a ciegas.
+private let ventanaDedupe: TimeInterval = 60 * 24 * 60 * 60
+
 func conIdempotencia(
     _ req: Request,
     _ ctx: ContextoAutenticado,
     _ idem: any Idempotencia,
+    _ ahora: Date,
     _ producir: () async throws -> SalidaIdem
 ) async throws -> Response {
     guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
+    // `Idempotency-First-Sent` obligatorio (bead 5ln): el cliente firma cuándo generó la
+    // operación; el servidor NO la ejecuta a ciegas si cae fuera de la ventana de 60 días.
+    guard let firstSentRaw = req.idempotencyFirstSent() else {
+        return errorJSON(.badRequest, "missing_idempotency_first_sent")
+    }
+    guard let firstSent = ISO8601DateFormatter().date(from: firstSentRaw) else {
+        return errorJSON(.badRequest, "invalid_idempotency_first_sent")
+    }
+    guard ahora.timeIntervalSince(firstSent) <= ventanaDedupe else {
+        return errorJSON(HTTPResponse.Status(code: 422), "idempotency_key_expired")
+    }
     switch try await idem.reclamar(actor: ctx.actor, key: key) {
     case .replay(let congelada):
         // `Idempotency-Result: replayed` (guía §169-174): la cola offline distingue una

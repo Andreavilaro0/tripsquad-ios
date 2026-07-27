@@ -68,7 +68,7 @@ struct ConfirmacionRoutesTests {
         var itemId = ""
         try await client.execute(
             uri: "/trips/\(tripId)/itinerary", method: .post,
-            headers: [.authorization: try await bearer(creador), HTTPField.Name("idempotency-key")!: "k-conf-itin"], body: crearItemJSON()
+            headers: [.authorization: try await bearer(creador), HTTPField.Name("idempotency-key")!: "k-conf-itin", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
         ) { res in itemId = idDe(String(buffer: res.body)) }
         return itemId
     }

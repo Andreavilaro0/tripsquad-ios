@@ -57,7 +57,7 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     // creado sin crear un segundo.
     router.post("trips") { req, ctx -> Response in
         let dto = try await req.decode(as: CrearViajeDTO.self, context: ctx)
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora()) {
             switch try await deps.casosViaje.crear(
                 name: dto.name, baseCurrency: dto.baseCurrency ?? "EUR", actor: ctx.actor, ahora: deps.ahora()) {
             case .success(let viaje):
@@ -101,7 +101,7 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     // invitación en vez de generar un segundo código.
     router.post("trips/:tripId/invites") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora()) {
             let ahora = deps.ahora()
             switch try await deps.casosViaje.invitar(tripId: tripId, actor: ctx.actor, ahora: ahora) {
             case .success(let invitacion):
