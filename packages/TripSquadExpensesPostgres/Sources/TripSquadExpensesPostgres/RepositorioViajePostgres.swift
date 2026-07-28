@@ -159,7 +159,7 @@ extension RepositorioPostgres: ViajeRepositorio {
         try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
             let ctx = try await conn.query("""
                 SELECT trip_id, closed_at, activos, existe_fila, es_activo, estado
-                FROM private.invitacion_por_codigo(\(code))
+                FROM private.invitacion_por_codigo(\(code), \(ahora))
                 """, logger: self.logger)
             var tripId: String?
             var closedAt: Date?

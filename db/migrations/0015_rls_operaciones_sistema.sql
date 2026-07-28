@@ -62,7 +62,7 @@ $$;
 --     de insertar) y está activo (yaMiembro)? — su PROPIA membresía, que la RLS de
 --     `trip_members` también le ocultaría si dejó el viaje (left_at != null).
 -- Solo lecturas; el WRITE de la membresía lo hace el repo como el actor.
-create or replace function private.invitacion_por_codigo(p_code text)
+create or replace function private.invitacion_por_codigo(p_code text, p_ahora timestamptz)
 returns table(
     trip_id text,
     closed_at timestamptz,
@@ -96,7 +96,9 @@ begin
         return query select v_trip, null::timestamptz, 0, false, false, 'revocado'::text;
         return;
     end if;
-    if v_expires < now() then
+    -- Caducidad con el `ahora` INYECTADO por el llamante (no el reloj de la BD): determinismo
+    -- en tests y consistencia si los relojes del servicio y de la BD difieren (P2 Codex #63).
+    if v_expires < p_ahora then
         return query select v_trip, null::timestamptz, 0, false, false, 'caducado'::text;
         return;
     end if;
@@ -186,10 +188,10 @@ $$;
 -- dentro de la transacción-con-rol; caducar_settlements_pendientes / olvidar_revisiones_de
 -- las llama el sistema con un rol de app que hereda `authenticated`). Se revoca de PUBLIC.
 revoke all on function private.caducar_settlements_pendientes(timestamptz) from public;
-revoke all on function private.invitacion_por_codigo(text) from public;
+revoke all on function private.invitacion_por_codigo(text, timestamptz) from public;
 revoke all on function private.reactivar_miembro(text, text, timestamptz) from public;
 revoke all on function private.olvidar_revisiones_de(text) from public;
 grant execute on function private.caducar_settlements_pendientes(timestamptz) to authenticated;
-grant execute on function private.invitacion_por_codigo(text) to authenticated;
+grant execute on function private.invitacion_por_codigo(text, timestamptz) to authenticated;
 grant execute on function private.reactivar_miembro(text, text, timestamptz) to authenticated;
 grant execute on function private.olvidar_revisiones_de(text) to authenticated;

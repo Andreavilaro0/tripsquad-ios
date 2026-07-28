@@ -250,7 +250,7 @@ begin;
     begin
         select trip_id, estado, es_activo
             into v_trip, v_estado, v_activo
-            from private.invitacion_por_codigo('rls-code');
+            from private.invitacion_por_codigo('rls-code', now());
         if v_estado <> 'ok' or v_trip is distinct from 'rls_t' then
             raise exception 'SECDEF: invitacion_por_codigo no resolvió el code para un no-miembro (trip=%, estado=%)', v_trip, v_estado;
         end if;
