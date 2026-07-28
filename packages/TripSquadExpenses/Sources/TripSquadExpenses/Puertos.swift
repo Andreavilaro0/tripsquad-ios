@@ -402,4 +402,15 @@ public protocol ReservaRepositorio: Sendable {
     func guardarConfirmacion(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws
     /// Lee la confirmación de un miembro; `nil` si no ha confirmado (aún) esta actividad.
     func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion?
+    /// Guarda la confirmación Y marca el estado del miembro como `.reservado`
+    /// ATÓMICAMENTE (endurecimiento a62, ADR-0028): antes eran dos llamadas de
+    /// puerto sueltas (`guardarConfirmacion` + `marcarEstado`) y un fallo entre
+    /// medias podía dejar "confirmación guardada + estado pendiente". El
+    /// adaptador Postgres DEBE ejecutar ambas escrituras en la MISMA transacción;
+    /// el adaptador en-memoria (doble de test/dev, no persiste) las hace
+    /// secuencialmente dentro de su aislamiento de `actor` — documentado como
+    /// aceptable porque no hay durabilidad que corromper. `miembro` es la clave
+    /// canónica de la confirmación (por-actor en `cadaUnoElSuyo`; por-actividad
+    /// —el responsable— en `unoParaTodos`, ADR-0028), la decide el caso de uso.
+    func guardarConfirmacionYMarcarReservado(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws
 }

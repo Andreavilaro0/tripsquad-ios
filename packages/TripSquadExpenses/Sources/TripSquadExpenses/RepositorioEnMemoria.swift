@@ -712,4 +712,18 @@ extension RepositorioEnMemoria: ReservaRepositorio {
     public func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion? {
         confirmaciones[claveConfirmacion(tripId, activityId, miembro)]
     }
+
+    /// Endurecimiento a62 (atomicidad, ADR-0028): el adaptador Postgres hace
+    /// estas dos escrituras en UNA transacción. Aquí, sin transacciones reales,
+    /// se hacen secuencialmente — aceptable a propósito: `RepositorioEnMemoria`
+    /// es un doble de test/dev que no persiste, así que no hay durabilidad que
+    /// corromper si el proceso muriese entre ambas. Además, al ser un `actor`,
+    /// ninguna otra tarea se interpone entre las dos líneas (aislamiento de
+    /// actor), luego el estado intermedio no es observable por otra petición
+    /// concurrente del mismo proceso. `marcarEstado` en `unoParaTodos` ignora
+    /// `miembro` y fija el estado único (igual que el adaptador Postgres).
+    public func guardarConfirmacionYMarcarReservado(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws {
+        confirmaciones[claveConfirmacion(tripId, activityId, miembro)] = c
+        marcarEstado(activityId: activityId, en: tripId, miembro: miembro, estado: .reservado)
+    }
 }

@@ -261,6 +261,39 @@ struct RepositorioReservaPostgresTests {
         }
     }
 
+    /// Endurecimiento a62 (atomicidad, ADR-0028): `guardarConfirmacionYMarcarReservado`
+    /// guarda la confirmación Y marca `.reservado` en UNA sola llamada (una sola
+    /// transacción). En `cadaUnoElSuyo` marca la fila del miembro.
+    @Test func guardarConfirmacionYMarcarReservadoAtomicoCadaUno() async throws {
+        try await conRepo { repo, trip, activityId in
+            try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .vuelo,
+                mode: .cadaUnoElSuyo(estados: [ana: .pendiente])), ahora: Date())
+
+            let c = Confirmacion(tipo: .vuelo, fechaISO: "2026-08-01", numeroConfirmacion: "ATOM1", proveedor: "Iberia")
+            try await repo.guardarConfirmacionYMarcarReservado(activityId: activityId, en: trip, miembro: ana, c)
+
+            #expect(try await repo.confirmacion(activityId: activityId, en: trip, miembro: ana) == c)
+            let leido = try await repo.reserva(activityId: activityId, en: trip)
+            #expect(leido?.mode == .cadaUnoElSuyo(estados: [ana: .reservado]))
+        }
+    }
+
+    /// En `unoParaTodos` marca el estado único (`single_estado`), ignorando el
+    /// `miembro` para el marcado (mismo criterio que `marcarEstado`).
+    @Test func guardarConfirmacionYMarcarReservadoAtomicoUnoParaTodos() async throws {
+        try await conRepo { repo, trip, activityId in
+            try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .hotel,
+                mode: .unoParaTodos(responsable: ana, estado: .pendiente)), ahora: Date())
+
+            let c = Confirmacion(tipo: .hotel, fechaISO: "2026-08-01", numeroConfirmacion: "ATOM2", proveedor: "Booking")
+            try await repo.guardarConfirmacionYMarcarReservado(activityId: activityId, en: trip, miembro: ana, c)
+
+            #expect(try await repo.confirmacion(activityId: activityId, en: trip, miembro: ana) == c)
+            let leido = try await repo.reserva(activityId: activityId, en: trip)
+            #expect(leido?.mode == .unoParaTodos(responsable: ana, estado: .reservado))
+        }
+    }
+
     @Test func borrarLaReservaBorraEnCascadaSusConfirmaciones() async throws {
         try await conRepo { repo, trip, activityId in
             try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .tren,
