@@ -33,37 +33,44 @@ extension RepositorioPostgres: VotacionRepositorio {
 
     public func crear(_ v: Votacion) async throws {
         let optionsJSON = try VotacionOptionsCodec.aJSON(v.options)
-        _ = try await client.query("""
-            INSERT INTO polls (id, trip_id, question, options, created_by, created_at, closed_at)
-            VALUES (\(v.id), \(v.tripId), \(v.question), \(optionsJSON)::jsonb, \(v.createdBy.raw), now(), \(v.closedAt))
-            """, logger: logger)
+        // `v.createdBy` es el actor que crea la votación -> explícito.
+        try await client.enTransaccionConRol(actor: v.createdBy, logger: logger) { conn in
+            _ = try await conn.query("""
+                INSERT INTO polls (id, trip_id, question, options, created_by, created_at, closed_at)
+                VALUES (\(v.id), \(v.tripId), \(v.question), \(optionsJSON)::jsonb, \(v.createdBy.raw), now(), \(v.closedAt))
+                """, logger: self.logger)
+        }
     }
 
     public func votacion(id: String, en tripId: String) async throws -> Votacion? {
-        let rows = try await client.query("""
-            SELECT question, options::text, created_by, closed_at
-            FROM polls WHERE id = \(id) AND trip_id = \(tripId)
-            """, logger: logger)
-        for try await (question, optionsJSON, createdBy, closedAt) in rows.decode((String, String, String, Date?).self) {
-            let options = try VotacionOptionsCodec.desdeJSON(optionsJSON)
-            return Votacion(id: id, tripId: tripId, question: question, options: options, createdBy: MiembroId(createdBy), closedAt: closedAt)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT question, options::text, created_by, closed_at
+                FROM polls WHERE id = \(id) AND trip_id = \(tripId)
+                """, logger: self.logger)
+            for try await (question, optionsJSON, createdBy, closedAt) in rows.decode((String, String, String, Date?).self) {
+                let options = try VotacionOptionsCodec.desdeJSON(optionsJSON)
+                return Votacion(id: id, tripId: tripId, question: question, options: options, createdBy: MiembroId(createdBy), closedAt: closedAt)
+            }
+            return nil
         }
-        return nil
     }
 
     /// `ORDER BY id` (ya lo tenía, es total porque `id` es PK) + `LIMIT`: `limit` llega
     /// ya clampado de `CasosDeUsoVotacion.listar`.
     public func votacionesDe(_ tripId: String, limit: Int) async throws -> [Votacion] {
-        let rows = try await client.query("""
-            SELECT id, question, options::text, created_by, closed_at
-            FROM polls WHERE trip_id = \(tripId) ORDER BY id LIMIT \(limit)
-            """, logger: logger)
-        var out: [Votacion] = []
-        for try await (id, question, optionsJSON, createdBy, closedAt) in rows.decode((String, String, String, String, Date?).self) {
-            let options = try VotacionOptionsCodec.desdeJSON(optionsJSON)
-            out.append(Votacion(id: id, tripId: tripId, question: question, options: options, createdBy: MiembroId(createdBy), closedAt: closedAt))
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT id, question, options::text, created_by, closed_at
+                FROM polls WHERE trip_id = \(tripId) ORDER BY id LIMIT \(limit)
+                """, logger: self.logger)
+            var out: [Votacion] = []
+            for try await (id, question, optionsJSON, createdBy, closedAt) in rows.decode((String, String, String, String, Date?).self) {
+                let options = try VotacionOptionsCodec.desdeJSON(optionsJSON)
+                out.append(Votacion(id: id, tripId: tripId, question: question, options: options, createdBy: MiembroId(createdBy), closedAt: closedAt))
+            }
+            return out
         }
-        return out
     }
 
     // MARK: - Votar
@@ -74,7 +81,8 @@ extension RepositorioPostgres: VotacionRepositorio {
     /// (¿existe? ¿cerrada? ¿option válida?) lee la poll en la misma foto en la
     /// que después se escribe el voto.
     public func votar(pollId: String, tripId: String, member: MiembroId, choice: String, ahora: Date) async throws -> ResultadoVotar {
-        try await client.withTransaction(logger: logger) { conn in
+        // `member` es el actor que vota -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: member, logger: logger) { conn in
             // FOR UPDATE OF p, t cierra el TOCTOU en AMBOS ejes (Codex P1 + bot GitHub P1):
             // bloquea la fila de la POLL y del VIAJE durante la transacción, así un cierre
             // concurrente de la poll (POST .../close) O del viaje se serializa y no puede colar
@@ -115,21 +123,23 @@ extension RepositorioPostgres: VotacionRepositorio {
     public func resultado(pollId: String, en tripId: String) async throws -> ResultadoVotacion? {
         guard let votacion = try await votacion(id: pollId, en: tripId) else { return nil }
 
-        // JOIN polls + p.trip_id (Codex P2, defensa): aunque poll_id es PK global y ya se
-        // validó `votacion(id,en:)`, se filtra explícito por trip_id para no cruzar viajes.
-        let rows = try await client.query("""
-            SELECT pv.member_id, pv.choice FROM poll_votes pv
-            JOIN polls p ON p.id = pv.poll_id
-            WHERE pv.poll_id = \(pollId) AND p.trip_id = \(tripId)
-            ORDER BY pv.member_id
-            """, logger: logger)
-        var conteo = Dictionary(uniqueKeysWithValues: votacion.options.map { ($0, 0) })
-        var votos: [(MiembroId, String)] = []
-        for try await (memberId, choice) in rows.decode((String, String).self) {
-            conteo[choice, default: 0] += 1
-            votos.append((MiembroId(memberId), choice))
+        return try await client.enTransaccionConRolActual(logger: logger) { conn in
+            // JOIN polls + p.trip_id (Codex P2, defensa): aunque poll_id es PK global y ya se
+            // validó `votacion(id,en:)`, se filtra explícito por trip_id para no cruzar viajes.
+            let rows = try await conn.query("""
+                SELECT pv.member_id, pv.choice FROM poll_votes pv
+                JOIN polls p ON p.id = pv.poll_id
+                WHERE pv.poll_id = \(pollId) AND p.trip_id = \(tripId)
+                ORDER BY pv.member_id
+                """, logger: self.logger)
+            var conteo = Dictionary(uniqueKeysWithValues: votacion.options.map { ($0, 0) })
+            var votos: [(MiembroId, String)] = []
+            for try await (memberId, choice) in rows.decode((String, String).self) {
+                conteo[choice, default: 0] += 1
+                votos.append((MiembroId(memberId), choice))
+            }
+            return ResultadoVotacion(votacion: votacion, conteo: conteo, votos: votos)
         }
-        return ResultadoVotacion(votacion: votacion, conteo: conteo, votos: votos)
     }
 
     // MARK: - Cerrar
@@ -137,8 +147,10 @@ extension RepositorioPostgres: VotacionRepositorio {
     /// Idempotente (igual que `RepositorioEnMemoria.cerrar`): si el poll no
     /// existe en ese tripId, la UPDATE afecta 0 filas y no pasa nada.
     public func cerrar(pollId: String, en tripId: String, ahora: Date) async throws {
-        _ = try await client.query(
-            "UPDATE polls SET closed_at = \(ahora) WHERE id = \(pollId) AND trip_id = \(tripId)",
-            logger: logger)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            _ = try await conn.query(
+                "UPDATE polls SET closed_at = \(ahora) WHERE id = \(pollId) AND trip_id = \(tripId)",
+                logger: self.logger)
+        }
     }
 }

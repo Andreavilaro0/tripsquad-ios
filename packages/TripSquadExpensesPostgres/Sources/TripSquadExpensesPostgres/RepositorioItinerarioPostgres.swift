@@ -33,13 +33,16 @@ extension RepositorioPostgres: ItinerarioRepositorio {
 
     public func crear(_ a: ActividadItinerario, ahora: Date) async throws -> ActividadConEtag {
         let etag = UUID().uuidString
-        _ = try await client.query("""
-            INSERT INTO itinerary_items
-                (id, trip_id, title, day, start_time, location, notes, order_index, created_by, etag, created_at, updated_at)
-            VALUES
-                (\(a.id), \(a.tripId), \(a.title), \(a.day)::date, \(a.startTime), \(a.location), \(a.notes),
-                 \(a.orderIndex), \(a.createdBy.raw), \(etag), \(ahora), \(ahora))
-            """, logger: logger)
+        // `a.createdBy` es el actor que crea -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: a.createdBy, logger: logger) { conn in
+            _ = try await conn.query("""
+                INSERT INTO itinerary_items
+                    (id, trip_id, title, day, start_time, location, notes, order_index, created_by, etag, created_at, updated_at)
+                VALUES
+                    (\(a.id), \(a.tripId), \(a.title), \(a.day)::date, \(a.startTime), \(a.location), \(a.notes),
+                     \(a.orderIndex), \(a.createdBy.raw), \(etag), \(ahora), \(ahora))
+                """, logger: self.logger)
+        }
         return ActividadConEtag(actividad: a, etag: etag)
     }
 
@@ -52,38 +55,42 @@ extension RepositorioPostgres: ItinerarioRepositorio {
     /// `LIMIT` puede devolver un subconjunto distinto en cada consulta.
     /// `limit` llega ya clampado de `CasosDeUsoItinerario.listar`.
     public func listar(_ tripId: String, limit: Int) async throws -> [ActividadConEtag] {
-        let rows = try await client.query("""
-            SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by, etag
-            FROM itinerary_items
-            WHERE trip_id = \(tripId)
-            ORDER BY day, order_index, id
-            LIMIT \(limit)
-            """, logger: logger)
-        var out: [ActividadConEtag] = []
-        for try await (id, tripId, title, day, startTime, location, notes, orderIndex, createdBy, etag)
-            in rows.decode((String, String, String, String, String?, String?, String?, Int, String, String).self) {
-            let actividad = ActividadItinerario(
-                id: id, tripId: tripId, title: title, day: day, startTime: startTime,
-                location: location, notes: notes, orderIndex: orderIndex, createdBy: MiembroId(createdBy))
-            out.append(ActividadConEtag(actividad: actividad, etag: etag))
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by, etag
+                FROM itinerary_items
+                WHERE trip_id = \(tripId)
+                ORDER BY day, order_index, id
+                LIMIT \(limit)
+                """, logger: self.logger)
+            var out: [ActividadConEtag] = []
+            for try await (id, tripId, title, day, startTime, location, notes, orderIndex, createdBy, etag)
+                in rows.decode((String, String, String, String, String?, String?, String?, Int, String, String).self) {
+                let actividad = ActividadItinerario(
+                    id: id, tripId: tripId, title: title, day: day, startTime: startTime,
+                    location: location, notes: notes, orderIndex: orderIndex, createdBy: MiembroId(createdBy))
+                out.append(ActividadConEtag(actividad: actividad, etag: etag))
+            }
+            return out
         }
-        return out
     }
 
     /// Lectura "cruda" sin etag (autorización/merge parcial, ver el puerto).
     public func item(id: String, en tripId: String) async throws -> ActividadItinerario? {
-        let rows = try await client.query("""
-            SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by
-            FROM itinerary_items
-            WHERE id = \(id) AND trip_id = \(tripId)
-            """, logger: logger)
-        for try await (id, tripId, title, day, startTime, location, notes, orderIndex, createdBy)
-            in rows.decode((String, String, String, String, String?, String?, String?, Int, String).self) {
-            return ActividadItinerario(
-                id: id, tripId: tripId, title: title, day: day, startTime: startTime,
-                location: location, notes: notes, orderIndex: orderIndex, createdBy: MiembroId(createdBy))
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT id, trip_id, title, day::text, start_time, location, notes, order_index, created_by
+                FROM itinerary_items
+                WHERE id = \(id) AND trip_id = \(tripId)
+                """, logger: self.logger)
+            for try await (id, tripId, title, day, startTime, location, notes, orderIndex, createdBy)
+                in rows.decode((String, String, String, String, String?, String?, String?, Int, String).self) {
+                return ActividadItinerario(
+                    id: id, tripId: tripId, title: title, day: day, startTime: startTime,
+                    location: location, notes: notes, orderIndex: orderIndex, createdBy: MiembroId(createdBy))
+            }
+            return nil
         }
-        return nil
     }
 
     // MARK: - Actualizar / borrar
@@ -95,28 +102,30 @@ extension RepositorioPostgres: ItinerarioRepositorio {
     /// leyendo el etag actual.
     public func actualizar(_ a: ActividadItinerario, ifMatch etag: String, ahora: Date) async throws -> ResultadoEscrituraItinerario {
         let nuevoEtag = UUID().uuidString
-        let upd = try await client.query("""
-            UPDATE itinerary_items
-            SET title = \(a.title), day = \(a.day)::date, start_time = \(a.startTime),
-                location = \(a.location), notes = \(a.notes), order_index = \(a.orderIndex),
-                etag = \(nuevoEtag), updated_at = \(ahora)
-            WHERE id = \(a.id) AND trip_id = \(a.tripId) AND etag = \(etag)
-            RETURNING etag
-            """, logger: logger)
-        var actualizado = false
-        for try await _ in upd.decode(String.self) { actualizado = true }
-        guard actualizado else {
-            // 0 filas: o no existe (borrada/otro trip) o el etag no coincide (conflicto).
-            if let actual = try await etagActual(id: a.id, en: a.tripId) {
-                return .conflicto(serverEtag: actual)
+        return try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let upd = try await conn.query("""
+                UPDATE itinerary_items
+                SET title = \(a.title), day = \(a.day)::date, start_time = \(a.startTime),
+                    location = \(a.location), notes = \(a.notes), order_index = \(a.orderIndex),
+                    etag = \(nuevoEtag), updated_at = \(ahora)
+                WHERE id = \(a.id) AND trip_id = \(a.tripId) AND etag = \(etag)
+                RETURNING etag
+                """, logger: self.logger)
+            var actualizado = false
+            for try await _ in upd.decode(String.self) { actualizado = true }
+            guard actualizado else {
+                // 0 filas: o no existe (borrada/otro trip) o el etag no coincide (conflicto).
+                if let actual = try await self.etagActual(conn, id: a.id, en: a.tripId) {
+                    return .conflicto(serverEtag: actual)
+                }
+                return .noEncontrado
             }
-            return .noEncontrado
+            return .ok(ActividadConEtag(actividad: a, etag: nuevoEtag))
         }
-        return .ok(ActividadConEtag(actividad: a, etag: nuevoEtag))
     }
 
-    private func etagActual(id: String, en tripId: String) async throws -> String? {
-        let rows = try await client.query(
+    private func etagActual(_ conn: PostgresConnection, id: String, en tripId: String) async throws -> String? {
+        let rows = try await conn.query(
             "SELECT etag FROM itinerary_items WHERE id = \(id) AND trip_id = \(tripId)",
             logger: logger)
         for try await (e) in rows.decode(String.self) { return e }
@@ -127,20 +136,23 @@ extension RepositorioPostgres: ItinerarioRepositorio {
         // Bead 48g (hallazgo Codex #58): DELETE scopeado por membresía ACTUAL en el mismo
         // statement (CTE) Y bloqueando `trip_members` con `FOR SHARE` para serializar contra un
         // `quitarMiembro` concurrente. Ver `RepositorioChatPostgres.borrar` para el detalle.
-        let rows = try await client.query("""
-            WITH miembro AS (
-                SELECT 1 FROM trip_members
-                WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL
-                FOR SHARE
-            ),
-            borrado AS (
-                DELETE FROM itinerary_items
-                WHERE id = \(id) AND trip_id = \(tripId) AND EXISTS(SELECT 1 FROM miembro)
-                RETURNING 1
-            )
-            SELECT EXISTS(SELECT 1 FROM miembro) AS es_miembro
-            """, logger: logger)
-        for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
-        return false
+        // `por actor` es quien borra -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
+            let rows = try await conn.query("""
+                WITH miembro AS (
+                    SELECT 1 FROM trip_members
+                    WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL
+                    FOR SHARE
+                ),
+                borrado AS (
+                    DELETE FROM itinerary_items
+                    WHERE id = \(id) AND trip_id = \(tripId) AND EXISTS(SELECT 1 FROM miembro)
+                    RETURNING 1
+                )
+                SELECT EXISTS(SELECT 1 FROM miembro) AS es_miembro
+                """, logger: self.logger)
+            for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
+            return false
+        }
     }
 }

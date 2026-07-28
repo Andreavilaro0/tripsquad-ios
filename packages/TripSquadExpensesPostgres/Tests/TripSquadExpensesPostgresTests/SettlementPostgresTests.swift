@@ -30,7 +30,11 @@ struct SettlementPostgresTests {
             try await client.query("INSERT INTO trips (id, currency_reference) VALUES (\(trip), 'EUR')")
             try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(trip), \(ana.raw))")
             try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(trip), \(ivan.raw))")
-            try await body(repo, trip)
+            // (ADR-0030, enrutado RLS) Las lecturas (pendientes/confirmados) van por task-local:
+            // se fija ActorRLS.actual a un miembro sembrado (ana), como el AuthMiddleware.
+            try await ActorRLS.$actual.withValue(ana) {
+                try await body(repo, trip)
+            }
             group.cancelAll()
         }
     }

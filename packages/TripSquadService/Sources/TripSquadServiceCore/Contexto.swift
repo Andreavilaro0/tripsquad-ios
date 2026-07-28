@@ -9,6 +9,7 @@
 import Foundation
 import Hummingbird
 import TripSquadDomain
+import TripSquadExpensesPostgres
 
 /// Contexto base de todas las rutas. Las públicas (`/live`, `/health`) se quedan aquí.
 public struct ContextoTripSquad: RequestContext {
@@ -68,7 +69,13 @@ public struct AuthMiddleware: RouterMiddleware {
         } catch let error as ErrorAuth {
             return respuesta(error)
         }
-        return try await next(request, context)
+        // Propaga el actor por `@TaskLocal` a TODA query por-usuario aguas abajo (repos
+        // Postgres vía `enTransaccionConRolActual`), sin cambiar firmas. La RLS A+B
+        // (ADR-0030) se evalúa así contra ESTE `sub` en cada lectura y escritura del
+        // request, incluso bajo el rol de servicio sin BYPASSRLS.
+        return try await ActorRLS.$actual.withValue(context.miembro) {
+            try await next(request, context)
+        }
     }
 }
 

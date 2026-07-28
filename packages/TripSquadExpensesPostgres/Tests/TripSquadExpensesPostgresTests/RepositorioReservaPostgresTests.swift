@@ -35,13 +35,20 @@ struct RepositorioReservaPostgresTests {
             let trip = "trip-r-" + UUID().uuidString.prefix(8)
             let activityId = "item-r-" + UUID().uuidString
             try await client.query("INSERT INTO trips (id, currency_reference) VALUES (\(trip), 'EUR')")
-            try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(trip), \(ana.raw))")
+            // ana es OWNER: `quitarMiembro(bea)` expulsa como owner, y bajo la RLS solo el owner
+            // (o el propio miembro) puede tocar la fila; el owner además conserva membresía para
+            // el cascade (revocar invites + limpiar reservas) en la misma transacción.
+            try await client.query("INSERT INTO trip_members (trip_id, member_id, role) VALUES (\(trip), \(ana.raw), 'owner')")
             try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(trip), \(bea.raw))")
             try await client.query("""
                 INSERT INTO itinerary_items (id, trip_id, title, day, order_index, created_by)
                 VALUES (\(activityId), \(trip), 'Vuelo de ida', '2026-08-01'::date, 0, \(ana.raw))
                 """)
-            try await body(repo, trip, activityId)
+            // (ADR-0030, enrutado RLS) Lecturas + upsert/marcarEstado/quitarMiembro van por
+            // task-local: se fija ActorRLS.actual al owner sembrado (ana).
+            try await ActorRLS.$actual.withValue(ana) {
+                try await body(repo, trip, activityId)
+            }
             group.cancelAll()
         }
     }

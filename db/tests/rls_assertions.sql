@@ -190,4 +190,78 @@ begin;
     end $$;
 rollback;
 
-select 'OK: RLS por-usuario (A+B, ADR-0030) verificada — no-miembro cortado (incl. self-join sin invitación), bootstrap solo-creador, sin auto-escalada de rol' as resultado;
+-- 10. Enrutado RLS (bead RLS-enrutado): una LECTURA por-usuario de una tabla por-viaje
+--     (messages, ahora enrutada por `enTransaccionConRolActual`) se corta a un no-miembro y
+--     se permite a un miembro — el mismo camino A+B que ahora recorren TODAS las lecturas.
+insert into messages (trip_id, member_id, body, created_at)
+    values ('rls_t', 'ana', 'hola squad', now()) on conflict do nothing;
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"sara"}', true);
+    do $$
+    begin
+        if exists (select 1 from messages where trip_id = 'rls_t') then
+            raise exception 'RLS FUGA: no-miembro (sara) VE mensajes del viaje ajeno (lectura enrutada)';
+        end if;
+    end $$;
+commit;
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"ivan"}', true);
+    do $$
+    begin
+        if not exists (select 1 from messages where trip_id = 'rls_t') then
+            raise exception 'RLS FALSO NEGATIVO: miembro (ivan) NO ve mensajes de su viaje (lectura enrutada)';
+        end if;
+    end $$;
+commit;
+
+-- 11. Operación de SISTEMA sin actor: `private.caducar_settlements_pendientes` (security
+--     definer, 0015) materializa como `cancelled` los `pending` vencidos CROSS-VIAJE —
+--     algo que ningún usuario individual puede hacer bajo la RLS. Se ejecuta sin rol de
+--     usuario (como el cron) y devuelve el conteo.
+insert into settlements
+        (id, trip_id, settlement_id, from_member, to_member, transfer_index, amount_minor, status, created_by, expires_at)
+    values ('rls_sett', 'rls_t', 'sett-1', 'ana', 'ivan', 0, 100, 'pending', 'ana', now() - interval '1 day')
+    on conflict (id) do nothing;
+do $$
+declare n integer;
+begin
+    n := private.caducar_settlements_pendientes(now());
+    if n < 1 then
+        raise exception 'SISTEMA: caducar_settlements_pendientes no caducó el pending vencido (n=%)', n;
+    end if;
+    if not exists (select 1 from settlements where id = 'rls_sett' and status = 'cancelled') then
+        raise exception 'SISTEMA: el settlement vencido no quedó cancelled tras el barrido';
+    end if;
+end $$;
+
+-- 12. `private.invitacion_por_codigo` (security definer, 0015): resuelve el código para
+--     quien AÚN no es miembro (sara), aunque la RLS de `trip_invites` le oculte el código
+--     por la vía normal. Es el seam por el que `unirsePorCodigo` obtiene el trip_id sin
+--     filtrarle nada de más.
+insert into trip_invites (code, trip_id, created_by, expires_at)
+    values ('rls-code', 'rls_t', 'ana', now() + interval '7 days') on conflict (code) do nothing;
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"sara"}', true);
+    do $$
+    declare v_trip text; v_estado text; v_activo boolean;
+    begin
+        select trip_id, estado, es_activo
+            into v_trip, v_estado, v_activo
+            from private.invitacion_por_codigo('rls-code', now());
+        if v_estado <> 'ok' or v_trip is distinct from 'rls_t' then
+            raise exception 'SECDEF: invitacion_por_codigo no resolvió el code para un no-miembro (trip=%, estado=%)', v_trip, v_estado;
+        end if;
+        if v_activo then
+            raise exception 'SECDEF: invitacion_por_codigo marca al no-miembro (sara) como ya activo';
+        end if;
+        -- Y por la vía NORMAL (RLS) sara NO ve la invitación: la SECDEF es imprescindible.
+        if exists (select 1 from trip_invites where code = 'rls-code') then
+            raise exception 'RLS FUGA: no-miembro (sara) VE trip_invites directamente (sin la SECDEF)';
+        end if;
+    end $$;
+commit;
+
+select 'OK: RLS por-usuario (A+B, ADR-0030) verificada — no-miembro cortado (incl. self-join sin invitación y lectura enrutada), bootstrap solo-creador, sin auto-escalada de rol, y operaciones de sistema (caducar/invitacion) por security definer' as resultado;

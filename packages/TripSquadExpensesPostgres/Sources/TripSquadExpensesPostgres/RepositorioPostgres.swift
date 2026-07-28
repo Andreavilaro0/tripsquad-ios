@@ -25,33 +25,43 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
     // MARK: - Membresia
 
     public func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool {
-        let rows = try await client.query(
-            "SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(miembro.raw) AND left_at IS NULL",
-            logger: logger)
-        for try await _ in rows { return true }
-        return false
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query(
+                "SELECT 1 FROM trip_members WHERE trip_id = \(tripId) AND member_id = \(miembro.raw) AND left_at IS NULL",
+                logger: self.logger)
+            for try await _ in rows { return true }
+            return false
+        }
     }
 
     public func viajeCerrado(_ tripId: String) async throws -> Bool {
-        let rows = try await client.query(
-            "SELECT closed_at FROM trips WHERE id = \(tripId)", logger: logger)
-        for try await (closedAt) in rows.decode(Date?.self) { return closedAt != nil }
-        return false
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query(
+                "SELECT closed_at FROM trips WHERE id = \(tripId)", logger: self.logger)
+            for try await (closedAt) in rows.decode(Date?.self) { return closedAt != nil }
+            return false
+        }
     }
 
     // MARK: - Replay
 
     public func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura? {
-        let rows = try await client.query(
-            "SELECT request_hash, response_body FROM idempotency_keys WHERE user_id = \(actor.raw) AND idempotency_key = \(idempotencyKey) AND response_body IS NOT NULL",
-            logger: logger)
-        for try await (storedHash, body) in rows.decode((String, String).self) {
-            // Choque de payload (bead 5ln, ADR-0012 §2): la MISMA clave congelada con OTRO
-            // hash → 422, no reproducir a ciegas. Tiene prioridad sobre el replay.
-            if storedHash != requestHash { return .rechazado(razon: "idempotency_key_mismatch") }
-            if let s = RespuestaSerializada.desde(body) { return s.comoReplay }
+        // Este método YA recibe el actor definitivo (la idempotencia es por-usuario), igual
+        // que `guardar/actualizar/eliminar`: se usa `enTransaccionConRol(actor:)` explícito
+        // en vez del task-local (mismo patrón que la familia de escrituras de gastos, y robusto
+        // a llamadas fuera del scope del request).
+        try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
+            let rows = try await conn.query(
+                "SELECT request_hash, response_body FROM idempotency_keys WHERE user_id = \(actor.raw) AND idempotency_key = \(idempotencyKey) AND response_body IS NOT NULL",
+                logger: self.logger)
+            for try await (storedHash, body) in rows.decode((String, String).self) {
+                // Choque de payload (bead 5ln, ADR-0012 §2): la MISMA clave congelada con OTRO
+                // hash → 422, no reproducir a ciegas. Tiene prioridad sobre el replay.
+                if storedHash != requestHash { return .rechazado(razon: "idempotency_key_mismatch") }
+                if let s = RespuestaSerializada.desde(body) { return s.comoReplay }
+            }
+            return nil
         }
-        return nil
     }
 
     // MARK: - Crear
@@ -200,18 +210,20 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
     // MARK: - Lecturas
 
     public func gastos(de tripId: String) async throws -> [GastoConEtag] {
-        let rows = try await client.query("""
-            SELECT id, paid_by, amount_reference, split_kind, split::text, etag
-            FROM expenses WHERE trip_id = \(tripId) AND deleted_at IS NULL ORDER BY id
-            """, logger: logger)
-        var out: [GastoConEtag] = []
-        for try await (id, paidBy, amount, kind, split, etag) in rows.decode((String, String, Int64, String, String, String).self) {
-            let shares = kind == "exact" ? try await leerShares(id: id) : []
-            let reparto = try RepartoCodec.desdeSQL(kind: kind, json: split, shares: shares)
-            let gasto = Gasto(id: id, pagadoPor: MiembroId(paidBy), importeMinor: amount, reparto: reparto)
-            out.append(GastoConEtag(gasto: gasto, etag: etag))
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT id, paid_by, amount_reference, split_kind, split::text, etag
+                FROM expenses WHERE trip_id = \(tripId) AND deleted_at IS NULL ORDER BY id
+                """, logger: self.logger)
+            var out: [GastoConEtag] = []
+            for try await (id, paidBy, amount, kind, split, etag) in rows.decode((String, String, Int64, String, String, String).self) {
+                let shares = kind == "exact" ? try await self.leerShares(conn, id: id) : []
+                let reparto = try RepartoCodec.desdeSQL(kind: kind, json: split, shares: shares)
+                let gasto = Gasto(id: id, pagadoPor: MiembroId(paidBy), importeMinor: amount, reparto: reparto)
+                out.append(GastoConEtag(gasto: gasto, etag: etag))
+            }
+            return out
         }
-        return out
     }
 
     public func gasto(id: String, en tripId: String) async throws -> GastoConEtag? {
@@ -226,21 +238,23 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
     /// cliente, así que sin el filtro un `expenseId` de OTRO viaje filtraría su
     /// historial entre viajes.
     public func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] {
-        let rows = try await client.query("""
-            SELECT r.id, r.expense_id, r.edited_by, r.edited_at, r.field, r.old_value::text, r.new_value::text
-            FROM expense_revisions r
-            JOIN expenses e ON e.id = r.expense_id
-            WHERE r.expense_id = \(expenseId) AND e.trip_id = \(tripId)
-            ORDER BY r.edited_at, r.id
-            LIMIT \(limit)
-            """, logger: logger)
-        var out: [RevisionGasto] = []
-        for try await (id, eid, editedBy, editedAt, field, oldValue, newValue)
-            in rows.decode((Int64, String, String, Date, String, String?, String?).self) {
-            out.append(RevisionGasto(id: id, expenseId: eid, editedBy: MiembroId(editedBy), editedAt: editedAt,
-                                     field: field, oldValue: oldValue, newValue: newValue))
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT r.id, r.expense_id, r.edited_by, r.edited_at, r.field, r.old_value::text, r.new_value::text
+                FROM expense_revisions r
+                JOIN expenses e ON e.id = r.expense_id
+                WHERE r.expense_id = \(expenseId) AND e.trip_id = \(tripId)
+                ORDER BY r.edited_at, r.id
+                LIMIT \(limit)
+                """, logger: self.logger)
+            var out: [RevisionGasto] = []
+            for try await (id, eid, editedBy, editedAt, field, oldValue, newValue)
+                in rows.decode((Int64, String, String, Date, String, String?, String?).self) {
+                out.append(RevisionGasto(id: id, expenseId: eid, editedBy: MiembroId(editedBy), editedAt: editedAt,
+                                         field: field, oldValue: oldValue, newValue: newValue))
+            }
+            return out
         }
-        return out
     }
 
     /// Derecho al olvido RGPD (bead o1v, DECISIÓN de Andrea 2026-07-27, ADR-0027 —
@@ -251,13 +265,19 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
     /// quien lo pagó. Ni `UPDATE` ni crypto-shredding: `DELETE` literal, la
     /// EXCEPCIÓN documentada al append-only de ADR-0015 §15.
     public func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int {
-        let rows = try await client.query("""
-            DELETE FROM expense_revisions WHERE edited_by = \(userId.raw)
-            RETURNING id
-            """, logger: logger)
-        var n = 0
-        for try await _ in rows.decode(Int64.self) { n += 1 }
-        return n
+        // Operación de SISTEMA (flujo admin de borrado de cuenta, SIN actor ni tripId): va
+        // por `private.olvidar_revisiones_de` (security definer, 0015). Bajo la RLS de
+        // `expense_revisions` un DELETE por-usuario dejaría fuera las revisiones en viajes que
+        // el autor abandonó (RGPD incompleto); la función las borra TODAS. No usa
+        // `enTransaccionConRolActual`: no hay usuario en cuyo nombre ejecutar. Va dentro de
+        // `enTransaccionSistema` (asume `authenticated`) para poder ejecutar la secdef bajo
+        // `app_user` (NOINHERIT) sin `permission denied` (P1 Codex #63).
+        return try await client.enTransaccionSistema(logger: logger) { conn in
+            let rows = try await conn.query(
+                "SELECT private.olvidar_revisiones_de(\(userId.raw))", logger: self.logger)
+            for try await (n) in rows.decode(Int.self) { return n }
+            return 0
+        }
     }
 
     // MARK: - Helpers (dentro de la conexión de la transacción)
@@ -352,8 +372,10 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
         }
     }
 
-    func leerShares(id: String) async throws -> [(String, Int64)] {
-        let rows = try await client.query(
+    /// Se ejecuta DENTRO de la transacción-con-rol de `gastos` (recibe la `conn`), para
+    /// heredar el mismo contexto RLS que la lectura del gasto padre.
+    func leerShares(_ conn: PostgresConnection, id: String) async throws -> [(String, Int64)] {
+        let rows = try await conn.query(
             "SELECT member_id, amount_minor FROM expense_shares WHERE expense_id = \(id)", logger: logger)
         var out: [(String, Int64)] = []
         for try await (m, a) in rows.decode((String, Int64).self) { out.append((m, a)) }
@@ -372,29 +394,40 @@ extension RepositorioPostgres: SettlementRepositorio {
     /// existente. `round` no se pasa: tiene default 0 desde la migración 0002.
     public func crear(_ s: Settlement) async throws -> ResultadoSettle {
         let id = UUID().uuidString
-        let ins = try await client.query("""
-            INSERT INTO settlements
-                (id, trip_id, settlement_id, from_member, to_member, transfer_index, amount_minor, status, created_by, expires_at)
-            VALUES (\(id), \(s.tripId), \(s.settlementId), \(s.from.raw), \(s.to.raw), \(s.transferIndex),
-                    \(s.amountMinor), 'pending', \(s.createdBy.raw), \(s.expiresAt))
-            ON CONFLICT (trip_id, settlement_id, from_member, to_member, transfer_index) DO NOTHING
-            RETURNING id
-            """, logger: logger)
-        for try await (nuevoId) in ins.decode(String.self) { return .creado(id: nuevoId) }
-        // Choque: leer el id existente por la clave natural.
-        let sel = try await client.query("""
-            SELECT id FROM settlements
-            WHERE trip_id = \(s.tripId) AND settlement_id = \(s.settlementId)
-              AND from_member = \(s.from.raw) AND to_member = \(s.to.raw) AND transfer_index = \(s.transferIndex)
-            """, logger: logger)
-        for try await (existente) in sel.decode(String.self) { return .duplicado(id: existente) }
-        // El ON CONFLICT no insertó pero la fila en conflicto ya no está (borrada en la
-        // carrera). NO devolvemos un id huérfano (Gemini P1): es un estado inconsistente.
-        throw SettlementInconsistente(tripId: s.tripId, settlementId: s.settlementId)
+        // `s.createdBy` es el actor que crea el pago -> enTransaccionConRol(actor:) explícito.
+        return try await client.enTransaccionConRol(actor: s.createdBy, logger: logger) { conn in
+            let ins = try await conn.query("""
+                INSERT INTO settlements
+                    (id, trip_id, settlement_id, from_member, to_member, transfer_index, amount_minor, status, created_by, expires_at)
+                VALUES (\(id), \(s.tripId), \(s.settlementId), \(s.from.raw), \(s.to.raw), \(s.transferIndex),
+                        \(s.amountMinor), 'pending', \(s.createdBy.raw), \(s.expiresAt))
+                ON CONFLICT (trip_id, settlement_id, from_member, to_member, transfer_index) DO NOTHING
+                RETURNING id
+                """, logger: self.logger)
+            for try await (nuevoId) in ins.decode(String.self) { return .creado(id: nuevoId) }
+            // Choque: leer el id existente por la clave natural.
+            let sel = try await conn.query("""
+                SELECT id FROM settlements
+                WHERE trip_id = \(s.tripId) AND settlement_id = \(s.settlementId)
+                  AND from_member = \(s.from.raw) AND to_member = \(s.to.raw) AND transfer_index = \(s.transferIndex)
+                """, logger: self.logger)
+            for try await (existente) in sel.decode(String.self) { return .duplicado(id: existente) }
+            // El ON CONFLICT no insertó pero la fila en conflicto ya no está (borrada en la
+            // carrera). NO devolvemos un id huérfano (Gemini P1): es un estado inconsistente.
+            throw SettlementInconsistente(tripId: s.tripId, settlementId: s.settlementId)
+        }
     }
 
     public func settlement(id: String, en tripId: String) async throws -> Settlement? {
-        let rows = try await client.query("""
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            try await self.settlementFila(conn, id: id, en: tripId)
+        }
+    }
+
+    /// Lee un settlement DENTRO de una transacción-con-rol dada (reusable desde `settlement`
+    /// y `transicionar` sin abrir una transacción anidada).
+    private func settlementFila(_ conn: PostgresConnection, id: String, en tripId: String) async throws -> Settlement? {
+        let rows = try await conn.query("""
             SELECT settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
                    expires_at, status, resolved_by, resolved_at, reject_reason
             FROM settlements WHERE id = \(id) AND trip_id = \(tripId)
@@ -415,17 +448,20 @@ extension RepositorioPostgres: SettlementRepositorio {
     /// autorización de QUIÉN puede transicionar vive en el caso de uso, no aquí.
     public func transicionar(id: String, en tripId: String, a nuevo: EstadoSettlement,
                              por actor: MiembroId, ahora: Date, rejectReason: String?) async throws -> ResultadoTransicion {
-        let rows = try await client.query("""
-            UPDATE settlements
-            SET status = \(nuevo.rawValue), resolved_by = \(actor.raw), resolved_at = \(ahora), reject_reason = \(rejectReason)
-            WHERE id = \(id) AND trip_id = \(tripId) AND status = 'pending' AND expires_at >= \(ahora)
-            RETURNING id
-            """, logger: logger)
-        for try await _ in rows.decode(String.self) { return .ok }
-        // No actualizó ninguna fila: distinguir por qué (no existe / caducado / ya resuelto).
-        guard let s = try await settlement(id: id, en: tripId) else { return .noEncontrado }
-        if s.status == .pending && s.expiresAt < ahora { return .caducado }
-        return .estadoInvalido
+        // `por actor` es quien transiciona -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
+            let rows = try await conn.query("""
+                UPDATE settlements
+                SET status = \(nuevo.rawValue), resolved_by = \(actor.raw), resolved_at = \(ahora), reject_reason = \(rejectReason)
+                WHERE id = \(id) AND trip_id = \(tripId) AND status = 'pending' AND expires_at >= \(ahora)
+                RETURNING id
+                """, logger: self.logger)
+            for try await _ in rows.decode(String.self) { return .ok }
+            // No actualizó ninguna fila: distinguir por qué (no existe / caducado / ya resuelto).
+            guard let s = try await self.settlementFila(conn, id: id, en: tripId) else { return .noEncontrado }
+            if s.status == .pending && s.expiresAt < ahora { return .caducado }
+            return .estadoInvalido
+        }
     }
 
     /// SIN `LIMIT` a propósito: es la entrada de `balancesConLiquidaciones`, no una
@@ -447,14 +483,17 @@ extension RepositorioPostgres: SettlementRepositorio {
     /// encuentra ya pending vencidos. El índice parcial `idx_settlements_expires_at`
     /// (WHERE status='pending') sirve exactamente este filtro.
     public func caducarPendientes(ahora: Date) async throws -> Int {
-        let rows = try await client.query("""
-            UPDATE settlements SET status = 'cancelled', resolved_at = \(ahora)
-            WHERE status = 'pending' AND expires_at < \(ahora)
-            RETURNING id
-            """, logger: logger)
-        var n = 0
-        for try await _ in rows.decode(String.self) { n += 1 }
-        return n
+        // Operación de SISTEMA (cron, SIN actor): barrido CROSS-VIAJE que ningún usuario
+        // individual puede hacer bajo la RLS. Va por `private.caducar_settlements_pendientes`
+        // (security definer, 0015), dentro de `enTransaccionSistema` que asume `authenticated`
+        // (P1 Codex #63): bajo `app_user` (NOINHERIT) sin ese SET ROLE la llamada daría
+        // `permission denied`. No hay actor → sin claim (la función no lee `uid()`).
+        return try await client.enTransaccionSistema(logger: logger) { conn in
+            let rows = try await conn.query(
+                "SELECT private.caducar_settlements_pendientes(\(ahora))", logger: self.logger)
+            for try await (n) in rows.decode(Int.self) { return n }
+            return 0
+        }
     }
 
     /// UNA sola query por estado (Gemini P1: antes era N+1 — un SELECT de ids + un SELECT
@@ -474,33 +513,35 @@ extension RepositorioPostgres: SettlementRepositorio {
     /// `nil` no toca la query. `PostgresQuery` interpola binds, así que el `IS NULL`
     /// del bind opcional NO sirve para "sin filtro" — hay que ramificar el SQL.
     private func filasPorEstado(_ tripId: String, _ status: String, limit: Int?, noCaducadosDesde ahora: Date?) async throws -> [(String, Settlement)] {
-        let rows: PostgresRowSequence
-        if let ahora {
-            rows = try await client.query("""
-                SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
-                       expires_at, status, resolved_by, resolved_at, reject_reason
-                FROM settlements WHERE trip_id = \(tripId) AND status = \(status) AND expires_at >= \(ahora)
-                ORDER BY created_at, id
-                LIMIT \(limit)
-                """, logger: logger)
-        } else {
-            rows = try await client.query("""
-                SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
-                       expires_at, status, resolved_by, resolved_at, reject_reason
-                FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
-                ORDER BY created_at, id
-                LIMIT \(limit)
-                """, logger: logger)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows: PostgresRowSequence
+            if let ahora {
+                rows = try await conn.query("""
+                    SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                           expires_at, status, resolved_by, resolved_at, reject_reason
+                    FROM settlements WHERE trip_id = \(tripId) AND status = \(status) AND expires_at >= \(ahora)
+                    ORDER BY created_at, id
+                    LIMIT \(limit)
+                    """, logger: self.logger)
+            } else {
+                rows = try await conn.query("""
+                    SELECT id, settlement_id, from_member, to_member, transfer_index, amount_minor, created_by,
+                           expires_at, status, resolved_by, resolved_at, reject_reason
+                    FROM settlements WHERE trip_id = \(tripId) AND status = \(status)
+                    ORDER BY created_at, id
+                    LIMIT \(limit)
+                    """, logger: self.logger)
+            }
+            var out: [(String, Settlement)] = []
+            for try await (id, sid, fromM, toM, idx, amount, createdBy, expires, st, rBy, rAt, reason)
+                in rows.decode((String, String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {
+                out.append((id, Settlement(settlementId: sid, tripId: tripId, from: MiembroId(fromM), to: MiembroId(toM),
+                                           transferIndex: idx, amountMinor: amount, createdBy: MiembroId(createdBy),
+                                           expiresAt: expires, status: EstadoSettlement(rawValue: st) ?? .cancelled,
+                                           resolvedBy: rBy.map(MiembroId.init), resolvedAt: rAt, rejectReason: reason)))
+            }
+            return out
         }
-        var out: [(String, Settlement)] = []
-        for try await (id, sid, fromM, toM, idx, amount, createdBy, expires, st, rBy, rAt, reason)
-            in rows.decode((String, String, String, String, Int, Int64, String, Date, String, String?, Date?, String?).self) {
-            out.append((id, Settlement(settlementId: sid, tripId: tripId, from: MiembroId(fromM), to: MiembroId(toM),
-                                       transferIndex: idx, amountMinor: amount, createdBy: MiembroId(createdBy),
-                                       expiresAt: expires, status: EstadoSettlement(rawValue: st) ?? .cancelled,
-                                       resolvedBy: rBy.map(MiembroId.init), resolvedAt: rAt, rejectReason: reason)))
-        }
-        return out
     }
 }
 
@@ -535,8 +576,8 @@ extension RepositorioPostgres {
     /// Lee la fila existente para la idempotencia GENÉRICA: hash distinto -> `.payloadDistinto`
     /// (422, bead 5ln); congelada -> `.replay`; existe con mismo hash pero sin respuesta ->
     /// `nil` (en vuelo). `nil` también si la fila no existe.
-    private func reclamoGenericoDeFila(actor: MiembroId, key: String, requestHash: String) async throws -> ReclamoIdempotencia? {
-        let rows = try await client.query("""
+    private func reclamoGenericoDeFila(_ conn: PostgresConnection, actor: MiembroId, key: String, requestHash: String) async throws -> ReclamoIdempotencia? {
+        let rows = try await conn.query("""
             SELECT request_hash, response_body::text FROM idempotency_keys
             WHERE user_id = \(actor.raw) AND idempotency_key = \(key)
             """, logger: logger)
@@ -550,48 +591,56 @@ extension RepositorioPostgres {
     }
 
     public func reclamar(actor: MiembroId, key: String, requestHash: String) async throws -> ReclamoIdempotencia {
-        // ¿Fila existente? -> choque de hash (422), replay directo, o en vuelo (nil).
-        if let r = try await reclamoGenericoDeFila(actor: actor, key: key, requestHash: requestHash) { return r }
-        // Reclamar el hueco: el INSERT ON CONFLICT DO NOTHING se serializa contra
-        // inserciones concurrentes del mismo par en el índice único (autocommit): la
-        // ganadora recibe la fila (RETURNING), la perdedora no inserta y cae al replay.
-        let ins = try await client.query("""
-            INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, first_sent, locked_at)
-            VALUES (\(actor.raw), \(key), \(requestHash), now(), now())
-            ON CONFLICT (user_id, idempotency_key) DO NOTHING
-            RETURNING user_id
-            """, logger: logger)
-        for try await _ in ins.decode(String.self) { return .reclamado }
-        // No reclamamos: la fila ya existía. Reevaluar: choque de hash, replay o en vuelo.
-        if let r = try await reclamoGenericoDeFila(actor: actor, key: key, requestHash: requestHash) { return r }
-        // Fila sin respuesta congelada -> EN VUELO. NOTA (bead 5ln, hallazgo Codex #56):
-        // aquí NO se retoma un lock caducado re-ejecutando el productor. Sería inseguro: si el
-        // proceso murió DESPUÉS de crear el recurso pero antes de congelar, re-ejecutar
-        // DUPLICA (estos creates generan ids en el servidor, sin dedupe estructural como
-        // Gastos con id de cliente + ON CONFLICT). La recuperación correcta exige identidad de
-        // operación / recovery_point / atomicidad efecto+congelar — se aborda en 5ln junto con
-        // request_hash y first_sent (mismo plumbing). Un reaper/expiración de clave limpia el
-        // lock colgado mientras tanto.
-        return .enVuelo
+        // actor definitivo por parámetro (idempotencia por-usuario) -> enTransaccionConRol
+        // explícito, como la familia de escrituras de gastos.
+        try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
+            // ¿Fila existente? -> choque de hash (422), replay directo, o en vuelo (nil).
+            if let r = try await self.reclamoGenericoDeFila(conn, actor: actor, key: key, requestHash: requestHash) { return r }
+            // Reclamar el hueco: el INSERT ON CONFLICT DO NOTHING se serializa contra
+            // inserciones concurrentes del mismo par en el índice único: la ganadora recibe la
+            // fila (RETURNING), la perdedora bloquea hasta su commit y cae al replay.
+            let ins = try await conn.query("""
+                INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, first_sent, locked_at)
+                VALUES (\(actor.raw), \(key), \(requestHash), now(), now())
+                ON CONFLICT (user_id, idempotency_key) DO NOTHING
+                RETURNING user_id
+                """, logger: self.logger)
+            for try await _ in ins.decode(String.self) { return .reclamado }
+            // No reclamamos: la fila ya existía. Reevaluar: choque de hash, replay o en vuelo.
+            if let r = try await self.reclamoGenericoDeFila(conn, actor: actor, key: key, requestHash: requestHash) { return r }
+            // Fila sin respuesta congelada -> EN VUELO. NOTA (bead 5ln, hallazgo Codex #56):
+            // aquí NO se retoma un lock caducado re-ejecutando el productor. Sería inseguro: si el
+            // proceso murió DESPUÉS de crear el recurso pero antes de congelar, re-ejecutar
+            // DUPLICA (estos creates generan ids en el servidor, sin dedupe estructural como
+            // Gastos con id de cliente + ON CONFLICT). La recuperación correcta exige identidad de
+            // operación / recovery_point / atomicidad efecto+congelar — se aborda en 5ln junto con
+            // request_hash y first_sent (mismo plumbing). Un reaper/expiración de clave limpia el
+            // lock colgado mientras tanto.
+            return .enVuelo
+        }
     }
 
     public func congelar(actor: MiembroId, key: String, respuesta: RespuestaCongelada) async throws {
         let wire = Congelada(code: respuesta.code, headers: respuesta.headers,
                              body: String(decoding: respuesta.body, as: UTF8.self))
         let json = String(decoding: try JSONEncoder().encode(wire), as: UTF8.self)
-        _ = try await client.query("""
-            UPDATE idempotency_keys
-            SET response_code = \(respuesta.code), response_body = \(json)::jsonb, locked_at = NULL
-            WHERE user_id = \(actor.raw) AND idempotency_key = \(key)
-            """, logger: logger)
+        try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
+            _ = try await conn.query("""
+                UPDATE idempotency_keys
+                SET response_code = \(respuesta.code), response_body = \(json)::jsonb, locked_at = NULL
+                WHERE user_id = \(actor.raw) AND idempotency_key = \(key)
+                """, logger: self.logger)
+        }
     }
 
     public func liberar(actor: MiembroId, key: String) async throws {
         // Solo borra el reclamo NO congelado (el efecto falló antes de producir respuesta),
         // para no bloquear reintentos con un 409 permanente. Si ya estaba congelado, no toca.
-        _ = try await client.query("""
-            DELETE FROM idempotency_keys
-            WHERE user_id = \(actor.raw) AND idempotency_key = \(key) AND response_body IS NULL
-            """, logger: logger)
+        try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
+            _ = try await conn.query("""
+                DELETE FROM idempotency_keys
+                WHERE user_id = \(actor.raw) AND idempotency_key = \(key) AND response_body IS NULL
+                """, logger: self.logger)
+        }
     }
 }

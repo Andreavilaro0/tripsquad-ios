@@ -30,13 +30,16 @@ extension RepositorioPostgres: FotoRepositorio {
     // MARK: - Crear
 
     public func crearPendiente(_ f: Foto) async throws {
-        _ = try await client.query("""
-            INSERT INTO photos
-                (id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at)
-            VALUES
-                (\(f.id), \(f.tripId), \(f.uploadedBy.raw), \(f.storageKey), \(f.contentType), \(f.sizeBytes),
-                 \(f.caption), \(f.status.rawValue), \(f.createdAt))
-            """, logger: logger)
+        // `f.uploadedBy` es el actor que sube -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: f.uploadedBy, logger: logger) { conn in
+            _ = try await conn.query("""
+                INSERT INTO photos
+                    (id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at)
+                VALUES
+                    (\(f.id), \(f.tripId), \(f.uploadedBy.raw), \(f.storageKey), \(f.contentType), \(f.sizeBytes),
+                     \(f.caption), \(f.status.rawValue), \(f.createdAt))
+                """, logger: self.logger)
+        }
     }
 
     // MARK: - Confirmar
@@ -46,69 +49,75 @@ extension RepositorioPostgres: FotoRepositorio {
     /// se relee el estado actual: `ready` -> ya lo estaba (true); no existe en
     /// ese trip -> false.
     public func marcarLista(id: String, en tripId: String) async throws -> Bool {
-        let upd = try await client.query("""
-            UPDATE photos SET status = 'ready'
-            WHERE id = \(id) AND trip_id = \(tripId) AND status = 'pending'
-            RETURNING id
-            """, logger: logger)
-        for try await _ in upd.decode(String.self) { return true }
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let upd = try await conn.query("""
+                UPDATE photos SET status = 'ready'
+                WHERE id = \(id) AND trip_id = \(tripId) AND status = 'pending'
+                RETURNING id
+                """, logger: self.logger)
+            for try await _ in upd.decode(String.self) { return true }
 
-        let rows = try await client.query(
-            "SELECT status FROM photos WHERE id = \(id) AND trip_id = \(tripId)",
-            logger: logger)
-        for try await (status) in rows.decode(String.self) {
-            return status == EstadoFoto.ready.rawValue
+            let rows = try await conn.query(
+                "SELECT status FROM photos WHERE id = \(id) AND trip_id = \(tripId)",
+                logger: self.logger)
+            for try await (status) in rows.decode(String.self) {
+                return status == EstadoFoto.ready.rawValue
+            }
+            return false
         }
-        return false
     }
 
     // MARK: - Leer
 
     public func foto(id: String, en tripId: String) async throws -> Foto? {
-        let rows = try await client.query("""
-            SELECT id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at
-            FROM photos
-            WHERE id = \(id) AND trip_id = \(tripId)
-            """, logger: logger)
-        for try await (rid, rtrip, uploadedBy, storageKey, contentType, sizeBytes, caption, status, createdAt)
-            in rows.decode((String, String, String, String, String, Int64?, String?, String, Date).self) {
-            return Foto(id: rid, tripId: rtrip, uploadedBy: MiembroId(uploadedBy), storageKey: storageKey,
-                        contentType: contentType, sizeBytes: sizeBytes, caption: caption,
-                        status: EstadoFoto(rawValue: status) ?? .pending, createdAt: createdAt)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at
+                FROM photos
+                WHERE id = \(id) AND trip_id = \(tripId)
+                """, logger: self.logger)
+            for try await (rid, rtrip, uploadedBy, storageKey, contentType, sizeBytes, caption, status, createdAt)
+                in rows.decode((String, String, String, String, String, Int64?, String?, String, Date).self) {
+                return Foto(id: rid, tripId: rtrip, uploadedBy: MiembroId(uploadedBy), storageKey: storageKey,
+                            contentType: contentType, sizeBytes: sizeBytes, caption: caption,
+                            status: EstadoFoto(rawValue: status) ?? .pending, createdAt: createdAt)
+            }
+            return nil
         }
-        return nil
     }
 
     /// `soloListas: true` filtra a `status = 'ready'` (plan §Tareas: las
     /// `pending` no se muestran). Orden `(created_at, id)` — mismo desempate
     /// que `RepositorioEnMemoria.listar`.
     public func listar(_ tripId: String, soloListas: Bool, limit: Int) async throws -> [Foto] {
-        let rows: PostgresRowSequence
-        if soloListas {
-            rows = try await client.query("""
-                SELECT id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at
-                FROM photos
-                WHERE trip_id = \(tripId) AND status = 'ready'
-                ORDER BY created_at, id
-                LIMIT \(limit)
-                """, logger: logger)
-        } else {
-            rows = try await client.query("""
-                SELECT id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at
-                FROM photos
-                WHERE trip_id = \(tripId)
-                ORDER BY created_at, id
-                LIMIT \(limit)
-                """, logger: logger)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows: PostgresRowSequence
+            if soloListas {
+                rows = try await conn.query("""
+                    SELECT id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at
+                    FROM photos
+                    WHERE trip_id = \(tripId) AND status = 'ready'
+                    ORDER BY created_at, id
+                    LIMIT \(limit)
+                    """, logger: self.logger)
+            } else {
+                rows = try await conn.query("""
+                    SELECT id, trip_id, uploaded_by, storage_key, content_type, size_bytes, caption, status, created_at
+                    FROM photos
+                    WHERE trip_id = \(tripId)
+                    ORDER BY created_at, id
+                    LIMIT \(limit)
+                    """, logger: self.logger)
+            }
+            var out: [Foto] = []
+            for try await (rid, rtrip, uploadedBy, storageKey, contentType, sizeBytes, caption, status, createdAt)
+                in rows.decode((String, String, String, String, String, Int64?, String?, String, Date).self) {
+                out.append(Foto(id: rid, tripId: rtrip, uploadedBy: MiembroId(uploadedBy), storageKey: storageKey,
+                                contentType: contentType, sizeBytes: sizeBytes, caption: caption,
+                                status: EstadoFoto(rawValue: status) ?? .pending, createdAt: createdAt))
+            }
+            return out
         }
-        var out: [Foto] = []
-        for try await (rid, rtrip, uploadedBy, storageKey, contentType, sizeBytes, caption, status, createdAt)
-            in rows.decode((String, String, String, String, String, Int64?, String?, String, Date).self) {
-            out.append(Foto(id: rid, tripId: rtrip, uploadedBy: MiembroId(uploadedBy), storageKey: storageKey,
-                            contentType: contentType, sizeBytes: sizeBytes, caption: caption,
-                            status: EstadoFoto(rawValue: status) ?? .pending, createdAt: createdAt))
-        }
-        return out
     }
 
     // MARK: - Borrar
@@ -117,9 +126,11 @@ extension RepositorioPostgres: FotoRepositorio {
     /// metadato de una foto borrada no se conserva como tombstone (plan
     /// §Tareas; mismo criterio que `RepositorioEnMemoria.borrar(fotoId:en:)`).
     public func borrar(fotoId: String, en tripId: String) async throws {
-        _ = try await client.query(
-            "DELETE FROM photos WHERE id = \(fotoId) AND trip_id = \(tripId)",
-            logger: logger)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            _ = try await conn.query(
+                "DELETE FROM photos WHERE id = \(fotoId) AND trip_id = \(tripId)",
+                logger: self.logger)
+        }
     }
 
 }

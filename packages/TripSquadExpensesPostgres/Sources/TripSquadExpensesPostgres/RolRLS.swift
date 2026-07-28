@@ -12,7 +12,49 @@ import Logging
 import PostgresNIO
 import TripSquadDomain
 
+/// Actor RLS propagado por la petición sin tocar firmas (bead RLS-enrutado). El
+/// `AuthMiddleware` lo fija con `ActorRLS.$actual.withValue(actor) { next(...) }` tras
+/// verificar el JWT, de modo que TODA query por-usuario aguas abajo (repos Postgres)
+/// hereda el actor por `@TaskLocal` y puede abrir su transacción-con-rol sin recibir el
+/// `MiembroId` como parámetro explícito. Es la fuente de verdad de "en nombre de quién"
+/// se ejecuta la query — leída SOLO por `enTransaccionConRolActual`.
+///
+/// `nil` = no hay contexto de usuario (petición pública, cron, o un camino que se saltó
+/// el middleware). Las queries por-usuario tratan ese `nil` como error FAIL-CLOSED (no
+/// corren sin filtro); las operaciones de sistema (sin actor) NO usan este task-local:
+/// van por funciones `security definer` (migración 0015).
+public enum ActorRLS {
+    @TaskLocal public static var actual: MiembroId?
+}
+
+/// Error del enrutado RLS por task-local.
+public enum ErrorRLS: Error, Equatable {
+    /// Una query por-usuario intentó abrir su transacción-con-rol sin `ActorRLS.actual`
+    /// fijado. Fail-closed: se lanza en vez de ejecutar sin el filtro RLS (que, bajo el
+    /// rol de servicio sin BYPASSRLS, no devolvería/afectaría ninguna fila silenciosamente
+    /// y rompería la idempotencia y las lecturas). Nunca debe pasar en producción: el
+    /// `AuthMiddleware` fija el actor para toda ruta autenticada.
+    case sinContextoDeUsuario
+}
+
 extension PostgresClient {
+
+    /// Igual que `enTransaccionConRol(actor:)` pero tomando el actor del `@TaskLocal`
+    /// `ActorRLS.actual` (lo fija el `AuthMiddleware`). Es el seam por el que pasan las
+    /// lecturas Y escrituras por-usuario de los repos Postgres sin arrastrar el `MiembroId`
+    /// por sus firmas.
+    ///
+    /// FAIL-CLOSED: si `ActorRLS.actual` es `nil` LANZA `ErrorRLS.sinContextoDeUsuario` —
+    /// jamás ejecuta el cuerpo sin contexto RLS. Las operaciones de sistema (sin usuario:
+    /// caducidad de settlements, lookup de código de invitación de un no-miembro) NO llaman
+    /// aquí: usan funciones `security definer` (migración 0015).
+    public func enTransaccionConRolActual<Result: Sendable>(
+        logger: Logger,
+        _ cuerpo: (PostgresConnection) async throws -> Result
+    ) async throws -> Result {
+        guard let actor = ActorRLS.actual else { throw ErrorRLS.sinContextoDeUsuario }
+        return try await enTransaccionConRol(actor: actor, logger: logger, cuerpo)
+    }
 
     /// Abre una transacción y fija el contexto RLS por-usuario (mecanismo A+B, ADR-0030)
     /// antes de correr `cuerpo`:
@@ -31,6 +73,23 @@ extension PostgresClient {
     ) async throws -> Result {
         try await withTransaction(logger: logger) { conn in
             try await Self.fijarContextoRLS(conn, actor: actor, logger: logger)
+            return try await cuerpo(conn)
+        }
+    }
+
+    /// Transacción para OPERACIONES DE SISTEMA sin usuario (cron `caducarPendientes`, borrado
+    /// RGPD `olvidarRevisionesDe`): asume el rol `authenticated` (`SET LOCAL role`) para poder
+    /// EJECUTAR las funciones `security definer` de 0015, cuyo `GRANT EXECUTE` es a
+    /// `authenticated`. Bajo `app_user` (`NOINHERIT`, ADR-0030) el rol de conexión NO hereda los
+    /// privilegios de `authenticated` sin `SET ROLE`, así que sin esto la llamada daría
+    /// `permission denied` (P1 Codex #63). NO fija `request.jwt.claims`: estas funciones no leen
+    /// `private.uid()`; son barridos de sistema, no acciones por-usuario.
+    public func enTransaccionSistema<Result: Sendable>(
+        logger: Logger,
+        _ cuerpo: (PostgresConnection) async throws -> Result
+    ) async throws -> Result {
+        try await withTransaction(logger: logger) { conn in
+            _ = try await conn.query("SELECT set_config('role', 'authenticated', true)", logger: logger)
             return try await cuerpo(conn)
         }
     }

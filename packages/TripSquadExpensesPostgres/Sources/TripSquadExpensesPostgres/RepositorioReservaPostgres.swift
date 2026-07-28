@@ -59,7 +59,7 @@ extension RepositorioPostgres: ReservaRepositorio {
     public func upsert(_ r: Reserva, ahora: Date) async throws {
         let (modeRaw, responsibleId, singleEstado) = Self.modoASQL(r.mode)
 
-        try await client.withTransaction(logger: logger) { conn in
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
             _ = try await conn.query("""
                 INSERT INTO itinerary_reservations
                     (activity_id, trip_id, kind, mode, responsible_id, single_estado, created_at)
@@ -112,19 +112,21 @@ extension RepositorioPostgres: ReservaRepositorio {
     // MARK: - Leer
 
     public func reserva(activityId: String, en tripId: String) async throws -> Reserva? {
-        let rows = try await client.query("""
-            SELECT kind, mode, responsible_id, single_estado
-            FROM itinerary_reservations
-            WHERE activity_id = \(activityId) AND trip_id = \(tripId)
-            """, logger: logger)
-        for try await (kind, mode, responsibleId, singleEstado)
-            in rows.decode((String, String, String?, String?).self) {
-            let estados = mode == "cada_uno" ? try await miembrosDe(activityId) : [:]
-            return try Self.reconstruir(
-                activityId: activityId, tripId: tripId, kind: kind, mode: mode,
-                responsibleId: responsibleId, singleEstado: singleEstado, estados: estados)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT kind, mode, responsible_id, single_estado
+                FROM itinerary_reservations
+                WHERE activity_id = \(activityId) AND trip_id = \(tripId)
+                """, logger: self.logger)
+            for try await (kind, mode, responsibleId, singleEstado)
+                in rows.decode((String, String, String?, String?).self) {
+                let estados = mode == "cada_uno" ? try await self.miembrosDe(conn, activityId) : [:]
+                return try Self.reconstruir(
+                    activityId: activityId, tripId: tripId, kind: kind, mode: mode,
+                    responsibleId: responsibleId, singleEstado: singleEstado, estados: estados)
+            }
+            return nil
         }
-        return nil
     }
 
     /// SIN tope (mismo criterio que `RepositorioEnMemoria.tablero`: el nº de
@@ -132,37 +134,39 @@ extension RepositorioPostgres: ReservaRepositorio {
     /// `activity_id`. UNA sola query extra para los miembros de TODAS las
     /// actividades `cada_uno` del tablero (evita N+1).
     public func tablero(_ tripId: String) async throws -> [Reserva] {
-        let rows = try await client.query("""
-            SELECT activity_id, kind, mode, responsible_id, single_estado
-            FROM itinerary_reservations
-            WHERE trip_id = \(tripId)
-            ORDER BY activity_id
-            """, logger: logger)
-        var base: [FilaReservaHeader] = []
-        for try await (activityId, kind, mode, responsibleId, singleEstado)
-            in rows.decode((String, String, String, String?, String?).self) {
-            base.append(FilaReservaHeader(
-                activityId: activityId, kind: kind, mode: mode,
-                responsibleId: responsibleId, singleEstado: singleEstado))
-        }
-        guard !base.isEmpty else { return [] }
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT activity_id, kind, mode, responsible_id, single_estado
+                FROM itinerary_reservations
+                WHERE trip_id = \(tripId)
+                ORDER BY activity_id
+                """, logger: self.logger)
+            var base: [FilaReservaHeader] = []
+            for try await (activityId, kind, mode, responsibleId, singleEstado)
+                in rows.decode((String, String, String, String?, String?).self) {
+                base.append(FilaReservaHeader(
+                    activityId: activityId, kind: kind, mode: mode,
+                    responsibleId: responsibleId, singleEstado: singleEstado))
+            }
+            guard !base.isEmpty else { return [] }
 
-        let memberRows = try await client.query("""
-            SELECT m.activity_id, m.member_id, m.estado
-            FROM itinerary_reservation_members m
-            JOIN itinerary_reservations r ON r.activity_id = m.activity_id
-            WHERE r.trip_id = \(tripId)
-            """, logger: logger)
-        var miembrosPorActividad: [String: [MiembroId: EstadoReserva]] = [:]
-        for try await (activityId, memberId, estado) in memberRows.decode((String, String, String).self) {
-            miembrosPorActividad[activityId, default: [:]][MiembroId(memberId)] = EstadoReserva(rawValue: estado) ?? .pendiente
-        }
+            let memberRows = try await conn.query("""
+                SELECT m.activity_id, m.member_id, m.estado
+                FROM itinerary_reservation_members m
+                JOIN itinerary_reservations r ON r.activity_id = m.activity_id
+                WHERE r.trip_id = \(tripId)
+                """, logger: self.logger)
+            var miembrosPorActividad: [String: [MiembroId: EstadoReserva]] = [:]
+            for try await (activityId, memberId, estado) in memberRows.decode((String, String, String).self) {
+                miembrosPorActividad[activityId, default: [:]][MiembroId(memberId)] = EstadoReserva(rawValue: estado) ?? .pendiente
+            }
 
-        return try base.map { fila in
-            try Self.reconstruir(
-                activityId: fila.activityId, tripId: tripId, kind: fila.kind, mode: fila.mode,
-                responsibleId: fila.responsibleId, singleEstado: fila.singleEstado,
-                estados: miembrosPorActividad[fila.activityId] ?? [:])
+            return try base.map { fila in
+                try Self.reconstruir(
+                    activityId: fila.activityId, tripId: tripId, kind: fila.kind, mode: fila.mode,
+                    responsibleId: fila.responsibleId, singleEstado: fila.singleEstado,
+                    estados: miembrosPorActividad[fila.activityId] ?? [:])
+            }
         }
     }
 
@@ -171,7 +175,7 @@ extension RepositorioPostgres: ReservaRepositorio {
     /// Ver comentario de cabecera: la rama depende del modo GUARDADO, no del
     /// parámetro `miembro` — réplica exacta de `RepositorioEnMemoria`.
     public func marcarEstado(activityId: String, en tripId: String, miembro: MiembroId?, estado: EstadoReserva) async throws {
-        try await client.withTransaction(logger: logger) { conn in
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
             let rows = try await conn.query("""
                 SELECT mode FROM itinerary_reservations
                 WHERE activity_id = \(activityId) AND trip_id = \(tripId)
@@ -204,21 +208,24 @@ extension RepositorioPostgres: ReservaRepositorio {
         // en el mismo statement (CTE) Y bloqueando `trip_members` con `FOR SHARE` para serializar
         // contra un `quitarMiembro` concurrente. Sigue siendo idempotente (quitar un aspecto
         // ausente con membresía vigente devuelve true). Ver `RepositorioChatPostgres.borrar`.
-        let rows = try await client.query("""
-            WITH miembro AS (
-                SELECT 1 FROM trip_members
-                WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL
-                FOR SHARE
-            ),
-            borrado AS (
-                DELETE FROM itinerary_reservations
-                WHERE activity_id = \(activityId) AND trip_id = \(tripId) AND EXISTS(SELECT 1 FROM miembro)
-                RETURNING 1
-            )
-            SELECT EXISTS(SELECT 1 FROM miembro) AS es_miembro
-            """, logger: logger)
-        for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
-        return false
+        // `por actor` es quien borra -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
+            let rows = try await conn.query("""
+                WITH miembro AS (
+                    SELECT 1 FROM trip_members
+                    WHERE trip_id = \(tripId) AND member_id = \(actor.raw) AND left_at IS NULL
+                    FOR SHARE
+                ),
+                borrado AS (
+                    DELETE FROM itinerary_reservations
+                    WHERE activity_id = \(activityId) AND trip_id = \(tripId) AND EXISTS(SELECT 1 FROM miembro)
+                    RETURNING 1
+                )
+                SELECT EXISTS(SELECT 1 FROM miembro) AS es_miembro
+                """, logger: self.logger)
+            for try await (esMiembro) in rows.decode(Bool.self) { return esMiembro }
+            return false
+        }
     }
 
     // MARK: - Confirmaciones (dy5)
@@ -227,18 +234,21 @@ extension RepositorioPostgres: ReservaRepositorio {
     /// Requiere que ya exista el aspecto reserva de la actividad (FK de la
     /// migración 0009 a `itinerary_reservations.activity_id`).
     public func guardarConfirmacion(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws {
-        _ = try await client.query("""
-            INSERT INTO itinerary_reservation_confirmations
-                (activity_id, member_id, tipo, fecha_iso, numero_confirmacion, proveedor, created_at)
-            VALUES
-                (\(activityId), \(miembro.raw), \(c.tipo.rawValue), \(c.fechaISO), \(c.numeroConfirmacion), \(c.proveedor), \(Date()))
-            ON CONFLICT (activity_id, member_id) DO UPDATE SET
-                tipo = EXCLUDED.tipo,
-                fecha_iso = EXCLUDED.fecha_iso,
-                numero_confirmacion = EXCLUDED.numero_confirmacion,
-                proveedor = EXCLUDED.proveedor,
-                created_at = EXCLUDED.created_at
-            """, logger: logger)
+        // `miembro` sube su propia confirmación -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: miembro, logger: logger) { conn in
+            _ = try await conn.query("""
+                INSERT INTO itinerary_reservation_confirmations
+                    (activity_id, member_id, tipo, fecha_iso, numero_confirmacion, proveedor, created_at)
+                VALUES
+                    (\(activityId), \(miembro.raw), \(c.tipo.rawValue), \(c.fechaISO), \(c.numeroConfirmacion), \(c.proveedor), \(Date()))
+                ON CONFLICT (activity_id, member_id) DO UPDATE SET
+                    tipo = EXCLUDED.tipo,
+                    fecha_iso = EXCLUDED.fecha_iso,
+                    numero_confirmacion = EXCLUDED.numero_confirmacion,
+                    proveedor = EXCLUDED.proveedor,
+                    created_at = EXCLUDED.created_at
+                """, logger: self.logger)
+        }
     }
 
     /// Endurecimiento a62 (atomicidad, ADR-0029): guarda la confirmación Y marca
@@ -251,7 +261,8 @@ extension RepositorioPostgres: ReservaRepositorio {
     /// `miembro` para el marcado — en `uno_para_todos` la rama lo ignora y fija
     /// `single_estado` (mismo criterio que `marcarEstado`).
     public func guardarConfirmacionYMarcarReservado(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws {
-        try await client.withTransaction(logger: logger) { conn in
+        // `miembro` sube su propia confirmación -> enTransaccionConRol(actor:) explícito.
+        try await client.enTransaccionConRol(actor: miembro, logger: logger) { conn in
             // 1. Guarda la confirmación (upsert por PK (activity_id, member_id)).
             _ = try await conn.query("""
                 INSERT INTO itinerary_reservation_confirmations
@@ -291,26 +302,30 @@ extension RepositorioPostgres: ReservaRepositorio {
     }
 
     public func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion? {
-        let rows = try await client.query("""
-            SELECT c.tipo, c.fecha_iso, c.numero_confirmacion, c.proveedor
-            FROM itinerary_reservation_confirmations c
-            JOIN itinerary_reservations r ON r.activity_id = c.activity_id
-            WHERE c.activity_id = \(activityId) AND r.trip_id = \(tripId) AND c.member_id = \(miembro.raw)
-            """, logger: logger)
-        for try await (tipo, fechaISO, numeroConfirmacion, proveedor)
-            in rows.decode((String, String?, String?, String?).self) {
-            guard let kind = KindReserva(rawValue: tipo) else {
-                throw AdaptadorReservaError.kindDesconocido(tipo)
+        try await client.enTransaccionConRolActual(logger: logger) { conn in
+            let rows = try await conn.query("""
+                SELECT c.tipo, c.fecha_iso, c.numero_confirmacion, c.proveedor
+                FROM itinerary_reservation_confirmations c
+                JOIN itinerary_reservations r ON r.activity_id = c.activity_id
+                WHERE c.activity_id = \(activityId) AND r.trip_id = \(tripId) AND c.member_id = \(miembro.raw)
+                """, logger: self.logger)
+            for try await (tipo, fechaISO, numeroConfirmacion, proveedor)
+                in rows.decode((String, String?, String?, String?).self) {
+                guard let kind = KindReserva(rawValue: tipo) else {
+                    throw AdaptadorReservaError.kindDesconocido(tipo)
+                }
+                return Confirmacion(tipo: kind, fechaISO: fechaISO, numeroConfirmacion: numeroConfirmacion, proveedor: proveedor)
             }
-            return Confirmacion(tipo: kind, fechaISO: fechaISO, numeroConfirmacion: numeroConfirmacion, proveedor: proveedor)
+            return nil
         }
-        return nil
     }
 
     // MARK: - Helpers
 
-    private func miembrosDe(_ activityId: String) async throws -> [MiembroId: EstadoReserva] {
-        let rows = try await client.query(
+    /// Se ejecuta DENTRO de la transacción-con-rol de `reserva` (recibe la `conn`), para
+    /// heredar el mismo contexto RLS que la lectura de la cabecera.
+    private func miembrosDe(_ conn: PostgresConnection, _ activityId: String) async throws -> [MiembroId: EstadoReserva] {
+        let rows = try await conn.query(
             "SELECT member_id, estado FROM itinerary_reservation_members WHERE activity_id = \(activityId)",
             logger: logger)
         var out: [MiembroId: EstadoReserva] = [:]
