@@ -129,4 +129,65 @@ begin;
     end $$;
 rollback;
 
-select 'OK: RLS por-usuario (A+B, ADR-0030) verificada — no-miembro cortado (incl. self-join sin invitación), miembro pasa' as resultado;
+-- 8. P1 Codex #60 (2ª ronda): en un viaje SIN miembros, el bootstrap-owner solo lo puede
+--    hacer el CREADOR (trips.created_by), no cualquiera que sepa el trip_id.
+insert into trips (id, currency_reference, name, base_currency, created_by)
+    values ('rls_empty', 'EUR', 'sin miembros', 'EUR', 'ana') on conflict (id) do nothing;
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"sara"}', true);
+    do $$
+    begin
+        begin
+            insert into trip_members (trip_id, member_id, role) values ('rls_empty', 'sara', 'owner');
+            raise exception 'RLS HUECO: no-creador (sara) se apropió de un viaje sin miembros';
+        exception when insufficient_privilege then null;   -- esperado: no es el creador
+        end;
+    end $$;
+rollback;
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"ana"}', true);
+    do $$
+    declare afectadas int;
+    begin
+        insert into trip_members (trip_id, member_id, role) values ('rls_empty', 'ana', 'owner');
+        get diagnostics afectadas = row_count;
+        if afectadas <> 1 then
+            raise exception 'RLS FALSO POSITIVO: el creador (ana) no pudo bootstrap-owner (% filas)', afectadas;
+        end if;
+    end $$;
+rollback;
+
+-- 9. P1 Codex #60 (2ª ronda): un miembro (ivan) NO puede auto-escalar su rol a owner.
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"ivan"}', true);
+    do $$
+    begin
+        begin
+            update trip_members set role = 'owner' where trip_id = 'rls_t' and member_id = 'ivan';
+            if exists (select 1 from public.trip_members where trip_id = 'rls_t' and member_id = 'ivan' and role = 'owner') then
+                raise exception 'RLS HUECO: ivan se auto-escaló a owner';
+            end if;
+        exception when insufficient_privilege then null;   -- esperado: el role nuevo != role actual
+        end;
+    end $$;
+rollback;
+
+-- 9b. Un self-update legítimo (salir: fijar left_at, sin tocar el rol) SÍ se permite.
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"ivan"}', true);
+    do $$
+    declare afectadas int;
+    begin
+        update trip_members set left_at = now() where trip_id = 'rls_t' and member_id = 'ivan';
+        get diagnostics afectadas = row_count;
+        if afectadas <> 1 then
+            raise exception 'RLS FALSO POSITIVO: ivan no pudo salir (self-update de left_at, % filas)', afectadas;
+        end if;
+    end $$;
+rollback;
+
+select 'OK: RLS por-usuario (A+B, ADR-0030) verificada — no-miembro cortado (incl. self-join sin invitación), bootstrap solo-creador, sin auto-escalada de rol' as resultado;

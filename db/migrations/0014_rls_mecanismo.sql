@@ -157,6 +157,20 @@ as $$
     select exists (select 1 from public.trip_members where trip_id = p_trip)
 $$;
 
+-- ¿`p_usuario` es el CREADOR registrado del viaje? (trips.created_by). Ata el bootstrap del
+-- owner al creador real, no a cualquiera que sepa el trip_id (P1 Codex #60, 2ª ronda).
+create or replace function private.es_creador(p_trip text, p_usuario text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+    select exists (
+        select 1 from public.trips where id = p_trip and created_by = p_usuario
+    )
+$$;
+
 -- Las policies llaman estas funciones en nombre de `authenticated`: necesita USAGE del
 -- esquema y EXECUTE. Se niega a anon/public (no hay `anon` en vanilla; el revoke de
 -- public basta). `private.uid()` solo lee un GUC, pero se agrupa aquí por comodidad.
@@ -215,16 +229,25 @@ create policy trip_members_insert on trip_members for insert to authenticated
         --    código concreto en la capa app): como member y con invitación vigente.
         (member_id = private.uid() and role = 'member'
             and private.hay_invitacion_valida(trip_id))
-        -- 2) Bootstrap de creación: el creador se inserta como owner cuando el viaje aún
-        --    no tiene ningún miembro.
+        -- 2) Bootstrap de creación: el CREADOR registrado (trips.created_by) se inserta como
+        --    owner cuando el viaje aún no tiene ningún miembro. Sin el check de creador,
+        --    cualquiera con el trip_id se apropiaría de un viaje sin miembros (P1 Codex #60).
         or (member_id = private.uid() and role = 'owner'
+            and private.es_creador(trip_id, private.uid())
             and not private.viaje_tiene_miembros(trip_id))
         -- 3) El owner gestiona altas de terceros.
         or private.rol_en_viaje(trip_id, private.uid()) = 'owner');
+-- P1 Codex #60 (2ª ronda): un self-update NO puede escalar rol ni mover la fila. El
+-- `role` NUEVO debe IGUALAR el rol actual del miembro (rol_en_viaje lee el estado
+-- comprometido), lo que bloquea member->owner; y como rol_en_viaje se evalúa sobre el
+-- trip_id/member NUEVOS, cambiar trip_id o member_id da null != role -> rechazo. Así el
+-- miembro solo puede tocar campos no privilegiados (p.ej. left_at para salir). El owner
+-- (rama aparte) sí gestiona roles de terceros.
 create policy trip_members_update on trip_members for update to authenticated
     using (member_id = private.uid()
            or private.rol_en_viaje(trip_id, private.uid()) = 'owner')
-    with check (member_id = private.uid()
+    with check ((member_id = private.uid()
+                 and role = private.rol_en_viaje(trip_id, private.uid()))
                 or private.rol_en_viaje(trip_id, private.uid()) = 'owner');
 create policy trip_members_delete on trip_members for delete to authenticated
     using (member_id = private.uid()
