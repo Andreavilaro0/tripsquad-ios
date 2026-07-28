@@ -1,0 +1,20 @@
+# SwiftLint — convenciones del código Swift de TripSquad.
+#
+# El estilo ya fusionado (revisado por Codex) usa nombres MUY cortos en ámbitos
+# locales pequeños: `r` (resultado de escritura), `c` (URLComponents), `v`
+# (verificador). Se admite, pero se avisa: un nombre de 1 letra es un warning, no
+# un error que rompa el gate. El resto de reglas quedan por defecto.
+excluded:
+  - "**/.build"
+  - ".build"
+
+identifier_name:
+  min_length:
+    warning: 2      # 1 carácter → warning (nombres locales cortos, tolerados)
+    error: 1        # nunca es error solo por longitud
+
+# Longitud de línea: solo AVISA, no rompe el gate. Los fixtures JSON inline de los
+# tests y los comentarios en español estiran algunas líneas sin que sea un problema.
+line_length:
+  warning: 120
+  error: 500

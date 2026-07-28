@@ -43,9 +43,29 @@ Cuando exista `DESIGN.md`, léelo SIEMPRE antes de cualquier decisión visual. H
 finalizado; el WIP vive en `docs/design/design-direction-WIP.md`. Norte memorable acordado:
 **"se siente premium, no una hoja de cálculo".**
 
+## Front (constitución vinculante)
+**Todo trabajo de front OBEDECE `docs/front-constitution.md`** — reglas duras que aplican a quien
+haga el front (humano o agente). Pipeline de 5 fases con gates: **1)** Descubrimiento UX/UI +
+comportamiento de usuario (personas/JTBD + heurísticas `ux-heuristics` + agente-usuario) · **2)**
+Taste (skills OBLIGATORIAS: `taste-skill`, `impeccable`, Emil Kowalski, `ui-ux-pro-max`,
+`frontend-design`, `ios-hig-design`, `dataviz`…) · **3)** Código (Clean Arch + gates) · **4)**
+Testeo automatizado (axe-core, Lighthouse, Playwright/`ios-qa`, regresión visual) + validación de
+otra IA (Codex/Gemini) · **5)** Firma de Andrea. Reglas transversales: si te atascas en diseño,
+**usa las herramientas de pago** (Higgsfield, After Effects, MotionArray); usa SIEMPRE las skills
+de cada fase. Catálogo de taste: https://design-skills-joaco.vercel.app. Leer el doc antes de
+tocar front.
+
 ## Documentación
 Estructura Diátaxis (tutorial / how-to / reference / explanation). Docs en git, versionados
 con el código. Changelog con Conventional Commits cuando arranque el código.
+
+**Planes/specs de superpowers y beads (regla de tracking).** Los skills de superpowers
+(`writing-plans`, `subagent-driven-development`, etc.) producen planes en `docs/superpowers/`.
+En ESTE repo esos documentos son **referencia de diseño, no trackers**: el estado y el avance
+de cada tarea viven SIEMPRE en **beads** (`bd`), nunca en el markdown. Escribe los pasos como
+**viñetas** (`-`), nunca como checkboxes de seguimiento (`- [ ]`), y registra cada tarea como
+un bead. Al usar un plan superpowers: crea/actualiza los beads correspondientes y deja el doc
+como material de referencia. Ver `AGENTS.md` §Rules.
 
 ## Skill routing (gstack)
 Cuando la petición encaje con una skill, invócala. Clave:
@@ -63,3 +83,59 @@ Cuando la petición encaje con una skill, invócala. Clave:
 Instaladas y listas: git, gh, swift, xcodebuild, node, npm, bun, codex, gemini, semgrep,
 gitleaks, trivy. MCP conectados: Context7, Figma, refero, Pencil, Canva, Vercel, Notion,
 Gmail, etc. Aplazado: gbrain (memoria buscable — se instala DESPUÉS del diseño).
+
+
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
+## Beads Issue Tracker
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+
+### Quick Reference
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
+```
+
+### Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+
+## Agent Context Profiles
+
+The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
+
+- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
+- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
+- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
+
+## Session Completion
+
+This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
+
+1. **File issues for remaining work** - Create beads for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **Handle git/sync by active profile**:
+   ```bash
+   # Conservative/minimal/default: report status and proposed commands; wait for approval.
+   git status
+
+   # Team-maintainer opt-in only, unless current instructions forbid it:
+   git pull --rebase
+   git push
+   git status
+   ```
+5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
+
+**Critical rules:**
+- Explicit user or orchestrator instructions override this Beads block.
+- Do not commit or push without clear authority from the active profile or the current user request.
+- If a required sync or push is blocked, stop and report the exact command and error.
+<!-- END BEADS INTEGRATION -->

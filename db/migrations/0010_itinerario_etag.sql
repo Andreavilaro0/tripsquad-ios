@@ -1,0 +1,24 @@
+-- Migración 0010 — etag/If-Match en itinerario (bead 201, enmienda al
+-- borrador de ADR-0020 — docs/design/itinerario-scope-y-plan.md). Append-only:
+-- solo añade, no reescribe migraciones previas.
+--
+-- Hallazgo: `PATCH /trips/:tripId/itinerary/:itemId` era el único recurso
+-- editable (además de gastos) SIN control de concurrencia optimista. Gastos ya
+-- tiene `etag` desde la migración 0001 (ADR-0013 §2); itinerario no, así que
+-- dos ediciones concurrentes se pisaban en silencio (last-write-wins). Mismo
+-- patrón que `expenses.etag`: un valor de texto que cambia en cada UPDATE, con
+-- el PATCH exigiendo `If-Match` y comparándolo ATÓMICAMENTE en el WHERE del
+-- UPDATE (ver RepositorioItinerarioPostgres.actualizar) — 0 filas afectadas =
+-- conflicto (412), no una lectura-antes-de-escribir que pueda perderse en una
+-- carrera (TOCTOU).
+--
+-- `default gen_random_uuid()::text` PERMANENTE (a diferencia de `expenses.etag`,
+-- que no lleva default): `itinerary_items` lo insertan MÁS caminos que a
+-- `expenses` — además del propio itinerario, los tests/flujos de reservas
+-- siembran actividades con INSERT que no conocen la columna `etag`. Un `drop
+-- default` los rompería con violación de NOT NULL. Con el default, la aplicación
+-- sigue generando y seteando el etag explícitamente en cada INSERT/UPDATE del
+-- itinerario (el UPDATE condicional por `If-Match` no depende del default); el
+-- default solo es la red que cubre los INSERT ajenos que no lo especifican.
+
+alter table itinerary_items add column etag text not null default gen_random_uuid()::text;

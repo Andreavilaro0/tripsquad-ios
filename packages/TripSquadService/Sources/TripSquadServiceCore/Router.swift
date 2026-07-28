@@ -1,0 +1,160 @@
+// Construcción del router de TripSquad. Cablea los casos de uso de Expenses
+// (dominio + adaptador) con los endpoints HTTP.
+
+import Foundation
+import Hummingbird
+import PostgresNIO
+import TripSquadDomain
+import TripSquadExpenses
+
+/// Dependencias que el servicio inyecta en las rutas. Permite tests con adaptador
+/// en memoria y producción con Postgres, sin que las rutas conozcan la diferencia.
+public struct Dependencias: Sendable {
+    public let casos: CasosDeUsoGastos
+    public let casosSettle: CasosDeUsoSettle
+    public let casosViaje: CasosDeUsoViaje         // onboarding: viajes/invites/miembros (ADR-0018)
+    public let casosVotacion: CasosDeUsoVotacion   // votaciones: polls/vote/close (M4, ADR-0019 borrador)
+    public let casosItinerario: CasosDeUsoItinerario // itinerario: activities CRUD (M5, ADR-0020 borrador)
+    public let casosReserva: CasosDeUsoReserva     // reserva: quién ya reservó (wedge, spec 2026-07-25)
+    public let casosChat: CasosDeUsoChat           // chat: messages CRUD (M6, ADR-0021 borrador)
+    public let casosFoto: CasosDeUsoFoto           // fotos: presign/confirm/list/delete (M7, ADR-0022 borrador)
+    public let casosBrujula: CasosDeUsoBrujula     // brújula IA: consulta con contexto de saldos (M8, ADR-0023 borrador)
+    public let repo: GastoRepositorio
+    /// Idempotencia genérica de respuesta para los POST sin ETag (chat/itinerario/
+    /// votaciones/viaje), bead 379. Default en memoria: no rompe los call sites que no
+    /// la inyectan (tests); producción pasa el adaptador Postgres.
+    public let idempotencia: any Idempotencia
+    public let pingBD: @Sendable () async -> Bool   // para /health
+    public let verificador: any VerificadorDeToken  // Bearer JWT (ADR-0014 §1)
+    /// Reloj inyectable (tests deterministas de caducidad). Default = reloj real; no rompe
+    /// los call sites existentes que no lo pasan explícitamente.
+    public let ahora: @Sendable () -> Date
+
+    public init(
+        casos: CasosDeUsoGastos,
+        casosSettle: CasosDeUsoSettle,
+        casosViaje: CasosDeUsoViaje,
+        casosVotacion: CasosDeUsoVotacion,
+        casosItinerario: CasosDeUsoItinerario,
+        casosReserva: CasosDeUsoReserva,
+        casosChat: CasosDeUsoChat,
+        casosFoto: CasosDeUsoFoto,
+        casosBrujula: CasosDeUsoBrujula,
+        repo: GastoRepositorio,
+        pingBD: @escaping @Sendable () async -> Bool,
+        verificador: any VerificadorDeToken,
+        idempotencia: any Idempotencia = IdempotenciaEnMemoria(),
+        ahora: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.casos = casos
+        self.casosSettle = casosSettle
+        self.casosViaje = casosViaje
+        self.casosVotacion = casosVotacion
+        self.casosItinerario = casosItinerario
+        self.casosReserva = casosReserva
+        self.casosChat = casosChat
+        self.casosFoto = casosFoto
+        self.casosBrujula = casosBrujula
+        self.repo = repo
+        self.pingBD = pingBD
+        self.verificador = verificador
+        self.idempotencia = idempotencia
+        self.ahora = ahora
+    }
+}
+
+/// Construye el router con todas las rutas montadas.
+///
+/// Reparto de contextos: `/live` y `/health` son públicos y se quedan en el contexto
+/// base; todo lo demás pasa por `AuthMiddleware` y sube al contexto autenticado, donde
+/// el actor ya es no-opcional. Los dos grupos protegidos existen porque el 401 NO se
+/// escribe igual en la API directa que en la cola (contrato §0).
+public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
+    let router = Router(context: ContextoTripSquad.self)
+    router.add(middleware: LogRequestsMiddleware(.info))
+
+    montarSalud(router, deps)
+
+    montarGastos(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarSettle(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarViajes(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarVotaciones(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarItinerario(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarReservas(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarChat(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarFotos(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    montarBrujula(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
+            .group(context: ContextoAutenticado.self)
+            // Corta el body grande ANTES de decodificar (Codex M8 #2). Solo la
+            // brújula lo lleva: es la ruta que dispara coste en el LLM real.
+            .add(middleware: LimiteTamanoBodyMiddleware()),
+        deps
+    )
+
+    montarSyncUpload(
+        router.group()
+            .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthCola))
+            .group(context: ContextoAutenticado.self),
+        deps
+    )
+
+    return router
+}
+
+/// Arranca la app HTTP escuchando en `host:port`.
+public func construirApp(_ deps: Dependencias, host: String, port: Int) -> some ApplicationProtocol {
+    Application(
+        router: construirRouter(deps),
+        configuration: .init(address: .hostname(host, port: port), serverName: "TripSquad")
+    )
+}

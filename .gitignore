@@ -34,3 +34,11 @@ secrets/
 *.log
 .cache/
 .gstack/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+.sortie/sortie.db*
+.sortie/issues.json

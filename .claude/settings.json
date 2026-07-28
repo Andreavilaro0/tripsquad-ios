@@ -1,0 +1,79 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push origin main*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git push --no-verify*)",
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git commit --no-verify*)",
+      "Bash(git commit -n *)",
+      "Bash(git checkout main*)",
+      "Bash(git branch -D *)",
+      "Bash(gh repo delete*)",
+      "Bash(gh api -X DELETE*)",
+      "Bash(gh api --method DELETE*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(~/.config/fabrica/*)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.ssh/id_*)"
+    ],
+    "ask": [
+      "Bash(rm *)",
+      "Bash(gh pr merge*)",
+      "Bash(gh repo delete*)",
+      "Bash(npm install*)",
+      "Bash(npm i *)",
+      "Bash(bun add*)",
+      "Bash(pip install*)",
+      "Bash(brew install*)",
+      "Bash(swift package*)",
+      "Bash(gem install*)",
+      "Bash(curl * -d *)",
+      "Bash(supabase *)",
+      "Bash(vercel *)"
+    ],
+    "allow": [
+      "Bash(bd *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git add*)",
+      "Bash(git stash*)",
+      "Bash(make verify)",
+      "Bash(gitleaks *)",
+      "Bash(semgrep *)",
+      "Bash(swiftlint*)",
+      "Bash(gh pr view*)",
+      "Bash(gh pr create*)",
+      "Bash(gh pr comment*)",
+      "Bash(gh pr list*)",
+      "mcp__pencil__get_screenshot",
+      "mcp__pencil__batch_get",
+      "mcp__pencil__get_editor_state",
+      "mcp__pencil__get_variables",
+      "mcp__pencil__get_guidelines",
+      "mcp__plugin_context7_context7__query-docs",
+      "mcp__plugin_context7_context7__resolve-library-id"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime --hook-json",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  }
+}

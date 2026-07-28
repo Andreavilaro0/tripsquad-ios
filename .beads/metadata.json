@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "TripSquad_iOS",
+  "project_id": "748c501f-22e8-4b2d-9f74-71e2d930cdc7"
+}

@@ -1,0 +1,34 @@
+name: TripSquadExpenses
+
+# CI del módulo Expenses (capa de aplicación, ADR-0009). Depende de TripSquadDomain
+# por ruta local. Corre en Linux Y macOS: la lógica es compartida servidor+iOS.
+
+on:
+  push:
+    paths:
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadDomain/**"
+      - ".github/workflows/expenses.yml"
+  pull_request:
+    paths:
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadDomain/**"
+      - ".github/workflows/expenses.yml"
+
+defaults:
+  run:
+    working-directory: packages/TripSquadExpenses
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test

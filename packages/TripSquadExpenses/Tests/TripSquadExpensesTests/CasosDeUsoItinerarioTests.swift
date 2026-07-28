@@ -1,0 +1,409 @@
+// Tests de itinerario (M5, ADR-0020 borrador; ETag/If-Match bead 201). El foco
+// es la AUTORIZACIÓN, el orden de listado y el control de concurrencia
+// optimista — mismo espíritu que CasosDeUsoVotacionTests.
+//
+// NOTA sobre el repo en memoria: `Membresia.esMiembro` y `ViajeRepositorio.rol`
+// son DOS almacenes separados en `RepositorioEnMemoria` (ver nota de cabecera
+// de CasosDeUsoVotacionTests). El test de editar/borrar por owner necesita el
+// `rol` real de onboarding, así que monta el viaje con `CasosDeUsoViaje` y
+// sincroniza los dos almacenes a mano.
+
+import Foundation
+import Testing
+import TripSquadDomain
+@testable import TripSquadExpenses
+
+@Suite("Itinerario: actividades (M5, ADR-0020 borrador; ETag bead 201)")
+struct CasosDeUsoItinerarioTests {
+
+    let ana = MiembroId("ana"), ivan = MiembroId("ivan"), sara = MiembroId("sara")
+    let ahora = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func repo() -> RepositorioEnMemoria { RepositorioEnMemoria() }
+
+    // 1a. crear feliz — devuelve la actividad CON su etag inicial (bead 201).
+    @Test func crearFeliz() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        guard case .success(let conEtag) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", startTime: "10:00", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        #expect(conEtag.actividad.title == "Coliseo")
+        #expect(conEtag.actividad.day == "2026-08-02")
+        #expect(conEtag.actividad.startTime == "10:00")
+        #expect(conEtag.actividad.createdBy == ana)
+        #expect(!conEtag.etag.isEmpty)
+    }
+
+    // 1b. title vacío → rechazo.
+    @Test func crearConTitleVacioSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", title: "   ", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("title_vacio"))
+    }
+
+    // MARK: - Topes de longitud (bead mjp: campos de texto libre sin límite)
+
+    @Test func crearConTitleMuyLargoSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        let titleLargo = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", title: titleLargo, day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("title_muy_largo"))
+    }
+
+    @Test func crearConLocationMuyLargaSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        let locationLarga = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", location: locationLarga, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("location_muy_larga"))
+    }
+
+    @Test func crearConNotesMuyLargasSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        let notesLargas = String(repeating: "a", count: 4001)
+        guard case .failure(let error) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", notes: notesLargas, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("notes_muy_largas"))
+    }
+
+    @Test func editarConTitleMuyLargoSeRechaza() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        let titleLargo = String(repeating: "a", count: 201)
+        guard case .failure(let error) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: titleLargo, day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .reglaViolada("title_muy_largo"))
+    }
+
+    // 2. listar ordenado por (day, orderIndex).
+    @Test func listarOrdenaPorDiaYOrderIndex() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        // Insertadas fuera de orden a propósito.
+        guard case .success(let segundoDiaSegundo) = try await casos.crear(tripId: "t1", title: "Museo", day: "2026-08-03", orderIndex: 1, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        guard case .success(let primerDia) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", orderIndex: 0, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        guard case .success(let segundoDiaPrimero) = try await casos.crear(tripId: "t1", title: "Vaticano", day: "2026-08-03", orderIndex: 0, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+
+        guard case .success(let items) = try await casos.listar(tripId: "t1", actor: ana) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(items.map { $0.actividad.id } == [primerDia.actividad.id, segundoDiaPrimero.actividad.id, segundoDiaSegundo.actividad.id])
+        // El etag de cada item de la lista coincide con el que se devolvió al crear.
+        #expect(items.first { $0.actividad.id == primerDia.actividad.id }?.etag == primerDia.etag)
+    }
+
+    // 3. no-miembro no ve ni crea: mismo error exista o no la actividad (sin fuga de existencia).
+    @Test func noMiembroNoVeNiCreaSinFugaDeExistencia() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        guard case .success = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+
+        guard case .failure(let errorListar) = try await casos.listar(tripId: "t1", actor: sara) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(errorListar == .noAutorizado)
+
+        guard case .failure(let errorCrear) = try await casos.crear(tripId: "t1", title: "Museo", day: "2026-08-03", actor: sara, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(errorCrear == .noAutorizado)
+    }
+
+    // 4. solo creador o owner editan y borran; otro member → noAutorizado.
+    @Test func soloCreadorOOwnerEditanYBorran() async throws {
+        let r = repo()
+        let casosViaje = CasosDeUsoViaje(repo: r)
+        let viaje = try await casosViaje.crear(name: "Roma", baseCurrency: "EUR", actor: ana, ahora: ahora).get()
+        guard case .success(let invitacion) = try await casosViaje.invitar(tripId: viaje.id, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba invitar exitoso"); return
+        }
+        #expect(try await casosViaje.unirse(code: invitacion.code, actor: ivan, ahora: ahora) == .unido)
+        #expect(try await casosViaje.unirse(code: invitacion.code, actor: sara, ahora: ahora) == .unido)
+        // Sincroniza el almacén de Membresia con el de onboarding (ver nota de cabecera).
+        for m in [ana, ivan, sara] { await r.anadirMiembro(m, a: viaje.id) }
+
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        // ivan (member, NO owner) crea la actividad → él es el creador.
+        guard case .success(let creada) = try await casos.crear(tripId: viaje.id, title: "Coliseo", day: "2026-08-02", actor: ivan, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        let actividad = creada.actividad
+        let etag0 = creada.etag
+
+        // sara (ni creadora ni owner) intenta editar/borrar la actividad de ivan → noAutorizado.
+        guard case .failure(let errorEditar) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (cambiado)", day: "2026-08-02", startTime: nil, location: nil, notes: nil, orderIndex: 0, actor: sara, ifMatch: etag0, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(errorEditar == .noAutorizado)
+
+        guard case .failure(let errorBorrar) = try await casos.borrar(itemId: actividad.id, tripId: viaje.id, actor: sara, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(errorBorrar == .noAutorizado)
+
+        // ivan (creador, no owner) SÍ puede editar su propia actividad.
+        guard case .success(let editada) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (cambiado)", day: "2026-08-02", startTime: "11:00", location: nil, notes: nil, orderIndex: 0, actor: ivan, ifMatch: etag0, ahora: ahora) else {
+            Issue.record("esperaba editar exitoso (creador)"); return
+        }
+        #expect(editada.actividad.title == "Coliseo (cambiado)")
+        #expect(editada.actividad.startTime == "11:00")
+        // La edición renueva el etag (bead 201): ya no coincide con el original.
+        #expect(editada.etag != etag0)
+
+        // ana (owner, no creadora) también puede editar y borrar, con el ÚLTIMO etag.
+        guard case .success(let editadaPorOwner) = try await casos.editar(itemId: actividad.id, tripId: viaje.id, title: "Coliseo (owner)", day: "2026-08-02", startTime: "12:00", location: nil, notes: nil, orderIndex: 0, actor: ana, ifMatch: editada.etag, ahora: ahora) else {
+            Issue.record("esperaba editar exitoso (owner)"); return
+        }
+        guard case .success = try await casos.borrar(itemId: actividad.id, tripId: viaje.id, actor: ana, ahora: ahora) else {
+            Issue.record("esperaba borrar exitoso (owner)"); return
+        }
+        _ = editadaPorOwner
+    }
+
+    // 4b. If-Match viejo → conflicto (412 en la capa HTTP), NO se aplica la edición.
+    @Test func editarConEtagViejoEsConflicto() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        // Primera edición: renueva el etag.
+        guard case .success(let editada) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Coliseo v2", day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("esperaba editar exitoso"); return
+        }
+        #expect(editada.etag != creada.etag)
+
+        // Segunda edición con el etag VIEJO (el de la creación, ya obsoleto) → conflicto.
+        guard case .failure(let error) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Coliseo v3 (perdedor)", day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("esperaba failure por conflicto de etag"); return
+        }
+        #expect(error == .conflicto(serverEtag: editada.etag))
+
+        // El conflicto NO aplicó la edición: el título sigue siendo el de la 1ª edición.
+        guard case .success(let detalle) = try await casos.detalle(itemId: creada.actividad.id, tripId: "t1", actor: ana) else {
+            Issue.record("esperaba detalle exitoso"); return
+        }
+        #expect(detalle.title == "Coliseo v2")
+    }
+
+    // 5. crear/editar en viaje cerrado → rechazo.
+    @Test func crearYEditarEnViajeCerradoSeRechazan() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear exitoso"); return
+        }
+        await r.cerrarViaje("t1")
+
+        guard case .failure(let errorCrear) = try await casos.crear(tripId: "t1", title: "Museo", day: "2026-08-03", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(errorCrear == .viajeCerrado)
+
+        guard case .failure(let errorEditar) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Coliseo (cambiado)", day: "2026-08-02", startTime: nil, location: nil, notes: nil, orderIndex: 0, actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(errorEditar == .viajeCerrado)
+    }
+
+    // Codex M5 P1: un ex-miembro que creó la actividad NO puede editarla/borrarla tras salir.
+    @Test func exMiembroNoEditaNiBorra() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear"); return
+        }
+        await r.quitarDeMembresia(ana, de: "t1")   // ana sale del viaje (createdBy sigue siendo ana)
+        guard case .failure(let eEditar) = try await casos.editar(itemId: creada.actividad.id, tripId: "t1", title: "Foro", day: "2026-08-02", actor: ana, ifMatch: creada.etag, ahora: ahora) else {
+            Issue.record("editar deberia fallar para ex-miembro"); return
+        }
+        #expect(eEditar == .noAutorizado)
+        guard case .failure(let eBorrar) = try await casos.borrar(itemId: creada.actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("borrar deberia fallar para ex-miembro"); return
+        }
+        #expect(eBorrar == .noAutorizado)
+    }
+
+    // Bead iou (Codex ronda 2): un NO-miembro no puede usar DELETE como oráculo — 403
+    // uniforme, sin depender de si `itemId` existe.
+    @Test func borrarNoMiembroEsNoAutorizado() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await casos.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear"); return
+        }
+        // sara no es miembro de t1: borra la actividad de ana → noAutorizado, no 204.
+        guard case .failure(let error) = try await casos.borrar(itemId: creada.actividad.id, tripId: "t1", actor: sara, ahora: ahora) else {
+            Issue.record("esperaba failure"); return
+        }
+        #expect(error == .noAutorizado)
+    }
+
+    // Bead iou (Codex ronda 2): un miembro que borra un `itemId` que nunca existió EN SU
+    // viaje, o que existe pero en OTRO viaje, obtiene éxito idempotente — nunca 403/404 (eso
+    // habría roto el reintento de un borrado ya aplicado, y un 403 exclusivo para "no
+    // existe" sería un oráculo). La respuesta es la MISMA en ambos casos: sin fuga.
+    @Test func borrarItemInexistenteOdeOtroViajeEsIdempotente() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        await r.anadirMiembro(ana, a: "t2")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+
+        // Nunca existió en t1.
+        guard case .success = try await casos.borrar(itemId: "no-existe", tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para item inexistente"); return
+        }
+
+        // Existe, pero en OTRO viaje (t2) — borrarlo "desde" t1 tampoco debe filtrar
+        // que existe en t2: mismo resultado, y sigue intacto en t2.
+        guard case .success(let creadaEnT2) = try await casos.crear(tripId: "t2", title: "Museo", day: "2026-08-05", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear en t2"); return
+        }
+        guard case .success = try await casos.borrar(itemId: creadaEnT2.actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba borrar exitoso (idempotente) para item de otro viaje"); return
+        }
+        guard case .success(let sigueEnT2) = try await casos.detalle(itemId: creadaEnT2.actividad.id, tripId: "t2", actor: ana) else {
+            Issue.record("el item de t2 no debia verse afectado"); return
+        }
+        #expect(sigueEnT2.id == creadaEnT2.actividad.id)
+    }
+
+    // MARK: - Tope de listado (patrón chat: clamp [1,200] en el caso de uso)
+
+    /// Siembra 3 actividades EN EL MISMO día y con el MISMO `orderIndex`: así el único
+    /// desempate posible es el `id`, que es justo lo que se acaba de añadir al orden.
+    private func conActividadesEmpatadas() async throws -> (RepositorioEnMemoria, CasosDeUsoItinerario) {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        for titulo in ["Coliseo", "Foro", "Vaticano"] {
+            guard case .success = try await casos.crear(
+                tripId: "t1", title: titulo, day: "2026-08-01", orderIndex: 0, actor: ana, ahora: ahora) else {
+                Issue.record("esperaba crear exitoso"); break
+            }
+        }
+        return (r, casos)
+    }
+
+    /// Un `limit` fuera de rango NUNCA se rechaza: se ajusta en silencio. 0 sube a 1,
+    /// 999 baja a 200 (y con 3 actividades, 200 las devuelve todas).
+    @Test func listarClampaElLimiteEnVezDeRechazarlo() async throws {
+        let (_, casos) = try await conActividadesEmpatadas()
+
+        guard case .success(let cero) = try await casos.listar(tripId: "t1", actor: ana, limit: 0),
+              case .success(let negativo) = try await casos.listar(tripId: "t1", actor: ana, limit: -5),
+              case .success(let enorme) = try await casos.listar(tripId: "t1", actor: ana, limit: 999),
+              case .success(let porDefecto) = try await casos.listar(tripId: "t1", actor: ana) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(cero.count == 1)         // 0 -> 1
+        #expect(negativo.count == 1)     // negativo -> 1
+        #expect(enorme.count == 3)       // 999 -> 200 (caben las 3)
+        #expect(porDefecto.count == 3)   // default 50
+    }
+
+    /// `(day, orderIndex)` NO desempata: con tres actividades del mismo día e igual
+    /// índice, sin el `id` final el orden sería arbitrario y `limit` devolvería una
+    /// página distinta cada vez.
+    @Test func listarDesempataPorIdYLaPaginaEsPrefijo() async throws {
+        let (_, casos) = try await conActividadesEmpatadas()
+
+        guard case .success(let completa) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let repetida) = try await casos.listar(tripId: "t1", actor: ana, limit: 200),
+              case .success(let pagina) = try await casos.listar(tripId: "t1", actor: ana, limit: 2) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        #expect(completa.map { $0.actividad.id } == completa.map { $0.actividad.id }.sorted())   // el id es el desempate
+        #expect(repetida.map { $0.actividad.id } == completa.map { $0.actividad.id })            // repetible
+        #expect(pagina.map { $0.actividad.id } == Array(completa.map { $0.actividad.id }.prefix(2)))
+    }
+
+    /// `detalle` (la carga que usa el PATCH de la ruta) NO depende del tope: encuentra
+    /// una actividad que se cae fuera de la primera página, y mantiene el mismo
+    /// `.noAutorizado` sin fuga para el no-miembro.
+    @Test func detalleEncuentraFueraDeLaPrimeraPaginaYNoFiltraExistencia() async throws {
+        let (_, casos) = try await conActividadesEmpatadas()
+        guard case .success(let completa) = try await casos.listar(tripId: "t1", actor: ana, limit: 200) else {
+            Issue.record("esperaba listar exitoso"); return
+        }
+        let ultima = completa[2].actividad.id   // fuera de una página de tamaño 1
+
+        guard case .success(let item) = try await casos.detalle(itemId: ultima, tripId: "t1", actor: ana) else {
+            Issue.record("detalle debe encontrarla aunque no esté en la primera página"); return
+        }
+        #expect(item.id == ultima)
+
+        guard case .failure(let errorSara) = try await casos.detalle(itemId: ultima, tripId: "t1", actor: sara) else {
+            Issue.record("un no-miembro no ve el detalle"); return
+        }
+        #expect(errorSara == .noAutorizado)
+
+        guard case .failure(let errorInexistente) = try await casos.detalle(itemId: "no-existe", tripId: "t1", actor: ana) else {
+            Issue.record("una actividad inexistente es noAutorizado, sin fuga"); return
+        }
+        #expect(errorInexistente == .noAutorizado)
+    }
+
+    // Bead iou (Codex ronda 3, carrera TOCTOU): si el creador es EXPULSADO mientras corre el
+    // await de carga de la actividad, el borrado NO debe completarse aunque `createdBy` siga
+    // coincidiendo. El gate-oráculo pasa; la re-comprobación de membresía tras la carga ve al
+    // ex-miembro y devuelve `.noAutorizado`. La actividad sigue existiendo.
+    @Test func expulsadoDuranteLaCargaNoBorra() async throws {
+        let r = repo()
+        await r.anadirMiembro(ana, a: "t1")
+        let seed = CasosDeUsoItinerario(repo: r, membresia: r, viajes: r)
+        guard case .success(let creada) = try await seed.crear(tripId: "t1", title: "Coliseo", day: "2026-08-02", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba crear"); return
+        }
+        let membresia = MembresiaExpulsaTrasPrimerCheck(real: r, expulsando: ana, de: "t1")
+        let casos = CasosDeUsoItinerario(repo: r, membresia: membresia, viajes: r)
+
+        guard case .failure(let error) = try await casos.borrar(itemId: creada.actividad.id, tripId: "t1", actor: ana, ahora: ahora) else {
+            Issue.record("esperaba .noAutorizado: expulsado durante la carga no debe poder borrar"); return
+        }
+        #expect(error == .noAutorizado)
+        #expect(await r.item(id: creada.actividad.id, en: "t1") != nil)   // sigue existiendo
+    }
+}

@@ -1,0 +1,60 @@
+name: TripSquadService
+
+# CI del servicio HTTP (Hummingbird). Los tests de rutas usan el adaptador EN
+# MEMORIA, así que no necesitan Postgres. Un job aparte valida que el Dockerfile
+# construye (el camino de deploy a Render).
+
+on:
+  push:
+    paths:
+      - "packages/TripSquadService/**"
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadExpensesPostgres/**"
+      - "packages/TripSquadDomain/**"
+      - ".github/workflows/servicio.yml"
+  pull_request:
+    paths:
+      - "packages/TripSquadService/**"
+      - "packages/TripSquadExpenses/**"
+      - "packages/TripSquadExpensesPostgres/**"
+      - "packages/TripSquadDomain/**"
+      - ".github/workflows/servicio.yml"
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - working-directory: packages/TripSquadService
+        run: swift test
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - working-directory: packages/TripSquadService
+        run: swift test
+
+  docker-build:
+    # Valida el Dockerfile + contexto de build (el deploy a Render). Contexto = raíz.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Prefetch de las imágenes base con reintento (bead rkm): el pull directo desde
+      # Docker Hub falla de forma intermitente por i/o timeout del registry
+      # (`DeadlineExceeded ... registry-1.docker.io ... i/o timeout`), tumbando un build
+      # que por lo demás está sano. Reintentar absorbe el flake; el `docker build`
+      # posterior reutiliza la capa ya cacheada en local. Ambas etapas del Dockerfile
+      # (build y runtime slim) usan estas dos imágenes.
+      - name: Prefetch imágenes base (anti-flake pull Docker Hub, bead rkm)
+        run: |
+          for img in swift:6.1-jammy swift:6.1-jammy-slim; do
+            for intento in 1 2 3 4 5; do
+              if docker pull "$img"; then break; fi
+              echo "::warning::pull de $img falló (intento $intento/5); reintento en 15s"
+              sleep 15
+            done
+          done
+      - name: Build imagen del servicio
+        run: docker build -f packages/TripSquadService/Dockerfile -t tripsquad-service .
