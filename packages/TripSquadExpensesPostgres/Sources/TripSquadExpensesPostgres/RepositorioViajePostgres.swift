@@ -191,7 +191,7 @@ extension RepositorioPostgres: ViajeRepositorio {
             // decide el camino (la secdef distingue reactivar vs insertar), pero se conserva en el
             // resolver para los estados `yaMiembro`/`caducado`.
             let filas = try await conn.query(
-                "SELECT private.unirse_por_invitacion(\(tripId), \(actor.raw), \(ahora))",
+                "SELECT private.unirse_por_invitacion(\(tripId), \(code), \(actor.raw), \(ahora))",
                 logger: self.logger)
             var escrito = false
             for try await (b) in filas.decode(Bool.self) { escrito = b }

@@ -150,7 +150,7 @@ $$;
 -- revocó/caducó en la carrera entre `invitacion_por_codigo` y esta escritura, READ COMMITTED
 -- — P2 Codex #63): sin este booleano, `unirsePorCodigo` devolvería `.unido` a ciegas dejando
 -- al cliente creyendo que entró cuando no. El llamante mapea FALSE a un resultado de fallo.
-create or replace function private.unirse_por_invitacion(p_trip text, p_usuario text, p_ahora timestamptz)
+create or replace function private.unirse_por_invitacion(p_trip text, p_code text, p_usuario text, p_ahora timestamptz)
 returns boolean
 language plpgsql
 volatile
@@ -158,11 +158,14 @@ security definer
 set search_path = ''
 as $$
 begin
+    -- Revalida EL CÓDIGO CONCRETO (no "alguna invitación del viaje"): si el código enviado se
+    -- revoca en la carrera READ COMMITTED entre `invitacion_por_codigo` y aquí, no debe colar
+    -- porque exista OTRA invitación viva del mismo viaje (P1 Codex #63). Filtra por `i.code`.
     if not exists (
         select 1 from public.trip_invites i
-        where i.trip_id = p_trip and i.revoked_at is null and i.expires_at > p_ahora
+        where i.code = p_code and i.trip_id = p_trip and i.revoked_at is null and i.expires_at > p_ahora
     ) then
-        return false;   -- sin invitación viva a `p_ahora`: no escribe (defensa/carrera).
+        return false;   -- el código enviado ya no está vivo a `p_ahora`: no escribe (carrera).
     end if;
     -- Reingreso: reactiva la fila del que salió (PK (trip_id, member_id)).
     update public.trip_members
@@ -212,9 +215,9 @@ $$;
 -- las llama el sistema con un rol de app que hereda `authenticated`). Se revoca de PUBLIC.
 revoke all on function private.caducar_settlements_pendientes(timestamptz) from public;
 revoke all on function private.invitacion_por_codigo(text, timestamptz) from public;
-revoke all on function private.unirse_por_invitacion(text, text, timestamptz) from public;
+revoke all on function private.unirse_por_invitacion(text, text, text, timestamptz) from public;
 revoke all on function private.olvidar_revisiones_de(text) from public;
 grant execute on function private.caducar_settlements_pendientes(timestamptz) to authenticated;
 grant execute on function private.invitacion_por_codigo(text, timestamptz) to authenticated;
-grant execute on function private.unirse_por_invitacion(text, text, timestamptz) to authenticated;
+grant execute on function private.unirse_por_invitacion(text, text, text, timestamptz) to authenticated;
 grant execute on function private.olvidar_revisiones_de(text) to authenticated;
