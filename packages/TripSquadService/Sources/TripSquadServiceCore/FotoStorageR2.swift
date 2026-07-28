@@ -13,19 +13,28 @@
 // `TripSquadExpenses` solo para conformar el puerto.
 //
 // R2 habla el protocolo S3 con AWS Signature Version 4 (SigV4). Doc real
-// (Context7-verificada, /durch/rust-s3 §signing + /taylorfinnell/awscr-s3
-// §presigned form):
+// (Context7-verificada, /websites/developers_cloudflare_r2 §"Presigned URLs"):
+//   - «R2 supports presigned URLs for GET, HEAD, PUT, and DELETE HTTP methods.
+//     POST requests for multipart form uploads are not currently supported.» →
+//     la SUBIDA es un **presigned PUT** (NO un presigned POST con policy: R2 no
+//     soporta POST, así que un POST Object sería rechazado en cada subida real).
 //   - Derivación de clave: kDate=HMAC("AWS4"+secret, yyyymmdd) →
 //     kRegion=HMAC(kDate, region) → kService=HMAC(kRegion,"s3") →
 //     kSigning=HMAC(kService,"aws4_request").
-//   - Presigned POST: se FIRMA el policy document base64 —
-//     signature = hex(HMAC(kSigning, base64(policy))). El cap de tamaño se
-//     codifica como la condición `["content-length-range", 0, N]` de la policy:
-//     ES el mecanismo por el que S3/R2 RECHAZA en el borde una subida mayor que
-//     `N` (un PUT prefirmado NO puede imponer esto — por eso NO se usa aquí).
-//   - Presigned GET/DELETE (URL con auth en query): canonical request → string
-//     to sign (`AWS4-HMAC-SHA256\n<amzDate>\n<scope>\n<hash(canonical)>`) →
+//   - Presigned GET/PUT/DELETE (URL con auth en query): canonical request →
+//     string to sign (`AWS4-HMAC-SHA256\n<amzDate>\n<scope>\n<hash(canonical)>`) →
 //     signature = hex(HMAC(kSigning, stringToSign)).
+//   - La SUBIDA (PUT) FIRMA `content-type` Y `content-length` como signed
+//     headers (`X-Amz-SignedHeaders=content-length;content-type;host`): R2 exige
+//     que el cliente envíe ESE Content-Type y ESE Content-Length exactos o la
+//     firma no valida (403). R2 documenta explícitamente la restricción de
+//     Content-Type en presigned PUT; el Content-Length se impone por la
+//     validación de firma SigV4 estándar sobre los signed headers (R2 recomputa
+//     la firma con el Content-Length REAL de la request). No hay `content-length-RANGE`
+//     en un PUT (eso era exclusivo del POST policy que R2 no soporta): el tamaño
+//     firmado es EXACTO (= sizeBytes), y el TECHO de 20 MB se impone en la CAPA
+//     APP (el caso de uso rechaza 422 `size_invalido` y este adaptador rechaza
+//     por defensa en profundidad ANTES de firmar). Ver ADR-0022 §cap.
 //
 // Región R2 = "auto" (constante del servicio S3 de Cloudflare). Endpoint
 // path-style: `https://<accountId>.r2.cloudflarestorage.com/<bucket>/<key>`.
@@ -68,6 +77,11 @@ public struct ClienteHTTPR2Real: ClienteHTTPR2 {
 public enum ErrorFotoStorageR2: Error, Equatable, Sendable {
     /// El borrado del binario no terminó en un status aceptable (2xx/404).
     case borradoFallido(status: Int)
+    /// `sizeBytes` fuera de rango (≤ 0 o > `maxBytes`) al firmar la subida. Defensa
+    /// en profundidad: `CasosDeUsoFoto.presignSubida` ya rechaza (422 `size_invalido`)
+    /// antes de llegar aquí, pero el adaptador NUNCA firma una subida por encima del
+    /// tope — el Content-Length firmado es EXACTO, así que no se puede "recortar".
+    case tamanoInvalido(sizeBytes: Int, maxBytes: Int)
 }
 
 public struct FotoStorageR2: FotoStorage {
@@ -81,9 +95,10 @@ public struct FotoStorageR2: FotoStorage {
     private let httpCliente: ClienteHTTPR2
 
     /// `region` = "auto" en R2. `maxBytes` = 20 MB (fotos-scope.md); es el techo
-    /// DURO del `content-length-range`, se combina con el tamaño declarado por el
-    /// cliente (`min`), así que la policy nunca autoriza más que el menor de los
-    /// dos. `ahora` inyectable para firmas deterministas en test (hora fija).
+    /// DURO: `urlDeSubida` RECHAZA (throw) una subida con `sizeBytes > maxBytes`
+    /// ANTES de firmar (defensa en profundidad — el caso de uso ya la rechaza 422).
+    /// El Content-Length firmado es EXACTO (= sizeBytes), no un rango. `ahora`
+    /// inyectable para firmas deterministas en test (hora fija).
     public init(
         accountId: String,
         accessKey: String,
@@ -106,66 +121,31 @@ public struct FotoStorageR2: FotoStorage {
 
     private var host: String { "\(accountId).r2.cloudflarestorage.com" }
 
-    // MARK: - Subida (presigned POST con policy que impone el cap)
+    // MARK: - Subida (presigned PUT; firma content-type + content-length)
 
-    /// Descriptor de un presigned POST: el cliente hace un `multipart/form-data`
-    /// POST a `url` con TODOS los `fields` (incluida la foto en el campo `file`,
-    /// que debe ir el ÚLTIMO). Es lo que devuelve `urlDeSubida` serializado a
-    /// JSON — el dominio lo trata como String opaco (ver puerto).
-    public struct DescriptorPresignedPost: Codable, Equatable, Sendable {
-        public let url: String
-        public let fields: [String: String]
-    }
-
+    /// URL PUT prefirmada (SigV4 query-signed). El cliente hace `PUT <url>` con los
+    /// headers `Content-Type: <contentType>` y `Content-Length: <sizeBytes>` — ambos
+    /// van FIRMADOS, así que R2 exige que el cliente los envíe EXACTOS o la firma no
+    /// valida (403). No devuelve JSON: el String es la URL PUT opaca (ver puerto); los
+    /// headers obligatorios los reporta la ruta HTTP, que ya conoce contentType/sizeBytes.
     public func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String {
-        let instante = ahora()
-        let amzDate = Self.amzDate(instante)
-        let datestamp = Self.datestamp(instante)
-        let credencial = "\(accessKey)/\(datestamp)/\(region)/s3/aws4_request"
-        // Techo DURO: nunca más que el menor de (tamaño declarado, 20 MB). El caso de
-        // uso ya rechaza > 20 MB antes de llegar aquí; este `min` es defensa en
-        // profundidad para que la policy jamás autorice por encima del tope real.
-        let tope = max(0, min(sizeBytes, maxBytes))
-        let expiracion = Self.iso8601(instante.addingTimeInterval(expiraEn))
-
-        // La policy se construye a mano (bytes exactos): la firma es sobre el
-        // base64 de ESTA cadena; un JSONEncoder podría reordenar/escapar y romper
-        // la correspondencia firma↔policy. `content-length-range` es la condición
-        // que impone el cap en el borde de R2.
-        let policyJSON = """
-        {"expiration":"\(expiracion)","conditions":[\
-        {"bucket":"\(bucket)"},\
-        {"key":"\(Self.jsonEscape(storageKey))"},\
-        {"Content-Type":"\(Self.jsonEscape(contentType))"},\
-        {"x-amz-algorithm":"AWS4-HMAC-SHA256"},\
-        {"x-amz-credential":"\(Self.jsonEscape(credencial))"},\
-        {"x-amz-date":"\(amzDate)"},\
-        ["content-length-range",0,\(tope)]\
-        ]}
-        """
-        let policyB64 = Data(policyJSON.utf8).base64EncodedString()
-        let signingKey = Self.signingKey(secret: secretKey, datestamp: datestamp, region: region)
-        let firma = Self.hexHMAC(key: signingKey, data: Array(policyB64.utf8))
-
-        let descriptor = DescriptorPresignedPost(
-            url: "https://\(host)/\(bucket)",
-            fields: [
-                "key": storageKey,
-                "Content-Type": contentType,
-                "x-amz-algorithm": "AWS4-HMAC-SHA256",
-                "x-amz-credential": credencial,
-                "x-amz-date": amzDate,
-                "policy": policyB64,
-                "x-amz-signature": firma,
-            ]
-        )
-        // Claves ordenadas: el envelope {url, fields} debe ser DETERMINISTA (mismos
-        // inputs → misma cadena). El orden de las claves de `fields` ([String:String])
-        // es cosmético para R2 (el cliente las lee por nombre), pero sin `.sortedKeys`
-        // el Dictionary de Swift las serializa en orden no determinista por proceso.
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        return String(decoding: try encoder.encode(descriptor), as: UTF8.self)
+        // Techo DURO (defensa en profundidad): el caso de uso ya rechaza ≤ 0 y > 20 MB
+        // (422 `size_invalido`) ANTES de llegar aquí. No se puede "recortar" el tamaño:
+        // el Content-Length firmado es EXACTO (= sizeBytes) y recortarlo rompería toda
+        // subida legítima — así que se RECHAZA. El cap de 20 MB vive en la capa app; R2
+        // solo impone que el tamaño subido sea EXACTAMENTE el firmado (ADR-0022 §cap).
+        guard sizeBytes > 0, sizeBytes <= maxBytes else {
+            throw ErrorFotoStorageR2.tamanoInvalido(sizeBytes: sizeBytes, maxBytes: maxBytes)
+        }
+        return urlPrefirmadaQuery(
+            metodo: "PUT", storageKey: storageKey, expiraEn: expiraEn,
+            // Signed headers ADICIONALES a `host`: content-type y content-length. R2
+            // valida la firma recomputándola con estos headers de la request → el
+            // cliente DEBE mandar estos valores exactos. (`host` lo añade el helper.)
+            headersFirmadosExtra: [
+                ("content-length", String(sizeBytes)),
+                ("content-type", contentType),
+            ])
     }
 
     // MARK: - Lectura (presigned GET, auth en query)
@@ -188,7 +168,13 @@ public struct FotoStorageR2: FotoStorage {
 
     // MARK: - SigV4 (URL prefirmada con auth en query string)
 
-    private func urlPrefirmadaQuery(metodo: String, storageKey: String, expiraEn: TimeInterval) -> String {
+    /// `headersFirmadosExtra`: signed headers ADICIONALES a `host` (nombre en
+    /// minúsculas + valor). GET/DELETE no pasan ninguno (firman solo `host`, como
+    /// siempre); PUT pasa content-type y content-length. El helper añade `host`,
+    /// ordena por nombre y construye tanto `X-Amz-SignedHeaders` como los canonical
+    /// headers a partir de la MISMA lista (invariante: firma ↔ SignedHeaders).
+    private func urlPrefirmadaQuery(metodo: String, storageKey: String, expiraEn: TimeInterval,
+                                    headersFirmadosExtra: [(nombre: String, valor: String)] = []) -> String {
         let instante = ahora()
         let amzDate = Self.amzDate(instante)
         let datestamp = Self.datestamp(instante)
@@ -197,14 +183,19 @@ public struct FotoStorageR2: FotoStorage {
         // Path-style: /<bucket>/<key>. Cada segmento URI-encoded, sin encodear la '/'.
         let canonicalUri = "/" + Self.uriEncode(bucket, encodeSlash: true) + "/" + Self.uriEncode(storageKey, encodeSlash: false)
 
+        // Signed headers ORDENADOS por nombre (host + los extra). `content-length`,
+        // `content-type`, `host` ya quedan alfabéticos.
+        let headersFirmados = (headersFirmadosExtra + [("host", host)]).sorted { $0.nombre < $1.nombre }
+        let signedHeaders = headersFirmados.map(\.nombre).joined(separator: ";")
+
         // Query canónica: pares ORDENADOS por clave, ambos lados URI-encoded (la '/'
-        // del credencial SÍ se encodea en query).
+        // del credencial y el ';' de SignedHeaders SÍ se encodean en query).
         let pares: [(String, String)] = [
             ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
             ("X-Amz-Credential", credencial),
             ("X-Amz-Date", amzDate),
             ("X-Amz-Expires", String(Int(expiraEn))),
-            ("X-Amz-SignedHeaders", "host"),
+            ("X-Amz-SignedHeaders", signedHeaders),
         ]
         let canonicalQuery = pares
             .map { (Self.uriEncode($0.0, encodeSlash: true), Self.uriEncode($0.1, encodeSlash: true)) }
@@ -212,13 +203,14 @@ public struct FotoStorageR2: FotoStorage {
             .map { "\($0.0)=\($0.1)" }
             .joined(separator: "&")
 
-        let canonicalHeaders = "host:\(host)\n"
+        // Canonical headers: `nombre:valor\n` por cada signed header, en el MISMO orden.
+        let canonicalHeaders = headersFirmados.map { "\($0.nombre):\($0.valor)\n" }.joined()
         let canonicalRequest = [
             metodo,
             canonicalUri,
             canonicalQuery,
             canonicalHeaders,
-            "host",
+            signedHeaders,
             "UNSIGNED-PAYLOAD",
         ].joined(separator: "\n")
 
@@ -289,21 +281,6 @@ public struct FotoStorageR2: FotoStorage {
         return salida
     }
 
-    /// Escape mínimo para inyectar un valor dentro del policy JSON hecho a mano
-    /// (`"` y `\`). Las `storageKey`/`contentType` reales no traen caracteres de
-    /// control, pero se defiende igual para no romper el JSON ni la firma.
-    private static func jsonEscape(_ s: String) -> String {
-        var salida = ""
-        for c in s {
-            switch c {
-            case "\\": salida += "\\\\"
-            case "\"": salida += "\\\""
-            default: salida.append(c)
-            }
-        }
-        return salida
-    }
-
     // MARK: - Formato de fechas (UTC, POSIX — sin dependencia de locale/tz del host)
 
     private static func formateador(_ formato: String) -> DateFormatter {
@@ -316,5 +293,4 @@ public struct FotoStorageR2: FotoStorage {
 
     private static func amzDate(_ d: Date) -> String { formateador("yyyyMMdd'T'HHmmss'Z'").string(from: d) }
     private static func datestamp(_ d: Date) -> String { formateador("yyyyMMdd").string(from: d) }
-    private static func iso8601(_ d: Date) -> String { formateador("yyyy-MM-dd'T'HH:mm:ss'Z'").string(from: d) }
 }

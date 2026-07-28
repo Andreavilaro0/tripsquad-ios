@@ -374,12 +374,15 @@ public protocol FotoStorage: Sendable {
     /// Credencial de SUBIDA prefirmada. `sizeBytes` es el tamaño declarado por el
     /// cliente (bytes) y es OBLIGATORIO (bead 8fd): sin él no se puede acotar la
     /// subida, así que el contrato lo exige (422 en el DTO si falta). El adaptador
-    /// REAL (R2, ADR-0022) lo codifica en un `content-length-range` de la policy de
-    /// un presigned POST SigV4 — el mecanismo de S3/R2 que DE VERDAD rechaza en el
-    /// borde una subida que exceda el tope (el stub, que nada impone, lo ignora).
-    /// El `contentType` se mantiene y también se fija en la policy real.
+    /// REAL (R2, ADR-0022) devuelve una **URL PUT prefirmada SigV4** que FIRMA el
+    /// `contentType` y el `sizeBytes` como Content-Type/Content-Length exactos: R2
+    /// exige que el cliente los envíe idénticos o la firma no valida (R2 no soporta
+    /// presigned POST, solo GET/HEAD/PUT/DELETE). El techo de 20 MB lo impone la CAPA
+    /// APP (el caso de uso rechaza 422 antes de firmar; el adaptador vuelve a rechazar
+    /// por defensa en profundidad) — R2 solo impone que el tamaño subido sea EXACTO.
     /// El String devuelto es opaco para el dominio: el stub devuelve `stub://…`; el
-    /// adaptador R2 devuelve el descriptor JSON del presigned POST (endpoint+campos).
+    /// adaptador R2 devuelve la URL PUT prefirmada (los headers obligatorios los
+    /// reporta la ruta HTTP, que ya conoce contentType/sizeBytes).
     func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String
     /// URL prefirmada de LECTURA (temporal).
     func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String

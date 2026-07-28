@@ -1,15 +1,16 @@
 // Tests del adaptador REAL `FotoStorageR2` (bead 7n3, ADR-0022). DETERMINISTAS y
 // SIN RED: credenciales FALSAS + una hora FIJA + un cliente HTTP que falla el test
-// si se le llama. El foco es la ESTRUCTURA de la firma/policy SigV4 — en particular
-// que el presigned POST codifique el `content-length-range` con el tamaño declarado
-// (el mecanismo por el que R2 impone el cap en el borde), sin comprobar bytes contra
-// un servidor real.
+// si se le llama. El foco es la ESTRUCTURA de la firma SigV4 de la SUBIDA — ahora un
+// **presigned PUT** (R2 NO soporta POST): que la URL sea PUT prefirmada query-signed
+// y que FIRME `content-type` y `content-length` como signed headers (el mecanismo por
+// el que R2 exige que el cliente envíe ese Content-Type y ese Content-Length exactos),
+// sin comprobar bytes contra un servidor real.
 
 import Foundation
 import Testing
 @testable import TripSquadServiceCore
 
-@Suite("FotoStorageR2: firma/policy SigV4 (bead 7n3, ADR-0022) — sin red")
+@Suite("FotoStorageR2: presigned PUT SigV4 (bead 7n3, ADR-0022) — sin red")
 struct FotoStorageR2Tests {
 
     // Cliente HTTP que NUNCA debe usarse: firmar subida/lectura no toca la red. Si
@@ -32,86 +33,88 @@ struct FotoStorageR2Tests {
             ahora: { fija }, httpCliente: ClienteR2Nulo())
     }
 
-    /// Decodifica el descriptor JSON del presigned POST y saca la policy decodada.
-    private func policyDe(_ json: String) throws -> (FotoStorageR2.DescriptorPresignedPost, [String: Any]) {
-        let descriptor = try JSONDecoder().decode(
-            FotoStorageR2.DescriptorPresignedPost.self, from: Data(json.utf8))
-        let policyB64 = try #require(descriptor.fields["policy"])
-        let policyData = try #require(Data(base64Encoded: policyB64))
-        let policy = try #require(try JSONSerialization.jsonObject(with: policyData) as? [String: Any])
-        return (descriptor, policy)
-    }
-
-    /// Extrae la condición `["content-length-range", 0, N]` de la policy.
-    private func contentLengthRange(_ policy: [String: Any]) -> (Int, Int)? {
-        guard let conditions = policy["conditions"] as? [Any] else { return nil }
-        for c in conditions {
-            if let arr = c as? [Any], arr.count == 3, arr[0] as? String == "content-length-range",
-               let lo = arr[1] as? Int, let hi = arr[2] as? Int {
-                return (lo, hi)
-            }
+    /// Parte una URL prefirmada en sus parámetros de query (`clave -> valor`, con los
+    /// valores tal cual, URL-encoded). El `X-Amz-Signature` va appended al final.
+    private func query(_ url: String) throws -> [String: String] {
+        let cola = try #require(url.split(separator: "?", maxSplits: 1).last.map(String.init))
+        var salida: [String: String] = [:]
+        for par in cola.split(separator: "&") {
+            let kv = par.split(separator: "=", maxSplits: 1).map(String.init)
+            if kv.count == 2 { salida[kv[0]] = kv[1] }
         }
-        return nil
+        return salida
     }
 
-    // 1. El presigned POST incluye el content-length-range con el TAMAÑO DECLARADO,
-    // fija el Content-Type, y trae credencial/date/algoritmo/firma bien formados.
-    @Test func presignedPostCodificaElContentLengthRangeConElTamanoDeclarado() async throws {
-        let sizeDeclarado = 5_000_000
-        let json = try await adaptador().urlDeSubida(
+    // 1. urlDeSubida -> URL PUT prefirmada (auth en query) que FIRMA content-type y
+    // content-length, contra el endpoint path-style cuenta/bucket/key.
+    @Test func subidaEsPutPrefirmadoQueFirmaContentTypeYContentLength() async throws {
+        let url = try await adaptador().urlDeSubida(
             storageKey: "trip-1/foto-42", contentType: "image/jpeg",
-            sizeBytes: sizeDeclarado, expiraEn: 900)
-        let (descriptor, policy) = try policyDe(json)
+            sizeBytes: 5_000_000, expiraEn: 900)
 
-        // Endpoint path-style a la cuenta/bucket de R2.
-        #expect(descriptor.url == "https://acc123.r2.cloudflarestorage.com/tripsquad-fotos")
+        // Endpoint path-style a la cuenta/bucket/key de R2 (mismo host/estilo que la lectura).
+        #expect(url.hasPrefix("https://acc123.r2.cloudflarestorage.com/tripsquad-fotos/trip-1/foto-42?"))
 
-        // El cap REAL: content-length-range [0, tamañoDeclarado].
-        let clr = try #require(contentLengthRange(policy))
-        #expect(clr.0 == 0)
-        #expect(clr.1 == sizeDeclarado)
-
-        // El content-type queda fijado en la policy (condición) y en los fields.
-        #expect(descriptor.fields["Content-Type"] == "image/jpeg")
-        let conditions = try #require(policy["conditions"] as? [Any])
-        let fijaContentType = conditions.contains { ($0 as? [String: Any])?["Content-Type"] as? String == "image/jpeg" }
-        #expect(fijaContentType)
-
-        // Campos SigV4 bien formados.
-        #expect(descriptor.fields["x-amz-algorithm"] == "AWS4-HMAC-SHA256")
-        let credencial = try #require(descriptor.fields["x-amz-credential"])
-        #expect(credencial.hasPrefix("AKIAFAKE/"))
-        #expect(credencial.hasSuffix("/auto/s3/aws4_request"))
+        let qs = try query(url)
+        #expect(qs["X-Amz-Algorithm"] == "AWS4-HMAC-SHA256")
+        #expect(qs["X-Amz-Expires"] == "900")
+        // Credencial: '/' URL-encoded (%2F) en la query.
+        let cred = try #require(qs["X-Amz-Credential"])
+        #expect(cred.hasPrefix("AKIAFAKE%2F"))
+        #expect(cred.hasSuffix("%2Fauto%2Fs3%2Faws4_request"))
+        // Signed headers = content-length;content-type;host (';' -> %3B). ESTE es el
+        // mecanismo que hace a R2 exigir ambos headers exactos.
+        #expect(qs["X-Amz-SignedHeaders"] == "content-length%3Bcontent-type%3Bhost")
         // Firma = 64 hex (HMAC-SHA256 -> 32 bytes).
-        let firma = try #require(descriptor.fields["x-amz-signature"])
+        let firma = try #require(qs["X-Amz-Signature"])
         #expect(firma.count == 64)
         #expect(firma.allSatisfy { $0.isHexDigit })
-        // La key está en los fields (el cliente sube a esa key exacta).
-        #expect(descriptor.fields["key"] == "trip-1/foto-42")
-        // Caducidad presente en la policy.
-        #expect(policy["expiration"] as? String != nil)
     }
 
-    // 2. Techo DURO: un tamaño mayor que maxBytes se recorta a maxBytes (defensa en
-    // profundidad — la policy nunca autoriza por encima del tope físico).
-    @Test func elContentLengthRangeSeRecortaAlMaximoDuro() async throws {
-        let maxBytes = 20 * 1024 * 1024
-        let json = try await adaptador(maxBytes: maxBytes).urlDeSubida(
-            storageKey: "t/x", contentType: "image/png",
-            sizeBytes: 999_999_999, expiraEn: 900)
-        let (_, policy) = try policyDe(json)
-        let clr = try #require(contentLengthRange(policy))
-        #expect(clr.1 == maxBytes)
-    }
-
-    // 3. La firma es DETERMINISTA con la misma hora/credenciales/entrada.
+    // 2. La firma es DETERMINISTA con la misma hora/credenciales/entrada.
     @Test func firmaDeterministaConMismaHora() async throws {
         let a = try await adaptador().urlDeSubida(storageKey: "t/x", contentType: "image/jpeg", sizeBytes: 1024, expiraEn: 900)
         let b = try await adaptador().urlDeSubida(storageKey: "t/x", contentType: "image/jpeg", sizeBytes: 1024, expiraEn: 900)
         #expect(a == b)
     }
 
-    // 4. urlDeLectura -> URL GET prefirmada (auth en query) con firma y expires.
+    // 3. Content-Length va FIRMADO y EXACTO: cambiar solo el tamaño cambia la firma
+    // (R2 rechazaría una subida con otro Content-Length).
+    @Test func distintoContentLengthCambiaLaFirma() async throws {
+        let a = try await adaptador().urlDeSubida(storageKey: "t/x", contentType: "image/jpeg", sizeBytes: 1024, expiraEn: 900)
+        let b = try await adaptador().urlDeSubida(storageKey: "t/x", contentType: "image/jpeg", sizeBytes: 2048, expiraEn: 900)
+        let fa = try #require(query(a)["X-Amz-Signature"])
+        let fb = try #require(query(b)["X-Amz-Signature"])
+        #expect(fa != fb)
+    }
+
+    // 3b. Content-Type va FIRMADO: cambiar solo el content-type cambia la firma.
+    @Test func distintoContentTypeCambiaLaFirma() async throws {
+        let a = try await adaptador().urlDeSubida(storageKey: "t/x", contentType: "image/jpeg", sizeBytes: 1024, expiraEn: 900)
+        let b = try await adaptador().urlDeSubida(storageKey: "t/x", contentType: "image/png", sizeBytes: 1024, expiraEn: 900)
+        #expect(a != b)
+    }
+
+    // 4. Techo DURO: `sizeBytes > maxBytes` se RECHAZA (throw) ANTES de firmar —
+    // no se puede recortar un Content-Length exacto (defensa en profundidad; el caso
+    // de uso ya rechaza 422 antes de llegar aquí).
+    @Test func sizeMayorQueMaxSeRechazaAntesDeFirmar() async throws {
+        let ad = adaptador(maxBytes: 20 * 1024 * 1024)
+        await #expect(throws: ErrorFotoStorageR2.self) {
+            _ = try await ad.urlDeSubida(storageKey: "t/x", contentType: "image/png", sizeBytes: 999_999_999, expiraEn: 900)
+        }
+    }
+
+    // 4b. `sizeBytes <= 0` también se rechaza (no se puede firmar un tamaño inválido).
+    @Test func sizeNoPositivoSeRechaza() async throws {
+        let ad = adaptador()
+        await #expect(throws: ErrorFotoStorageR2.self) {
+            _ = try await ad.urlDeSubida(storageKey: "t/x", contentType: "image/png", sizeBytes: 0, expiraEn: 900)
+        }
+    }
+
+    // 5. urlDeLectura -> URL GET prefirmada (auth en query) con firma y expires. Sin
+    // cambios respecto al diseño previo (R2 sí soporta GET/DELETE prefirmados).
     @Test func urlDeLecturaEsGetPrefirmadaConFirmaYExpires() async throws {
         let url = try await adaptador().urlDeLectura(storageKey: "trip-1/foto-42", expiraEn: 3600)
         #expect(url.hasPrefix("https://acc123.r2.cloudflarestorage.com/tripsquad-fotos/trip-1/foto-42?"))
