@@ -128,6 +128,35 @@ as $$
     )
 $$;
 
+-- ¿Existe una invitación VÁLIDA (no revocada, no caducada) para el viaje? security definer
+-- para leer trip_invites sin disparar su RLS: un no-miembro aún no ve las invitaciones,
+-- pero la defensa en profundidad del self-join SÍ debe poder comprobar que hay una vigente
+-- (P1 Codex #60: sin esto, cualquiera con el trip_id se autoañadía sin invitación).
+create or replace function private.hay_invitacion_valida(p_trip text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+    select exists (
+        select 1 from public.trip_invites i
+        where i.trip_id = p_trip and i.revoked_at is null and i.expires_at > now()
+    )
+$$;
+
+-- ¿El viaje ya tiene ALGÚN miembro? Distingue el bootstrap del creador (primer miembro ->
+-- owner) de un self-join posterior. security definer -> lee trip_members sin recursión RLS.
+create or replace function private.viaje_tiene_miembros(p_trip text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+    select exists (select 1 from public.trip_members where trip_id = p_trip)
+$$;
+
 -- Las policies llaman estas funciones en nombre de `authenticated`: necesita USAGE del
 -- esquema y EXECUTE. Se niega a anon/public (no hay `anon` en vanilla; el revoke de
 -- public basta). `private.uid()` solo lee un GUC, pero se agrupa aquí por comodidad.
@@ -177,9 +206,21 @@ drop policy if exists trip_members_update on trip_members;
 drop policy if exists trip_members_delete on trip_members;
 create policy trip_members_select on trip_members for select to authenticated
     using (private.es_miembro(trip_id, private.uid()));
+-- P1 Codex #60: el self-insert NO puede ser incondicional. Antes `member_id = uid()`
+-- permitía a cualquiera que supiera el trip_id autoañadirse con CUALQUIER rol (incluido
+-- owner) sin invitación, y pasar toda la RLS por-viaje. Ahora tres ramas acotadas:
 create policy trip_members_insert on trip_members for insert to authenticated
-    with check (member_id = private.uid()
-                or private.rol_en_viaje(trip_id, private.uid()) = 'owner');
+    with check (
+        -- 1) Unión por invitación (defensa en profundidad de unirsePorCodigo, que valida el
+        --    código concreto en la capa app): como member y con invitación vigente.
+        (member_id = private.uid() and role = 'member'
+            and private.hay_invitacion_valida(trip_id))
+        -- 2) Bootstrap de creación: el creador se inserta como owner cuando el viaje aún
+        --    no tiene ningún miembro.
+        or (member_id = private.uid() and role = 'owner'
+            and not private.viaje_tiene_miembros(trip_id))
+        -- 3) El owner gestiona altas de terceros.
+        or private.rol_en_viaje(trip_id, private.uid()) = 'owner');
 create policy trip_members_update on trip_members for update to authenticated
     using (member_id = private.uid()
            or private.rol_en_viaje(trip_id, private.uid()) = 'owner')

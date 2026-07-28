@@ -113,6 +113,18 @@ public struct LimiteTamanoBodyMiddleware<Context: RequestContext>: RouterMiddlew
         if let longitud = request.headers[.contentLength].flatMap(Int.init), longitud > maxBytes {
             return errorJSON(HTTPResponse.Status(code: 413), "payload_too_large")
         }
+        // El `Content-Length` puede FALTAR (transfer-encoding: chunked): sin esto, un cuerpo
+        // sin cabecera de longitud burlaba el cap y llegaba entero a `req.decode` (P2 Codex #60).
+        // Colectamos con tope DURO y cortamos si el cuerpo real excede, reemplazando el body
+        // por el buffer ya colectado para que el handler lo decodifique sin re-leer el stream.
+        var request = request
+        let buffer: ByteBuffer
+        do {
+            buffer = try await request.body.collect(upTo: maxBytes)
+        } catch {
+            return errorJSON(HTTPResponse.Status(code: 413), "payload_too_large")
+        }
+        request.body = .init(buffer: buffer)
         return try await next(request, context)
     }
 }

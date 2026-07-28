@@ -108,4 +108,25 @@ begin;
     end $$;
 commit;
 
-select 'OK: RLS por-usuario (A+B, ADR-0030) verificada — no-miembro cortado, miembro pasa' as resultado;
+-- 7. P1 Codex #60: un no-miembro (sara) NO puede autoañadirse a un viaje ajeno sin
+--    invitación vigente — ni como owner (escalada) ni como member. La capa app valida el
+--    código concreto (unirsePorCodigo); esto es la barrera de defensa en profundidad.
+begin;
+    set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"sara","role":"authenticated"}', true);
+    do $$
+    begin
+        begin
+            insert into trip_members (trip_id, member_id, role) values ('rls_t', 'sara', 'owner');
+            raise exception 'RLS HUECO: sara se autoañadió como OWNER sin invitación';
+        exception when insufficient_privilege then null;   -- esperado: RLS lo corta
+        end;
+        begin
+            insert into trip_members (trip_id, member_id, role) values ('rls_t', 'sara', 'member');
+            raise exception 'RLS HUECO: sara se autoañadió como member sin invitación vigente';
+        exception when insufficient_privilege then null;   -- esperado: no hay invite vigente
+        end;
+    end $$;
+rollback;
+
+select 'OK: RLS por-usuario (A+B, ADR-0030) verificada — no-miembro cortado (incl. self-join sin invitación), miembro pasa' as resultado;
