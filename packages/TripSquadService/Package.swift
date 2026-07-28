@@ -18,6 +18,10 @@ let package = Package(
         // JWKS: eso lo hace AsyncHTTPClient desde el verificador (ver Auth.swift).
         .package(url: "https://github.com/vapor/jwt-kit.git", from: "5.1.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
+        // SigV4 del adaptador R2 (ADR-0022, bead 7n3): HMAC-SHA256 + SHA256 portables a
+        // Linux (Render). Ya estaba en el grafo transitivo vía jwt-kit; se declara explícito
+        // para poder `import Crypto` en TripSquadServiceCore. NO es red ni proveedor nuevo.
+        .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
     ],
     targets: [
         .target(
@@ -30,6 +34,7 @@ let package = Package(
                 .product(name: "PostgresNIO", package: "postgres-nio"),
                 .product(name: "JWTKit", package: "jwt-kit"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ]
         ),
         .executableTarget(
