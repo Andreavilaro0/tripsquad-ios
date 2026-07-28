@@ -159,7 +159,13 @@ public struct FotoStorageR2: FotoStorage {
                 "x-amz-signature": firma,
             ]
         )
-        return String(decoding: try JSONEncoder().encode(descriptor), as: UTF8.self)
+        // Claves ordenadas: el envelope {url, fields} debe ser DETERMINISTA (mismos
+        // inputs → misma cadena). El orden de las claves de `fields` ([String:String])
+        // es cosmético para R2 (el cliente las lee por nombre), pero sin `.sortedKeys`
+        // el Dictionary de Swift las serializa en orden no determinista por proceso.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return String(decoding: try encoder.encode(descriptor), as: UTF8.self)
     }
 
     // MARK: - Lectura (presigned GET, auth en query)
