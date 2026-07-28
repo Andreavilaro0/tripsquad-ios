@@ -87,6 +87,12 @@ func salidaError(_ status: HTTPResponse.Status, _ code: String) -> SalidaIdem {
 /// `Idempotency-First-Sent` sea más antiguo se rechaza en vez de ejecutarse a ciegas.
 private let ventanaDedupe: TimeInterval = 60 * 24 * 60 * 60
 
+/// Tolerancia de desfase de reloj del cliente para un `first_sent` en el FUTURO (P2 Codex
+/// #60): sin cota inferior, una fecha muy futura da una "edad" negativa que SIEMPRE pasa el
+/// tope de 60 días, dejando la operación válida indefinidamente. Se acepta un pequeño
+/// adelanto (relojes no perfectamente sincronizados) y se rechaza cualquier futuro mayor.
+private let toleranciaFuturoReloj: TimeInterval = 5 * 60
+
 /// Valida `Idempotency-First-Sent` (bead 5ln, guía §175-180): el cliente firma cuándo generó
 /// la operación en la generación local. Devuelve un `Response` de error si la cabecera falta
 /// (400), no es ISO-8601 (400), o cae fuera de la ventana de 60 días (422 `idempotency_key_expired`);
@@ -99,7 +105,13 @@ func errorSiFirstSentInvalido(_ req: Request, _ ahora: Date) -> Response? {
     guard let firstSent = ISO8601DateFormatter().date(from: raw) else {
         return errorJSON(.badRequest, "invalid_idempotency_first_sent")
     }
-    guard ahora.timeIntervalSince(firstSent) <= ventanaDedupe else {
+    let edad = ahora.timeIntervalSince(firstSent)
+    // Futuro irreal (más allá del desfase tolerado): no es un first_sent legítimo. 400 como
+    // el resto de cabeceras malformadas — no 422, porque no es "caducada" sino inválida.
+    guard edad >= -toleranciaFuturoReloj else {
+        return errorJSON(.badRequest, "invalid_idempotency_first_sent")
+    }
+    guard edad <= ventanaDedupe else {
         return errorJSON(HTTPResponse.Status(code: 422), "idempotency_key_expired")
     }
     return nil

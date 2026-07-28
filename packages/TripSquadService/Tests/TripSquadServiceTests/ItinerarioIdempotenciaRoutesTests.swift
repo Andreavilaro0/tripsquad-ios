@@ -149,6 +149,21 @@ struct ItinerarioIdempotenciaRoutesTests {
                 #expect(res.status.code == 422)
                 #expect(String(buffer: res.body).contains("idempotency_key_expired"))
             }
+
+            // P2 Codex #60: un First-Sent MUY en el futuro (más allá de la tolerancia de
+            // desfase de reloj) es inválido → 400. Sin la cota inferior, una edad negativa
+            // pasaría el tope de 60 días y dejaría la operación válida indefinidamente.
+            let dentroDeUnDia = ISO8601DateFormatter().string(from: Date().addingTimeInterval(24 * 60 * 60))
+            try await client.execute(
+                uri: "/trips/\(trip)/itinerary", method: .post,
+                headers: [.authorization: try await bearer("ana"),
+                          HTTPField.Name("idempotency-key")!: "k-c",
+                          HTTPField.Name("idempotency-first-sent")!: dentroDeUnDia],
+                body: itemJSON()
+            ) { res in
+                #expect(res.status == .badRequest)
+                #expect(String(buffer: res.body).contains("invalid_idempotency_first_sent"))
+            }
         }
     }
 }
