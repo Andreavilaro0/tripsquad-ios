@@ -53,6 +53,18 @@ struct CasosDeUsoReservaTests {
         #expect(try r.get().mode == .cadaUnoElSuyo(estados: [f.a: .pendiente, f.b: .pendiente]))
     }
 
+    @Test func redefinirConservaElProgreso() async throws {   // 9bz (ADR-0031)
+        let f = try await fixture()
+        _ = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
+            modo: .cadaUnoElSuyo(participantes: [f.a, f.b]), actor: f.b, ahora: ahora)
+        // `b` marca su reserva.
+        try await f.repo.marcarEstado(activityId: "act1", en: "t1", miembro: f.b, estado: .reservado)
+        // Redefinir añadiendo a `c`: `b` debe SEGUIR `.reservado` (no se resetea); `c` arranca pendiente.
+        let r = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,
+            modo: .cadaUnoElSuyo(participantes: [f.a, f.b, f.c]), actor: f.b, ahora: ahora)
+        #expect(try r.get().mode == .cadaUnoElSuyo(estados: [f.a: .pendiente, f.b: .reservado, f.c: .pendiente]))
+    }
+
     @Test func definirPorNoCreadorNoOwnerEsNoAutorizado() async throws {
         let f = try await fixture()              // c es miembro pero ni creador ni owner
         let r = try await f.casos.definir(tripId: "t1", activityId: "act1", kind: .vuelo,

@@ -148,12 +148,15 @@ struct RepositorioReservaPostgresTests {
 
     @Test func upsertReemplazaParticipantesSinFilasRancias() async throws {
         try await conRepo { repo, trip, activityId in
+            // ana ya reservó, bea pendiente (ambos NUEVOS → su estado pasado se aplica).
             try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .vuelo,
-                mode: .cadaUnoElSuyo(estados: [ana: .pendiente, bea: .pendiente])), ahora: Date())
+                mode: .cadaUnoElSuyo(estados: [ana: .reservado, bea: .pendiente])), ahora: Date())
 
-            // Reemplaza: bea deja de estar incluida, ana queda reservado.
+            // Redefinir (9bz/ADR-0031, P1 Codex #62): bea SALE (sin filas rancias) y ana CONSERVA
+            // su `.reservado` aunque la definición nueva la pase `.pendiente` — un `marcar` no se
+            // pierde al redefinir. El estado pasado solo aplica a miembros NUEVOS (aquí ninguno).
             try await repo.upsert(Reserva(activityId: activityId, tripId: trip, kind: .vuelo,
-                mode: .cadaUnoElSuyo(estados: [ana: .reservado])), ahora: Date())
+                mode: .cadaUnoElSuyo(estados: [ana: .pendiente])), ahora: Date())
 
             let leido = try await repo.reserva(activityId: activityId, en: trip)
             #expect(leido?.mode == .cadaUnoElSuyo(estados: [ana: .reservado]))

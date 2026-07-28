@@ -49,6 +49,11 @@ public struct CasosDeUsoReserva: Sendable {
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
 
         let miembros = Set(try await viajes.miembros(de: tripId).map { $0.0 })
+        // 9bz (ADR-0031): redefinir CONSERVA el progreso, pero la preservación se hace de forma
+        // ATÓMICA en el `upsert` del adaptador (P1 Codex #62): aquí se construye la definición
+        // con estados `.pendiente` y el adaptador conserva el estado REAL de quien sigue (INSERT
+        // ON CONFLICT DO NOTHING). Un read-modify-write aquí sería racy contra un `marcar`
+        // concurrente entre la lectura y el upsert.
         let mode: ModoReserva
         switch modo {
         case .cadaUnoElSuyo(let participantes):
@@ -59,9 +64,11 @@ public struct CasosDeUsoReserva: Sendable {
             if let resp = responsable, !miembros.contains(resp) { return .failure(.reglaViolada("responsable_no_miembro")) }
             mode = .unoParaTodos(responsable: responsable, estado: .pendiente)
         }
-        let reserva = Reserva(activityId: activityId, tripId: tripId, kind: kind, mode: mode)
-        try await repo.upsert(reserva, ahora: ahora)
-        return .success(reserva)
+        try await repo.upsert(Reserva(activityId: activityId, tripId: tripId, kind: kind, mode: mode), ahora: ahora)
+        // Devuelve lo REALMENTE almacenado, con el progreso que el adaptador conserva (9bz):
+        // la definición pre-upsert lleva estados `.pendiente`, no el `.reservado` preservado.
+        guard let guardada = try await repo.reserva(activityId: activityId, en: tripId) else { return .failure(.noAutorizado) }
+        return .success(guardada)
     }
 
     /// Quita el aspecto reserva. Mismo gate que `definir` (creador de la
