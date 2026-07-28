@@ -662,7 +662,22 @@ extension RepositorioEnMemoria: ReservaRepositorio {
     private func claveReserva(_ tripId: String, _ activityId: String) -> String { "\(tripId)|\(activityId)" }
 
     public func upsert(_ r: Reserva, ahora: Date) {
-        reservas[claveReserva(r.tripId, r.activityId)] = r
+        let clave = claveReserva(r.tripId, r.activityId)
+        // 9bz (ADR-0031): conservar el progreso de quien sigue en la definición — mismo criterio
+        // que el adaptador Postgres (INSERT ON CONFLICT DO NOTHING). El `actor` hace esto atómico.
+        let previa = reservas[clave]
+        let modePreservado: ModoReserva
+        switch r.mode {
+        case .cadaUnoElSuyo(let estados):
+            var previos: [MiembroId: EstadoReserva] = [:]
+            if case .cadaUnoElSuyo(let est)? = previa?.mode { previos = est }
+            modePreservado = .cadaUnoElSuyo(estados: Dictionary(uniqueKeysWithValues: estados.map { (k, v) in (k, previos[k] ?? v) }))
+        case .unoParaTodos(let responsable, let estado):
+            var est = estado
+            if case .unoParaTodos(let respPrev, let estPrev)? = previa?.mode, respPrev == responsable { est = estPrev }
+            modePreservado = .unoParaTodos(responsable: responsable, estado: est)
+        }
+        reservas[clave] = Reserva(activityId: r.activityId, tripId: r.tripId, kind: r.kind, mode: modePreservado)
     }
 
     public func reserva(activityId: String, en tripId: String) -> Reserva? {

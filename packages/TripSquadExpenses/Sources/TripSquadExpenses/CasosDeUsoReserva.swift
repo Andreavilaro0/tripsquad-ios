@@ -49,29 +49,26 @@ public struct CasosDeUsoReserva: Sendable {
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
 
         let miembros = Set(try await viajes.miembros(de: tripId).map { $0.0 })
-        // 9bz (decisión Andrea 2026-07-28, ADR-0024 §9bz): redefinir CONSERVA el progreso.
-        // Antes el upsert reseteaba TODO a `.pendiente`, borrando el `.reservado` de quien ya
-        // había reservado — sorprendente si solo cambias el kind o añades un participante. Ahora
-        // se arrastra el estado de quien sigue en la definición; solo arrancan `.pendiente` los
-        // participantes nuevos, o todos si cambia el modo / el responsable de `unoParaTodos`.
-        let previa = try await repo.reserva(activityId: activityId, en: tripId)
+        // 9bz (ADR-0031): redefinir CONSERVA el progreso, pero la preservación se hace de forma
+        // ATÓMICA en el `upsert` del adaptador (P1 Codex #62): aquí se construye la definición
+        // con estados `.pendiente` y el adaptador conserva el estado REAL de quien sigue (INSERT
+        // ON CONFLICT DO NOTHING). Un read-modify-write aquí sería racy contra un `marcar`
+        // concurrente entre la lectura y el upsert.
         let mode: ModoReserva
         switch modo {
         case .cadaUnoElSuyo(let participantes):
             guard !participantes.isEmpty else { return .failure(.reglaViolada("sin_participantes")) }
             guard participantes.allSatisfy({ miembros.contains($0) }) else { return .failure(.reglaViolada("participante_no_miembro")) }
-            var previos: [MiembroId: EstadoReserva] = [:]
-            if case .cadaUnoElSuyo(let est)? = previa?.mode { previos = est }
-            mode = .cadaUnoElSuyo(estados: Dictionary(uniqueKeysWithValues: participantes.map { ($0, previos[$0] ?? .pendiente) }))
+            mode = .cadaUnoElSuyo(estados: Dictionary(uniqueKeysWithValues: participantes.map { ($0, .pendiente) }))
         case .unoParaTodos(let responsable):
             if let resp = responsable, !miembros.contains(resp) { return .failure(.reglaViolada("responsable_no_miembro")) }
-            var estado: EstadoReserva = .pendiente
-            if case .unoParaTodos(let respPrev, let estPrev)? = previa?.mode, respPrev == responsable { estado = estPrev }
-            mode = .unoParaTodos(responsable: responsable, estado: estado)
+            mode = .unoParaTodos(responsable: responsable, estado: .pendiente)
         }
-        let reserva = Reserva(activityId: activityId, tripId: tripId, kind: kind, mode: mode)
-        try await repo.upsert(reserva, ahora: ahora)
-        return .success(reserva)
+        try await repo.upsert(Reserva(activityId: activityId, tripId: tripId, kind: kind, mode: mode), ahora: ahora)
+        // Devuelve lo REALMENTE almacenado, con el progreso que el adaptador conserva (9bz):
+        // la definición pre-upsert lleva estados `.pendiente`, no el `.reservado` preservado.
+        guard let guardada = try await repo.reserva(activityId: activityId, en: tripId) else { return .failure(.noAutorizado) }
+        return .success(guardada)
     }
 
     /// Quita el aspecto reserva. Mismo gate que `definir` (creador de la
