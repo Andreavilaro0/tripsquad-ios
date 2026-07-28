@@ -108,9 +108,13 @@ func montarChat(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Depen
     // reproduce la respuesta sin crear un segundo mensaje. El body se decodifica ANTES
     // de reclamar la clave (un body ilegible no debe consumir la clave).
     router.post("trips/:tripId/messages") { req, ctx -> Response in
+        var req = req
         let tripId = try ctx.parameters.require("tripId")
+        // Hash del cuerpo CRUDO ANTES de decodificar (bead 5ln): detecta el reuso de la
+        // Idempotency-Key con payload distinto (→ 422).
+        let requestHash = try await req.hashDelCuerpo()
         let dto = try await req.decode(as: EnviarMensajeDTO.self, context: ctx)
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora(), requestHash: requestHash) {
             switch try await deps.casosChat.enviar(
                 tripId: tripId, body: dto.body, actor: ctx.actor, ahora: deps.ahora()
             ) {

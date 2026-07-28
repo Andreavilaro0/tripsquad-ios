@@ -65,7 +65,7 @@ struct GastosNoMiembroRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in
                 #expect(res.status == .forbidden)
@@ -80,13 +80,13 @@ struct GastosNoMiembroRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in #expect(res.status == .created) }
 
             try await client.execute(
                 uri: "/trips/\(trip)/expenses/g1", method: .patch,
-                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k2",
+                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k2", HTTPField.Name("idempotency-first-sent")!: isoReciente(),
                           .ifMatch: "cualquier-etag"],
                 body: gastoJSON(id: "g1", amount: "40.00")
             ) { res in
@@ -102,13 +102,13 @@ struct GastosNoMiembroRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in #expect(res.status == .created) }
 
             try await client.execute(
                 uri: "/trips/\(trip)/expenses/g1", method: .delete,
-                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k2",
+                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k2", HTTPField.Name("idempotency-first-sent")!: isoReciente(),
                           .ifMatch: "cualquier-etag"]
             ) { res in
                 #expect(res.status == .forbidden)

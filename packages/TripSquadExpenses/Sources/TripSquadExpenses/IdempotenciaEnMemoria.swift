@@ -8,9 +8,11 @@ import Foundation
 import TripSquadDomain
 
 public actor IdempotenciaEnMemoria: Idempotencia {
-    /// Estado por `(actor|key)`: reclamada-pero-en-vuelo vs respuesta ya congelada.
+    /// Estado por `(actor|key)`: reclamada-pero-en-vuelo vs respuesta ya congelada. Ambos
+    /// llevan el `requestHash` de la 1ª reclamación (bead 5ln): un reintento con la misma
+    /// clave pero hash distinto es un payload distinto → `.payloadDistinto` (→ 422).
     /// Ausencia de clave = nunca vista.
-    private enum Estado: Sendable { case enVuelo; case congelada(RespuestaCongelada) }
+    private enum Estado: Sendable { case enVuelo(String); case congelada(RespuestaCongelada, String) }
     private var estados: [String: Estado] = [:]
 
     public init() {}
@@ -18,25 +20,34 @@ public actor IdempotenciaEnMemoria: Idempotencia {
     /// Scope por actor (ADR-0012 §5): un usuario no puede secuestrar la clave de otro.
     private func clave(_ actor: MiembroId, _ key: String) -> String { "\(actor.raw)|\(key)" }
 
-    public func reclamar(actor: MiembroId, key: String) -> ReclamoIdempotencia {
+    public func reclamar(actor: MiembroId, key: String, requestHash: String) -> ReclamoIdempotencia {
         let k = clave(actor, key)
         switch estados[k] {
         case .none:
-            estados[k] = .enVuelo          // reclama el hueco: nadie más re-ejecuta
+            estados[k] = .enVuelo(requestHash)   // reclama el hueco: nadie más re-ejecuta
             return .reclamado
-        case .enVuelo:
-            return .enVuelo
-        case .congelada(let r):
-            return .replay(r)
+        case .enVuelo(let h):
+            return h == requestHash ? .enVuelo : .payloadDistinto
+        case .congelada(let r, let h):
+            return h == requestHash ? .replay(r) : .payloadDistinto
         }
     }
 
     public func congelar(actor: MiembroId, key: String, respuesta: RespuestaCongelada) {
-        estados[clave(actor, key)] = .congelada(respuesta)
+        let k = clave(actor, key)
+        // Conserva el hash de la reclamación (`reclamar` lo dejó en `.enVuelo`); si por lo
+        // que sea no había reclamo previo, cae a "" (misma laxitud que la conveniencia sin hash).
+        let hash: String
+        switch estados[k] {
+        case .enVuelo(let h): hash = h
+        case .congelada(_, let h): hash = h
+        case .none: hash = ""
+        }
+        estados[k] = .congelada(respuesta, hash)
     }
 
     public func liberar(actor: MiembroId, key: String) {
         let k = clave(actor, key)
-        if case .enVuelo = estados[k] { estados[k] = nil }   // solo libera lo NO congelado
+        if case .enVuelo(_) = estados[k] { estados[k] = nil }   // solo libera lo NO congelado
     }
 }

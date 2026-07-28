@@ -47,7 +47,7 @@ struct ViajeRoutesTests {
             var tripId = ""
             try await client.execute(
                 uri: "/trips", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-20"], body: crearViajeJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-20", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearViajeJSON()
             ) { res in
                 #expect(res.status == .created)
                 let body = String(buffer: res.body)
@@ -109,7 +109,7 @@ struct ViajeRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(viaje.id)/invites", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-21"]
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-21", HTTPField.Name("idempotency-first-sent")!: isoReciente()]
             ) { res in
                 #expect(res.status == .created)
                 let body = String(buffer: res.body)
@@ -119,7 +119,7 @@ struct ViajeRoutesTests {
 
             try await client.execute(
                 uri: "/trips/\(viaje.id)/invites", method: .post,
-                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k-auto-22"]
+                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k-auto-22", HTTPField.Name("idempotency-first-sent")!: isoReciente()]
             ) { res in
                 #expect(res.status == .forbidden)
             }
@@ -283,7 +283,7 @@ struct ViajeRoutesTests {
             for nombre in ["Roma", "Lisboa", "Oslo"] {
                 try await client.execute(
                     uri: "/trips", method: .post,
-                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-23-\(nombre)"], body: crearViajeJSON(name: nombre)
+                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-23-\(nombre)", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearViajeJSON(name: nombre)
                 ) { res in #expect(res.status == .created) }
             }
 

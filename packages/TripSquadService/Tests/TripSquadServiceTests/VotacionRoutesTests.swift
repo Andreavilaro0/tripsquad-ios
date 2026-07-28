@@ -63,7 +63,7 @@ struct VotacionRoutesTests {
             var pollId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/polls", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-13"], body: crearPollJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-13", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearPollJSON()
             ) { res in
                 #expect(res.status == .created)
                 let body = String(buffer: res.body)
@@ -95,7 +95,7 @@ struct VotacionRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/polls", method: .post,
-                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k-auto-14"], body: crearPollJSON()
+                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k-auto-14", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearPollJSON()
             ) { res in
                 #expect(res.status == .forbidden)
             }
@@ -123,7 +123,7 @@ struct VotacionRoutesTests {
             var pollId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/polls", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-15"], body: crearPollJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-15", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearPollJSON()
             ) { res in pollId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -165,7 +165,7 @@ struct VotacionRoutesTests {
             var pollId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/polls", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-16"], body: crearPollJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-16", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearPollJSON()
             ) { res in pollId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -186,7 +186,7 @@ struct VotacionRoutesTests {
             var pollId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/polls", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-17"], body: crearPollJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-17", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearPollJSON()
             ) { res in pollId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -221,7 +221,7 @@ struct VotacionRoutesTests {
             // ivan (member, no owner) crea -> es el creador de la poll.
             try await client.execute(
                 uri: "/trips/\(viaje.id)/polls", method: .post,
-                headers: [.authorization: try await bearer("ivan"), HTTPField.Name("idempotency-key")!: "k-auto-18"], body: crearPollJSON()
+                headers: [.authorization: try await bearer("ivan"), HTTPField.Name("idempotency-key")!: "k-auto-18", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearPollJSON()
             ) { res in pollId = idDe(String(buffer: res.body)) }
 
             // sara (ni creadora ni owner) intenta cerrar -> 403.
@@ -259,7 +259,7 @@ struct VotacionRoutesTests {
             for i in 0..<3 {
                 try await client.execute(
                     uri: "/trips/\(trip)/polls", method: .post,
-                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-19-\(i)"],
+                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-19-\(i)", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                     body: crearPollJSON(question: "pregunta \(i)")
                 ) { res in #expect(res.status == .created) }
             }

@@ -45,6 +45,7 @@ struct ChatRoutesTests {
     func hdrPost(_ sub: String, key: String) async throws -> HTTPFields {
         var h: HTTPFields = [.authorization: try await bearer(sub)]
         h[HTTPField.Name("idempotency-key")!] = key
+        h[HTTPField.Name("idempotency-first-sent")!] = isoReciente()   // bead 5ln
         return h
     }
 

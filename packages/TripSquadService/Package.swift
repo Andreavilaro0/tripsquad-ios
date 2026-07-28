@@ -18,6 +18,12 @@ let package = Package(
         // JWKS: eso lo hace AsyncHTTPClient desde el verificador (ver Auth.swift).
         .package(url: "https://github.com/vapor/jwt-kit.git", from: "5.1.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
+        // SHA256 del cuerpo canónico del request (ADR-0012 §2 `request_hash`, bead 5ln):
+        // detecta el reuso de una Idempotency-Key con payload distinto (→ 422). Solo
+        // entra AQUÍ (capa HTTP): el hash se calcula una vez y viaja como String por el
+        // puerto; ni Domain ni el adaptador Postgres necesitan crypto (solo almacenan/
+        // comparan el String). Decisión de Andrea 2026-07-28.
+        .package(url: "https://github.com/apple/swift-crypto.git", "1.0.0" ..< "5.0.0"),
     ],
     targets: [
         .target(
@@ -30,6 +36,7 @@ let package = Package(
                 .product(name: "PostgresNIO", package: "postgres-nio"),
                 .product(name: "JWTKit", package: "jwt-kit"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ]
         ),
         .executableTarget(

@@ -61,7 +61,7 @@ struct SettleRoutesTests {
             let body = ByteBuffer(string: #"{"id":"g1","paidBy":"ana","amount":"40.00","currency":"EUR","split":{"kind":"equal","among":["ana","ivan"]}}"#)
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-deuda"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-deuda", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: body
             ) { res in
                 #expect(res.status == .created)
@@ -366,11 +366,11 @@ private struct RepoNoMiembroQueLanzaEnGastos: GastoRepositorio, Membresia, Settl
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { false }
     func viajeCerrado(_ tripId: String) async throws -> Bool { false }
     func gastos(de tripId: String) async throws -> [GastoConEtag] { throw Boom() }
-    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? { throw Boom() }
-    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura? { throw Boom() }
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw Boom() }
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag? { throw Boom() }
-    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
-    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw Boom() }
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw Boom() }
     func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] { throw Boom() }
     func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int { throw Boom() }
     func crear(_ settlement: Settlement) async throws -> ResultadoSettle { throw Boom() }

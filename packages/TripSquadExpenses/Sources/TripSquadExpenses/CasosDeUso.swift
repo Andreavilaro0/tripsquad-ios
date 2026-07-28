@@ -8,8 +8,11 @@ public struct ComandoCrearGasto: Sendable {
     public let gasto: Gasto
     public let actor: MiembroId
     public let idempotencyKey: String
-    public init(tripId: String, gasto: Gasto, actor: MiembroId, idempotencyKey: String) {
-        self.tripId = tripId; self.gasto = gasto; self.actor = actor; self.idempotencyKey = idempotencyKey
+    /// sha256 (hex) del cuerpo canónico del request (bead 5ln, ADR-0012 §2). Lo calcula la
+    /// capa HTTP; default "" para los call sites (tests/cola) que no lo computan.
+    public let requestHash: String
+    public init(tripId: String, gasto: Gasto, actor: MiembroId, idempotencyKey: String, requestHash: String = "") {
+        self.tripId = tripId; self.gasto = gasto; self.actor = actor; self.idempotencyKey = idempotencyKey; self.requestHash = requestHash
     }
 }
 
@@ -19,8 +22,9 @@ public struct ComandoEditarGasto: Sendable {
     public let actor: MiembroId
     public let ifMatch: String
     public let idempotencyKey: String
-    public init(tripId: String, gasto: Gasto, actor: MiembroId, ifMatch: String, idempotencyKey: String) {
-        self.tripId = tripId; self.gasto = gasto; self.actor = actor; self.ifMatch = ifMatch; self.idempotencyKey = idempotencyKey
+    public let requestHash: String   // sha256 del cuerpo canónico (bead 5ln); default "" fuera del HTTP.
+    public init(tripId: String, gasto: Gasto, actor: MiembroId, ifMatch: String, idempotencyKey: String, requestHash: String = "") {
+        self.tripId = tripId; self.gasto = gasto; self.actor = actor; self.ifMatch = ifMatch; self.idempotencyKey = idempotencyKey; self.requestHash = requestHash
     }
 }
 
@@ -30,8 +34,9 @@ public struct ComandoEliminarGasto: Sendable {
     public let actor: MiembroId
     public let ifMatch: String
     public let idempotencyKey: String
-    public init(tripId: String, gastoId: String, actor: MiembroId, ifMatch: String, idempotencyKey: String) {
-        self.tripId = tripId; self.gastoId = gastoId; self.actor = actor; self.ifMatch = ifMatch; self.idempotencyKey = idempotencyKey
+    public let requestHash: String   // sha256 del cuerpo canónico (bead 5ln); default "" fuera del HTTP.
+    public init(tripId: String, gastoId: String, actor: MiembroId, ifMatch: String, idempotencyKey: String, requestHash: String = "") {
+        self.tripId = tripId; self.gastoId = gastoId; self.actor = actor; self.ifMatch = ifMatch; self.idempotencyKey = idempotencyKey; self.requestHash = requestHash
     }
 }
 
@@ -53,25 +58,25 @@ public struct CasosDeUsoGastos: Sendable {
         // devuelve la respuesta original aunque al actor lo hayan expulsado entre
         // intentos — si no, el cliente se queda con una escritura "rechazada" de un
         // gasto que sí se guardó (hallazgo P1 de Codex).
-        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
+        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey, requestHash: c.requestHash) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
         if let rechazo = try await validarMiembrosDelReparto(c.gasto, tripId: c.tripId) { return rechazo }
         if let rechazo = validarDominio(c.gasto) { return rechazo }
-        return try await repo.guardar(c.gasto, en: c.tripId, por: c.actor, idempotencyKey: c.idempotencyKey)
+        return try await repo.guardar(c.gasto, en: c.tripId, por: c.actor, idempotencyKey: c.idempotencyKey, requestHash: c.requestHash)
     }
 
     public func editar(_ c: ComandoEditarGasto) async throws -> ResultadoEscritura {
-        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
+        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey, requestHash: c.requestHash) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
         if let rechazo = try await validarMiembrosDelReparto(c.gasto, tripId: c.tripId) { return rechazo }
         if let rechazo = validarDominio(c.gasto) { return rechazo }
-        return try await repo.actualizar(c.gasto, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
+        return try await repo.actualizar(c.gasto, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey, requestHash: c.requestHash)
     }
 
     public func eliminar(_ c: ComandoEliminarGasto) async throws -> ResultadoEscritura {
-        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey) { return previa }
+        if let previa = try await repo.respuestaPrevia(actor: c.actor, idempotencyKey: c.idempotencyKey, requestHash: c.requestHash) { return previa }
         if let rechazo = try await autorizar(actor: c.actor, tripId: c.tripId) { return rechazo }
-        return try await repo.eliminar(id: c.gastoId, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey)
+        return try await repo.eliminar(id: c.gastoId, en: c.tripId, por: c.actor, ifMatch: c.ifMatch, idempotencyKey: c.idempotencyKey, requestHash: c.requestHash)
     }
 
     /// Historial append-only de un gasto (bead p4b, ADR-0015 §15). Autorización =
@@ -104,7 +109,7 @@ public struct CasosDeUsoGastos: Sendable {
     /// importe se DERIVA del reparto (suma segura), no de un total externo a reconciliar.
     public func crearDesdeRecibo(tripId: String, gastoId: String, pagadoPor: MiembroId,
                                  items: [ItemRecibo], impuestosMinor: Int64, propinaMinor: Int64,
-                                 actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura {
+                                 actor: MiembroId, idempotencyKey: String, requestHash: String = "") async throws -> ResultadoEscritura {
         let reparto: Reparto
         do { reparto = try repartoDesdeRecibo(items: items, impuestosMinor: impuestosMinor, propinaMinor: propinaMinor) }
         catch { return .rechazado(razon: "invalid_receipt") }
@@ -116,7 +121,7 @@ public struct CasosDeUsoGastos: Sendable {
             importe = s
         }
         let gasto = Gasto(id: gastoId, pagadoPor: pagadoPor, importeMinor: importe, reparto: reparto)
-        return try await crear(ComandoCrearGasto(tripId: tripId, gasto: gasto, actor: actor, idempotencyKey: idempotencyKey))
+        return try await crear(ComandoCrearGasto(tripId: tripId, gasto: gasto, actor: actor, idempotencyKey: idempotencyKey, requestHash: requestHash))
     }
 
     // MARK: - Reglas comunes
