@@ -56,7 +56,7 @@ public struct CasosDeUsoBrujula: Sendable {
         let gastos = try await repo.gastos(de: tripId).map(\.gasto)
         let confirmados = try await settlements.confirmados(de: tripId)
         let saldos = try balancesConLiquidaciones(gastos, confirmados: confirmados)
-        let contexto = ContextoViaje(tripId: tripId, resumenSaldos: Self.formatearResumenSaldos(saldos))
+        let contexto = ContextoViaje(tripId: tripId, actorId: actor.raw, resumenSaldos: Self.formatearResumenSaldos(saldos))
 
         let respuesta = try await asistente.responder(query: queryRecortada, contexto: contexto)
         return .success(respuesta)
