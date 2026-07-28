@@ -148,7 +148,14 @@ security definer
 set search_path = ''
 as $$
 begin
-    if private.hay_invitacion_valida(p_trip) then
+    -- Caducidad con el `p_ahora` INYECTADO (P1 Codex #63, 2ª ronda): `hay_invitacion_valida`
+    -- compara con `now()` de la BD, así que si `p_ahora` va por detrás/delante del reloj de
+    -- Postgres, `invitacion_por_codigo` aceptaba el código (con p_ahora) pero esta comprobación
+    -- podía omitir el UPDATE en silencio y dejar al usuario inactivo. Se usa p_ahora en ambas.
+    if exists (
+        select 1 from public.trip_invites i
+        where i.trip_id = p_trip and i.revoked_at is null and i.expires_at > p_ahora
+    ) then
         update public.trip_members
             set left_at = null, joined_at = p_ahora
             where trip_id = p_trip and member_id = p_usuario and left_at is not null;
