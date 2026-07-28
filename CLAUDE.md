@@ -43,6 +43,18 @@ Cuando exista `DESIGN.md`, léelo SIEMPRE antes de cualquier decisión visual. H
 finalizado; el WIP vive en `docs/design/design-direction-WIP.md`. Norte memorable acordado:
 **"se siente premium, no una hoja de cálculo".**
 
+## Front (constitución vinculante)
+**Todo trabajo de front OBEDECE `docs/front-constitution.md`** — reglas duras que aplican a quien
+haga el front (humano o agente). Pipeline de 5 fases con gates: **1)** Descubrimiento UX/UI +
+comportamiento de usuario (personas/JTBD + heurísticas `ux-heuristics` + agente-usuario) · **2)**
+Taste (skills OBLIGATORIAS: `taste-skill`, `impeccable`, Emil Kowalski, `ui-ux-pro-max`,
+`frontend-design`, `ios-hig-design`, `dataviz`…) · **3)** Código (Clean Arch + gates) · **4)**
+Testeo automatizado (axe-core, Lighthouse, Playwright/`ios-qa`, regresión visual) + validación de
+otra IA (Codex/Gemini) · **5)** Firma de Andrea. Reglas transversales: si te atascas en diseño,
+**usa las herramientas de pago** (Higgsfield, After Effects, MotionArray); usa SIEMPRE las skills
+de cada fase. Catálogo de taste: https://design-skills-joaco.vercel.app. Leer el doc antes de
+tocar front.
+
 ## Documentación
 Estructura Diátaxis (tutorial / how-to / reference / explanation). Docs en git, versionados
 con el código. Changelog con Conventional Commits cuando arranque el código.
