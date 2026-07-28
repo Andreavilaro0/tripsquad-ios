@@ -12,6 +12,9 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
 
     private var datos: [String: [String: Fila]] = [:]        // tripId -> gastoId -> fila
     private var respuestaCongelada: [String: ResultadoEscritura] = [:]  // "actor|key" -> resultado
+    /// `request_hash` de la 1ª vez que se vio cada `(actor|key)` (bead 5ln, ADR-0012 §2):
+    /// un reintento con la misma clave pero hash distinto es un payload distinto → 422.
+    private var hashDeClave: [String: String] = [:]  // "actor|key" -> request_hash
     /// Historial append-only (ADR-0015 §15, bead p4b): `expenseId -> revisiones`,
     /// en orden de inserción (= orden cronológico, `nuevaRevisionId()` es
     /// monotónico creciente). El doble TAMBIÉN registra revisiones al editar
@@ -151,13 +154,29 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
     /// secuestrar la clave de otro.
     private func claveIdem(_ actor: MiembroId, _ key: String) -> String { "\(actor.raw)|\(key)" }
 
-    public func respuestaPrevia(actor: MiembroId, idempotencyKey: String) -> ResultadoEscritura? {
-        respuestaCongelada[claveIdem(actor, idempotencyKey)].map(comoReplay)
+    /// Choque de payload (bead 5ln): si esta `(actor|key)` ya se vio con un hash distinto al
+    /// entrante, es un reuso de clave con payload distinto → `.rechazado("idempotency_key_mismatch")`
+    /// (→ 422, ADR-0012 §2). `nil` si el hash coincide o la clave es nueva.
+    private func choqueDeHash(_ idem: String, _ requestHash: String) -> ResultadoEscritura? {
+        if let previo = hashDeClave[idem], previo != requestHash {
+            return .rechazado(razon: "idempotency_key_mismatch")
+        }
+        return nil
     }
 
-    public func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) -> ResultadoEscritura {
+    public func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) -> ResultadoEscritura? {
         let idem = claveIdem(actor, idempotencyKey)
+        // El choque de hash tiene prioridad sobre el replay: reusar la clave con otro payload
+        // es 422, no reproducir a ciegas la 1ª respuesta.
+        if let choque = choqueDeHash(idem, requestHash) { return choque }
+        return respuestaCongelada[idem].map(comoReplay)
+    }
+
+    public func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String, requestHash: String) -> ResultadoEscritura {
+        let idem = claveIdem(actor, idempotencyKey)
+        if let choque = choqueDeHash(idem, requestHash) { return choque }
         if let congelada = respuestaCongelada[idem] { return comoReplay(congelada) }
+        hashDeClave[idem] = requestHash   // 1ª vez: liga la clave a este payload (bead 5ln)
 
         // Dedupe estructural por id. Incluye los TOMBSTONES: un create con el id de
         // un gasto ya borrado NO resucita la fila (ADR-0013 §5, hallazgo P1 de
@@ -177,9 +196,11 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
         return r
     }
 
-    public func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) -> ResultadoEscritura {
+    public func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) -> ResultadoEscritura {
         let idem = claveIdem(actor, idempotencyKey)
+        if let choque = choqueDeHash(idem, requestHash) { return choque }
         if let congelada = respuestaCongelada[idem] { return comoReplay(congelada) }
+        hashDeClave[idem] = requestHash   // 1ª vez: liga la clave a este payload (bead 5ln)
 
         guard let fila = datos[tripId]?[gasto.id], !fila.borrado else {
             let r = ResultadoEscritura.rechazado(razon: "not_found")
@@ -206,9 +227,11 @@ public actor RepositorioEnMemoria: GastoRepositorio, Membresia {
         return r
     }
 
-    public func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) -> ResultadoEscritura {
+    public func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) -> ResultadoEscritura {
         let idem = claveIdem(actor, idempotencyKey)
+        if let choque = choqueDeHash(idem, requestHash) { return choque }
         if let congelada = respuestaCongelada[idem] { return comoReplay(congelada) }
+        hashDeClave[idem] = requestHash   // 1ª vez: liga la clave a este payload (bead 5ln)
 
         guard let fila = datos[tripId]?[id], !fila.borrado else {
             // Ya no existe (o ya está tombstoneado): el reintento de un borrado ya

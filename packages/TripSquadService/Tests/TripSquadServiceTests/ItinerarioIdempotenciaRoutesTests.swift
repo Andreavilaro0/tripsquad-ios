@@ -86,6 +86,41 @@ struct ItinerarioIdempotenciaRoutesTests {
         }
     }
 
+    // Bead 5ln (ADR-0012 §2): la MISMA Idempotency-Key con un body DISTINTO → 422
+    // idempotency_key_mismatch (no reproducir a ciegas el 1er itinerario); con el MISMO body →
+    // replay normal (201). Camino GENÉRICO (conIdempotencia).
+    @Test func mismaKeyOtroBody422() async throws {
+        let app = await app()
+        let headers: HTTPFields = [.authorization: try await bearer("ana"),
+                                   HTTPField.Name("idempotency-key")!: "k-mismatch",
+                                   HTTPField.Name("idempotency-first-sent")!: isoReciente()]
+        try await app.test(.router) { client in
+            // 1ª: crea "Coliseo".
+            try await client.execute(uri: "/trips/\(trip)/itinerary", method: .post, headers: headers,
+                                     body: itemJSON("Coliseo")) { res in
+                #expect(res.status == .created)
+            }
+            // Reintento MISMA key + MISMO body → replay (201).
+            try await client.execute(uri: "/trips/\(trip)/itinerary", method: .post, headers: headers,
+                                     body: itemJSON("Coliseo")) { res in
+                #expect(res.status == .created)
+            }
+            // MISMA key + body DISTINTO (otro title) → 422 idempotency_key_mismatch.
+            try await client.execute(uri: "/trips/\(trip)/itinerary", method: .post, headers: headers,
+                                     body: itemJSON("Foro")) { res in
+                #expect(res.status.code == 422)
+                #expect(String(buffer: res.body).contains("idempotency_key_mismatch"))
+            }
+            // Solo se creó UNA actividad (el body distinto NO ejecutó nada).
+            try await client.execute(uri: "/trips/\(trip)/itinerary", method: .get,
+                                     headers: [.authorization: try await bearer("ana")]) { res in
+                let cuerpo = String(buffer: res.body)
+                #expect(cuerpo.contains("Coliseo"))
+                #expect(!cuerpo.contains("Foro"))
+            }
+        }
+    }
+
     // Bead 5ln (guía §175-180): `Idempotency-First-Sent` es obligatoria; sin ella → 400.
     // Con una fecha fuera de la ventana de deduplicación (>60 días) → 422 idempotency_key_expired,
     // en vez de ejecutar a ciegas una operación caducada.

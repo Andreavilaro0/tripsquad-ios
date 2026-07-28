@@ -366,11 +366,11 @@ private struct RepoNoMiembroQueLanzaEnGastos: GastoRepositorio, Membresia, Settl
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { false }
     func viajeCerrado(_ tripId: String) async throws -> Bool { false }
     func gastos(de tripId: String) async throws -> [GastoConEtag] { throw Boom() }
-    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? { throw Boom() }
-    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura? { throw Boom() }
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw Boom() }
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag? { throw Boom() }
-    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
-    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw Boom() }
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw Boom() }
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw Boom() }
     func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] { throw Boom() }
     func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int { throw Boom() }
     func crear(_ settlement: Settlement) async throws -> ResultadoSettle { throw Boom() }

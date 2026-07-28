@@ -50,8 +50,13 @@ public protocol GastoRepositorio: Sendable {
     /// respuesta congelada. Se consulta ANTES de re-autorizar (ADR-0012): un
     /// reintento de algo ya cometido no se rechaza aunque al actor lo hayan
     /// expulsado entre intentos (hallazgo P1 de Codex).
-    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura?
-    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura
+    /// `requestHash` = sha256 (hex) del cuerpo canónico del request (bead 5ln, ADR-0012 §2).
+    /// Si esta `(actor, key)` ya se congeló con un hash DISTINTO, es un reuso de clave con
+    /// payload distinto → `.rechazado(razon: "idempotency_key_mismatch")` (→ 422), en vez de
+    /// reproducir a ciegas. Se comprueba AQUÍ (antes de re-autorizar) porque este método es
+    /// el corto-circuito de replay del caso de uso.
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura?
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura
     /// SIN tope A PROPÓSITO (misma razón que `SettlementRepositorio.confirmados`).
     /// Hoy no hay ningún `GET /expenses`: los ÚNICOS consumidores de este método son
     /// `CasosDeUsoBrujula` y el `GET .../settlement/suggestion`, y ambos lo pasan
@@ -61,8 +66,8 @@ public protocol GastoRepositorio: Sendable {
     /// El orden (`ORDER BY id`) sí es estable en ambos adaptadores.
     func gastos(de tripId: String) async throws -> [GastoConEtag]
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag?
-    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
-    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura
 
     /// Historial append-only de un gasto (ADR-0015 §15, bead p4b): quién, cuándo,
     /// qué campo cambió. Orden cronológico estable (`edited_at`, `id` de
@@ -81,6 +86,25 @@ public protocol GastoRepositorio: Sendable {
     /// por `tripId` — el derecho al olvido es de la CUENTA, no de un viaje.
     /// Devuelve cuántas filas borró (auditoría/test).
     func olvidarRevisionesDe(_ userId: MiembroId) async throws -> Int
+}
+
+public extension GastoRepositorio {
+    /// Conveniencias SIN `requestHash` (equivalen a `requestHash: ""`): las usan tests y
+    /// call sites que no computan el hash del cuerpo. Producción pasa SIEMPRE el hash real
+    /// (calculado en la capa HTTP) por la firma completa. Con hash "" nunca hay choque, así
+    /// que estos atajos conservan el comportamiento previo a bead 5ln.
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? {
+        try await respuestaPrevia(actor: actor, idempotencyKey: idempotencyKey, requestHash: "")
+    }
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura {
+        try await guardar(gasto, en: tripId, por: actor, idempotencyKey: idempotencyKey, requestHash: "")
+    }
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura {
+        try await actualizar(gasto, en: tripId, por: actor, ifMatch: etag, idempotencyKey: idempotencyKey, requestHash: "")
+    }
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura {
+        try await eliminar(id: id, en: tripId, por: actor, ifMatch: etag, idempotencyKey: idempotencyKey, requestHash: "")
+    }
 }
 
 /// Puerto de autorización: ¿este miembro pertenece al viaje? Una sola fuente de
@@ -113,6 +137,10 @@ public enum ReclamoIdempotencia: Equatable, Sendable {
     case replay(RespuestaCongelada)
     /// Otra petición con la misma `(actor, key)` sigue en vuelo (reclamada, aún sin congelar) → 409.
     case enVuelo
+    /// La MISMA `(actor, key)` se reusó con un `request_hash` DISTINTO (payload distinto):
+    /// no es un reintento de la misma operación, es un error del cliente → 422 (ADR-0012 §2,
+    /// tabla de códigos; ADR-0015 §240-250). NO se reproduce a ciegas la 1ª respuesta.
+    case payloadDistinto
 }
 
 /// Idempotencia GENÉRICA a nivel de respuesta (bead 379), para los POST mutantes que
@@ -125,12 +153,25 @@ public enum ReclamoIdempotencia: Equatable, Sendable {
 /// concurrentes con la misma clave no ejecutan el efecto dos veces — una recibe
 /// `.reclamado`, la otra `.enVuelo` (o `.replay` si la primera ya congeló).
 public protocol Idempotencia: Sendable {
-    func reclamar(actor: MiembroId, key: String) async throws -> ReclamoIdempotencia
+    /// `requestHash` = sha256 (hex) del cuerpo canónico del request (bead 5ln, ADR-0012 §2).
+    /// Se calcula UNA vez en la capa HTTP y viaja como String. Al reclamar se guarda; si la
+    /// fila existente lleva un hash DISTINTO al entrante → `.payloadDistinto` (→ 422), en vez
+    /// de reproducir a ciegas la 1ª respuesta.
+    func reclamar(actor: MiembroId, key: String, requestHash: String) async throws -> ReclamoIdempotencia
     func congelar(actor: MiembroId, key: String, respuesta: RespuestaCongelada) async throws
     /// Libera un reclamo que NO llegó a congelarse (el efecto falló antes de producir
     /// respuesta): borra el hueco `.enVuelo` para que un reintento pueda volver a
     /// intentarlo en vez de quedar bloqueado con 409. No hace nada si ya estaba congelado.
     func liberar(actor: MiembroId, key: String) async throws
+}
+
+public extension Idempotencia {
+    /// Conveniencia SIN `requestHash` (equivale a `requestHash: ""`, "sin cuerpo canónico"):
+    /// la usan tests y call sites que no computan el hash. Producción pasa SIEMPRE el hash
+    /// real por la capa HTTP.
+    func reclamar(actor: MiembroId, key: String) async throws -> ReclamoIdempotencia {
+        try await reclamar(actor: actor, key: key, requestHash: "")
+    }
 }
 
 /// Resultado de CREAR una afirmación de pago (ADR-0017).

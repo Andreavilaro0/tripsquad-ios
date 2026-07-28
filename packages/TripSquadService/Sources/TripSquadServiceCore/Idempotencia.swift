@@ -17,9 +17,26 @@
 //      LIBERA el reclamo para no bloquear reintentos con un 409 permanente.
 
 import Foundation
+import Crypto
 import Hummingbird
 import HTTPTypes
 import TripSquadExpenses
+
+extension Request {
+    /// SHA256 (hex) del cuerpo CRUDO de la petición (bead 5ln, ADR-0012 §2 `request_hash`).
+    /// Detecta el reuso de una `Idempotency-Key` con un payload distinto (→ 422).
+    ///
+    /// Recoge el body ANTES de decodificarlo: `collectBody` colapsa el stream en un único
+    /// `ByteBuffer` y lo RE-ALMACENA en la petición, así el `decode` posterior lo vuelve a
+    /// leer. El hash se calcula sobre los bytes TAL CUAL llegan (canónico = crudo): el mismo
+    /// payload reintentado por la cola offline es idéntico byte a byte, así que su hash
+    /// coincide; un payload distinto con la misma clave produce un hash distinto. `mutating`
+    /// porque `collectBody` reescribe `self.body`.
+    mutating func hashDelCuerpo(maxBytes: Int = 4 * 1024 * 1024) async throws -> String {
+        let buffer = try await collectBody(upTo: maxBytes)
+        return SHA256.hash(data: Data(buffer.readableBytesView)).map { String(format: "%02x", $0) }.joined()
+    }
+}
 
 /// Respuesta de una ruta como (status, headers extra, bytes ya serializados), lista para
 /// congelar. `headers` son los que van MÁS ALLÁ de `content-type` (p.ej. `etag` del create
@@ -93,11 +110,16 @@ func conIdempotencia(
     _ ctx: ContextoAutenticado,
     _ idem: any Idempotencia,
     _ ahora: Date,
+    requestHash: String,
     _ producir: () async throws -> SalidaIdem
 ) async throws -> Response {
     guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
     if let err = errorSiFirstSentInvalido(req, ahora) { return err }   // bead 5ln
-    switch try await idem.reclamar(actor: ctx.actor, key: key) {
+    switch try await idem.reclamar(actor: ctx.actor, key: key, requestHash: requestHash) {
+    case .payloadDistinto:
+        // Misma Idempotency-Key, payload DISTINTO (request_hash distinto) → 422 (bead 5ln,
+        // ADR-0012 §2). No se reproduce a ciegas la 1ª respuesta.
+        return errorJSON(HTTPResponse.Status(code: 422), "idempotency_key_mismatch")
     case .replay(let congelada):
         // `Idempotency-Result: replayed` (guía §169-174): la cola offline distingue una
         // respuesta reproducida de una ejecución fresca.

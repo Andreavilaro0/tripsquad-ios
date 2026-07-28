@@ -96,6 +96,38 @@ struct RoutesTests {
         }
     }
 
+    // Bead 5ln (ADR-0012 §2): la MISMA Idempotency-Key con un body DISTINTO → 422
+    // idempotency_key_mismatch (no reproducir a ciegas el 1er gasto); con el MISMO body →
+    // replay normal (200). Camino de Gastos (API directa).
+    @Test func mismaKeyOtroBody422EnGastos() async throws {
+        let (app, repo) = await app()
+        let headers: HTTPFields = [.authorization: try await bearer("ana"),
+                                   HTTPField.Name("idempotency-key")!: "k1",
+                                   HTTPField.Name("idempotency-first-sent")!: isoReciente()]
+        try await app.test(.router) { client in
+            // 1ª: crea g1 a 30.00.
+            try await client.execute(uri: "/trips/\(trip)/expenses", method: .post, headers: headers,
+                                     body: gastoJSON(id: "g1", amount: "30.00")) { res in
+                #expect(res.status == .created)
+            }
+            // Reintento MISMA key + MISMO body → replay (200), no duplica.
+            try await client.execute(uri: "/trips/\(trip)/expenses", method: .post, headers: headers,
+                                     body: gastoJSON(id: "g1", amount: "30.00")) { res in
+                #expect(res.status == .ok)
+            }
+            // MISMA key + body DISTINTO (otro importe) → 422 idempotency_key_mismatch.
+            try await client.execute(uri: "/trips/\(trip)/expenses", method: .post, headers: headers,
+                                     body: gastoJSON(id: "g1", amount: "99.00")) { res in
+                #expect(res.status.code == 422)
+                #expect(String(buffer: res.body).contains("idempotency_key_mismatch"))
+            }
+        }
+        // La clave quedó ligada al 1er payload: sigue habiendo UN gasto, a 30.00.
+        let gastos = await repo.gastos(de: trip)
+        #expect(gastos.count == 1)
+        #expect(gastos.first?.gasto.importeMinor == 3000)
+    }
+
     @Test func sinIdempotencyKey400() async throws {
         let (app, _) = await app()
         try await app.test(.router) { client in
@@ -404,12 +436,12 @@ struct RoutesTests {
 /// jamás 4xx (ADR-0012 §4).
 struct RepoQueLanza: GastoRepositorio, Membresia {
     struct BDCaida: Error {}
-    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? { throw BDCaida() }
-    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura { throw BDCaida() }
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura? { throw BDCaida() }
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw BDCaida() }
     func gastos(de tripId: String) async throws -> [GastoConEtag] { throw BDCaida() }
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag? { throw BDCaida() }
-    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw BDCaida() }
-    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { throw BDCaida() }
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw BDCaida() }
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { throw BDCaida() }
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { throw BDCaida() }
     func viajeCerrado(_ tripId: String) async throws -> Bool { throw BDCaida() }
     func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] { throw BDCaida() }
@@ -419,12 +451,12 @@ struct RepoQueLanza: GastoRepositorio, Membresia {
 /// Simula la carrera con otro dispositivo del mismo usuario: `in_flight`. El endpoint
 /// debe responder 503 (transitorio), nunca 409 (contrato §0).
 struct RepoInFlight: GastoRepositorio, Membresia {
-    func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? { nil }
-    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
+    func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura? { nil }
+    func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
     func gastos(de tripId: String) async throws -> [GastoConEtag] { [] }
     func gasto(id: String, en tripId: String) async throws -> GastoConEtag? { nil }
-    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
-    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
+    func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
+    func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura { .rechazado(razon: "in_flight") }
     func esMiembro(_ miembro: MiembroId, de tripId: String) async throws -> Bool { true }
     func viajeCerrado(_ tripId: String) async throws -> Bool { false }
     func revisiones(deGasto expenseId: String, en tripId: String, limit: Int) async throws -> [RevisionGasto] { [] }

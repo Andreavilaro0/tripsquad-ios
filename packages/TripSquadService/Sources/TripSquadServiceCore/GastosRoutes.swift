@@ -43,56 +43,67 @@ func montarGastos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
 
     // POST /trips/:tripId/expenses — crear
     router.post("trips/:tripId/expenses") { req, ctx -> Response in
+        var req = req
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         let tripId = try ctx.parameters.require("tripId")
+        // Hash del cuerpo CRUDO ANTES de decodificar (bead 5ln): reusar la Idempotency-Key
+        // con un payload distinto → 422 idempotency_key_mismatch.
+        let requestHash = try await req.hashDelCuerpo()
         let dto = try await req.decode(as: GastoDTO.self, context: ctx)
         let gasto = try dto.aDominio()
-        let r = try await deps.casos.crear(.init(tripId: tripId, gasto: gasto, actor: actor, idempotencyKey: key))
+        let r = try await deps.casos.crear(.init(tripId: tripId, gasto: gasto, actor: actor, idempotencyKey: key, requestHash: requestHash))
         return respuestaDirecta(r)
     }
 
     // POST /trips/:tripId/expenses/from-receipt — crear gasto desde recibo itemizado
     router.post("trips/:tripId/expenses/from-receipt") { req, ctx -> Response in
+        var req = req
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         let tripId = try ctx.parameters.require("tripId")
+        let requestHash = try await req.hashDelCuerpo()   // hash del cuerpo crudo (bead 5ln)
         let dto = try await req.decode(as: ReciboDTO.self, context: ctx)
         let items = dto.items.map { ItemRecibo(importeMinor: $0.importeMinor, sharers: $0.sharers.map(MiembroId.init)) }
         let r = try await deps.casos.crearDesdeRecibo(
             tripId: tripId, gastoId: dto.gastoId, pagadoPor: MiembroId(dto.pagadoPor),
             items: items, impuestosMinor: dto.impuestosMinor, propinaMinor: dto.propinaMinor,
-            actor: actor, idempotencyKey: key)
+            actor: actor, idempotencyKey: key, requestHash: requestHash)
         return respuestaDirecta(r)
     }
 
     // PATCH /trips/:tripId/expenses/:id — editar (If-Match obligatorio)
     router.patch("trips/:tripId/expenses/:id") { req, ctx -> Response in
+        var req = req
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")
         let id = try ctx.parameters.require("id")
+        let requestHash = try await req.hashDelCuerpo()   // hash del cuerpo crudo (bead 5ln)
         let dto = try await req.decode(as: GastoDTO.self, context: ctx)
         // El id del path manda: el body no puede editar OTRO gasto (hallazgo P2 de Codex).
         guard dto.id == id else { return errorJSON(.badRequest, "id_mismatch") }
         let gasto = try dto.aDominio()
-        let r = try await deps.casos.editar(.init(tripId: tripId, gasto: gasto, actor: actor, ifMatch: etag, idempotencyKey: key))
+        let r = try await deps.casos.editar(.init(tripId: tripId, gasto: gasto, actor: actor, ifMatch: etag, idempotencyKey: key, requestHash: requestHash))
         return respuestaDirecta(r)
     }
 
     // DELETE /trips/:tripId/expenses/:id — borrar (If-Match obligatorio, ADR-0013)
     router.delete("trips/:tripId/expenses/:id") { req, ctx -> Response in
+        var req = req
         let actor = ctx.actor      // verificado por AuthMiddleware (ADR-0014 §1)
         guard let key = req.idempotencyKey() else { return errorJSON(.badRequest, "missing_idempotency_key") }
         if let err = errorSiFirstSentInvalido(req, deps.ahora()) { return err }   // bead 5ln
         guard let etag = req.ifMatch() else { return errorJSON(HTTPResponse.Status(code: 428), "missing_if_match") }
         let tripId = try ctx.parameters.require("tripId")
         let id = try ctx.parameters.require("id")
-        let r = try await deps.casos.eliminar(.init(tripId: tripId, gastoId: id, actor: actor, ifMatch: etag, idempotencyKey: key))
+        // Sin body: hash del cuerpo vacío (estable en cada reintento del mismo DELETE).
+        let requestHash = try await req.hashDelCuerpo()
+        let r = try await deps.casos.eliminar(.init(tripId: tripId, gastoId: id, actor: actor, ifMatch: etag, idempotencyKey: key, requestHash: requestHash))
         return respuestaDirecta(r)
     }
 

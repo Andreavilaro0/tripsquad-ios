@@ -129,9 +129,11 @@ func montarItinerario(_ router: some RouterMethods<ContextoAutenticado>, _ deps:
     // Idempotente (bead 379): exige Idempotency-Key; un reintento reproduce la respuesta
     // (incluida la cabecera `etag`) sin crear una segunda actividad.
     router.post("trips/:tripId/itinerary") { req, ctx -> Response in
+        var req = req
         let tripId = try ctx.parameters.require("tripId")
+        let requestHash = try await req.hashDelCuerpo()   // hash del cuerpo crudo (bead 5ln)
         let dto = try await req.decode(as: CrearItinerarioDTO.self, context: ctx)
-        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora()) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora(), requestHash: requestHash) {
             switch try await deps.casosItinerario.crear(
                 tripId: tripId, title: dto.title, day: dto.day, startTime: dto.startTime,
                 location: dto.location, notes: dto.notes, orderIndex: dto.orderIndex ?? 0,

@@ -41,11 +41,14 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
 
     // MARK: - Replay
 
-    public func respuestaPrevia(actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura? {
+    public func respuestaPrevia(actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura? {
         let rows = try await client.query(
-            "SELECT response_body FROM idempotency_keys WHERE user_id = \(actor.raw) AND idempotency_key = \(idempotencyKey) AND response_body IS NOT NULL",
+            "SELECT request_hash, response_body FROM idempotency_keys WHERE user_id = \(actor.raw) AND idempotency_key = \(idempotencyKey) AND response_body IS NOT NULL",
             logger: logger)
-        for try await (body) in rows.decode(String.self) {
+        for try await (storedHash, body) in rows.decode((String, String).self) {
+            // Choque de payload (bead 5ln, ADR-0012 §2): la MISMA clave congelada con OTRO
+            // hash → 422, no reproducir a ciegas. Tiene prioridad sobre el replay.
+            if storedHash != requestHash { return .rechazado(razon: "idempotency_key_mismatch") }
             if let s = RespuestaSerializada.desde(body) { return s.comoReplay }
         }
         return nil
@@ -53,7 +56,7 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
 
     // MARK: - Crear
 
-    public func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String) async throws -> ResultadoEscritura {
+    public func guardar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura {
         let (kind, splitJSON, shares) = try RepartoCodec.aSQL(gasto.reparto)
         let etag = UUID().uuidString
 
@@ -61,9 +64,10 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
             // Reclamar la clave ANTES de mutar (hallazgo P1 de Codex): dos peticiones
             // concurrentes con la misma (actor,key) se serializan en el índice único;
             // la perdedora ve el replay tras el commit de la ganadora.
-            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
+            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey, requestHash: requestHash) {
             case .replay(let r): return r
             case .enVuelo: return .rechazado(razon: "in_flight")
+            case .payloadDistinto: return .rechazado(razon: "idempotency_key_mismatch")   // 422 (bead 5ln)
             case .duena: break
             }
 
@@ -96,14 +100,15 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
 
     // MARK: - Editar
 
-    public func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura {
+    public func actualizar(_ gasto: Gasto, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura {
         let (kind, splitJSON, shares) = try RepartoCodec.aSQL(gasto.reparto)
         let nuevoEtag = UUID().uuidString
 
         return try await client.withTransaction(logger: logger) { conn in
-            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
+            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey, requestHash: requestHash) {
             case .replay(let r): return r
             case .enVuelo: return .rechazado(razon: "in_flight")
+            case .payloadDistinto: return .rechazado(razon: "idempotency_key_mismatch")   // 422 (bead 5ln)
             case .duena: break
             }
 
@@ -158,11 +163,12 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
 
     // MARK: - Eliminar
 
-    public func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura {
+    public func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String, requestHash: String) async throws -> ResultadoEscritura {
         return try await client.withTransaction(logger: logger) { conn in
-            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
+            switch try await self.reclamar(conn, actor: actor, key: idempotencyKey, requestHash: requestHash) {
             case .replay(let r): return r
             case .enVuelo: return .rechazado(razon: "in_flight")
+            case .payloadDistinto: return .rechazado(razon: "idempotency_key_mismatch")   // 422 (bead 5ln)
             case .duena: break
             }
 
@@ -255,37 +261,43 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
     // MARK: - Helpers (dentro de la conexión de la transacción)
 
     /// Resultado de reclamar la clave de idempotencia (patrón Brandur, ADR-0012 §2).
-    enum Reclamacion { case duena, enVuelo, replay(ResultadoEscritura) }
+    /// `.payloadDistinto` = misma clave, `request_hash` distinto → 422 (bead 5ln).
+    enum Reclamacion { case duena, enVuelo, replay(ResultadoEscritura), payloadDistinto }
 
-    /// Intenta reclamar la clave. Si ya tiene respuesta congelada -> replay. Si la
-    /// fila existe pero sin respuesta -> en vuelo (otra petición la tiene). Si no
-    /// existía -> la reclamamos e insertamos (`.duena`). El `INSERT ON CONFLICT DO
-    /// NOTHING` se serializa contra inserciones concurrentes del mismo par en el
-    /// índice único: la perdedora bloquea hasta el commit de la ganadora y luego ve
-    /// la respuesta congelada.
-    private func reclamar(_ conn: PostgresConnection, actor: MiembroId, key: String) async throws -> Reclamacion {
-        if let previa = try await replayEn(conn, actor: actor, key: key) { return .replay(previa) }
+    /// Intenta reclamar la clave. Si la fila existe con un `request_hash` DISTINTO ->
+    /// `.payloadDistinto` (422, bead 5ln). Si ya tiene respuesta congelada -> replay. Si la
+    /// fila existe pero sin respuesta (mismo hash) -> en vuelo (otra petición la tiene). Si no
+    /// existía -> la reclamamos e insertamos con el `request_hash` real (`.duena`). El
+    /// `INSERT ON CONFLICT DO NOTHING` se serializa contra inserciones concurrentes del mismo
+    /// par en el índice único: la perdedora bloquea hasta el commit de la ganadora y luego ve
+    /// la respuesta congelada (o el choque de hash).
+    private func reclamar(_ conn: PostgresConnection, actor: MiembroId, key: String, requestHash: String) async throws -> Reclamacion {
+        if let r = try await reclamacionDeFila(conn, actor: actor, key: key, requestHash: requestHash) { return r }
         let ins = try await conn.query("""
             INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, first_sent, locked_at)
-            VALUES (\(actor.raw), \(key), '', now(), now())
+            VALUES (\(actor.raw), \(key), \(requestHash), now(), now())
             ON CONFLICT (user_id, idempotency_key) DO NOTHING
             RETURNING user_id
             """, logger: logger)
         for try await _ in ins.decode(String.self) { return .duena }
-        // No reclamamos: la fila ya existía. Tras el bloqueo, la respuesta ya debería
-        // estar congelada.
-        if let previa = try await replayEn(conn, actor: actor, key: key) { return .replay(previa) }
+        // No reclamamos: la fila ya existía (tras el bloqueo). Reevaluar hash/respuesta.
+        if let r = try await reclamacionDeFila(conn, actor: actor, key: key, requestHash: requestHash) { return r }
         return .enVuelo
     }
 
-    private func replayEn(_ conn: PostgresConnection, actor: MiembroId, key: String) async throws -> ResultadoEscritura? {
+    /// Lee la fila existente y decide: hash distinto -> `.payloadDistinto`; congelada ->
+    /// `.replay`; existe con mismo hash pero sin respuesta -> `nil` (en vuelo, lo decide el
+    /// llamante). `nil` también si la fila no existe (aún no reclamada).
+    private func reclamacionDeFila(_ conn: PostgresConnection, actor: MiembroId, key: String, requestHash: String) async throws -> Reclamacion? {
         let rows = try await conn.query(
-            "SELECT response_body FROM idempotency_keys WHERE user_id = \(actor.raw) AND idempotency_key = \(key) AND response_body IS NOT NULL",
+            "SELECT request_hash, response_body FROM idempotency_keys WHERE user_id = \(actor.raw) AND idempotency_key = \(key)",
             logger: logger)
-        for try await (body) in rows.decode(String.self) {
-            if let s = RespuestaSerializada.desde(body) { return s.comoReplay }
+        for try await (storedHash, body) in rows.decode((String, String?).self) {
+            if storedHash != requestHash { return .payloadDistinto }
+            if let body, let s = RespuestaSerializada.desde(body) { return .replay(s.comoReplay) }
+            return nil   // existe, mismo hash, sin respuesta -> en vuelo
         }
-        return nil
+        return nil        // no existe la fila
     }
 
     /// Congela la respuesta en la fila de idempotencia ya reclamada (UPDATE, no
@@ -518,34 +530,38 @@ extension RepositorioPostgres {
         let body: String
     }
 
-    private func replayGenerico(actor: MiembroId, key: String) async throws -> RespuestaCongelada? {
+    /// Lee la fila existente para la idempotencia GENÉRICA: hash distinto -> `.payloadDistinto`
+    /// (422, bead 5ln); congelada -> `.replay`; existe con mismo hash pero sin respuesta ->
+    /// `nil` (en vuelo). `nil` también si la fila no existe.
+    private func reclamoGenericoDeFila(actor: MiembroId, key: String, requestHash: String) async throws -> ReclamoIdempotencia? {
         let rows = try await client.query("""
-            SELECT response_body::text FROM idempotency_keys
-            WHERE user_id = \(actor.raw) AND idempotency_key = \(key) AND response_body IS NOT NULL
+            SELECT request_hash, response_body::text FROM idempotency_keys
+            WHERE user_id = \(actor.raw) AND idempotency_key = \(key)
             """, logger: logger)
-        for try await (wire) in rows.decode(String.self) {
-            guard let data = wire.data(using: .utf8),
+        for try await (storedHash, wire) in rows.decode((String, String?).self) {
+            if storedHash != requestHash { return .payloadDistinto }
+            guard let wire, let data = wire.data(using: .utf8),
                   let c = try? JSONDecoder().decode(Congelada.self, from: data) else { return nil }
-            return RespuestaCongelada(code: c.code, headers: c.headers, body: Array(c.body.utf8))
+            return .replay(RespuestaCongelada(code: c.code, headers: c.headers, body: Array(c.body.utf8)))
         }
         return nil
     }
 
-    public func reclamar(actor: MiembroId, key: String) async throws -> ReclamoIdempotencia {
-        // ¿Ya hay respuesta congelada? -> replay directo, sin re-ejecutar.
-        if let previa = try await replayGenerico(actor: actor, key: key) { return .replay(previa) }
+    public func reclamar(actor: MiembroId, key: String, requestHash: String) async throws -> ReclamoIdempotencia {
+        // ¿Fila existente? -> choque de hash (422), replay directo, o en vuelo (nil).
+        if let r = try await reclamoGenericoDeFila(actor: actor, key: key, requestHash: requestHash) { return r }
         // Reclamar el hueco: el INSERT ON CONFLICT DO NOTHING se serializa contra
         // inserciones concurrentes del mismo par en el índice único (autocommit): la
         // ganadora recibe la fila (RETURNING), la perdedora no inserta y cae al replay.
         let ins = try await client.query("""
             INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, first_sent, locked_at)
-            VALUES (\(actor.raw), \(key), '', now(), now())
+            VALUES (\(actor.raw), \(key), \(requestHash), now(), now())
             ON CONFLICT (user_id, idempotency_key) DO NOTHING
             RETURNING user_id
             """, logger: logger)
         for try await _ in ins.decode(String.self) { return .reclamado }
-        // No reclamamos: la fila ya existía. Si ya está congelada -> replay; si no, en vuelo.
-        if let previa = try await replayGenerico(actor: actor, key: key) { return .replay(previa) }
+        // No reclamamos: la fila ya existía. Reevaluar: choque de hash, replay o en vuelo.
+        if let r = try await reclamoGenericoDeFila(actor: actor, key: key, requestHash: requestHash) { return r }
         // Fila sin respuesta congelada -> EN VUELO. NOTA (bead 5ln, hallazgo Codex #56):
         // aquí NO se retoma un lock caducado re-ejecutando el productor. Sería inseguro: si el
         // proceso murió DESPUÉS de crear el recurso pero antes de congelar, re-ejecutar

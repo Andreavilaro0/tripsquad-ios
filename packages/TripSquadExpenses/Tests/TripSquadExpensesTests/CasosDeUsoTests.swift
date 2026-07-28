@@ -41,6 +41,26 @@ struct CasosDeUsoTests {
         #expect(n == 1, "no debe haber duplicado")
     }
 
+    /// (bead 5ln) Misma Idempotency-Key + payload DISTINTO (request_hash distinto) → 422
+    /// `idempotency_key_mismatch`, NO reproducir a ciegas. Mismo hash → replay normal.
+    @Test func mismaClaveOtroPayloadEs422() async throws {
+        let (casos, repo) = await nuevoEntorno()
+        // 1ª vez: clave "k1" con hash "h1" → creado.
+        let creado = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1", requestHash: "h1"))
+        guard case .creado = creado else { Issue.record("esperaba creado, obtuve \(creado)"); return }
+
+        // Misma clave + MISMO hash → replay (reproducido), no duplica.
+        let mismoHash = try await casos.crear(.init(tripId: trip, gasto: gasto("g1"), actor: ana, idempotencyKey: "k1", requestHash: "h1"))
+        guard case .reproducido = mismoHash else { Issue.record("mismo hash debe reproducir, obtuve \(mismoHash)"); return }
+
+        // Misma clave + OTRO hash (payload distinto) → rechazado idempotency_key_mismatch (422).
+        let otroHash = try await casos.crear(.init(tripId: trip, gasto: gasto("g2"), actor: ana, idempotencyKey: "k1", requestHash: "h2"))
+        guard case .rechazado(let razon) = otroHash else { Issue.record("otro hash debe rechazar, obtuve \(otroHash)"); return }
+        #expect(razon == "idempotency_key_mismatch")
+        // No creó el segundo gasto: la clave está ligada al 1er payload.
+        #expect(await repo.gastos(de: trip).count == 1)
+    }
+
     /// Dedupe estructural: mismo id, distinta clave -> tampoco duplica.
     @Test func mismoIdDistintaClaveNoDuplica() async throws {
         let (casos, repo) = await nuevoEntorno()
