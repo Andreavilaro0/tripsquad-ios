@@ -269,11 +269,15 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
         // por `private.olvidar_revisiones_de` (security definer, 0015). Bajo la RLS de
         // `expense_revisions` un DELETE por-usuario dejaría fuera las revisiones en viajes que
         // el autor abandonó (RGPD incompleto); la función las borra TODAS. No usa
-        // `enTransaccionConRolActual`: no hay usuario en cuyo nombre ejecutar.
-        let rows = try await client.query(
-            "SELECT private.olvidar_revisiones_de(\(userId.raw))", logger: logger)
-        for try await (n) in rows.decode(Int.self) { return n }
-        return 0
+        // `enTransaccionConRolActual`: no hay usuario en cuyo nombre ejecutar. Va dentro de
+        // `enTransaccionSistema` (asume `authenticated`) para poder ejecutar la secdef bajo
+        // `app_user` (NOINHERIT) sin `permission denied` (P1 Codex #63).
+        return try await client.enTransaccionSistema(logger: logger) { conn in
+            let rows = try await conn.query(
+                "SELECT private.olvidar_revisiones_de(\(userId.raw))", logger: self.logger)
+            for try await (n) in rows.decode(Int.self) { return n }
+            return 0
+        }
     }
 
     // MARK: - Helpers (dentro de la conexión de la transacción)
@@ -481,11 +485,15 @@ extension RepositorioPostgres: SettlementRepositorio {
     public func caducarPendientes(ahora: Date) async throws -> Int {
         // Operación de SISTEMA (cron, SIN actor): barrido CROSS-VIAJE que ningún usuario
         // individual puede hacer bajo la RLS. Va por `private.caducar_settlements_pendientes`
-        // (security definer, 0015). No usa `enTransaccionConRolActual`: no hay actor.
-        let rows = try await client.query(
-            "SELECT private.caducar_settlements_pendientes(\(ahora))", logger: logger)
-        for try await (n) in rows.decode(Int.self) { return n }
-        return 0
+        // (security definer, 0015), dentro de `enTransaccionSistema` que asume `authenticated`
+        // (P1 Codex #63): bajo `app_user` (NOINHERIT) sin ese SET ROLE la llamada daría
+        // `permission denied`. No hay actor → sin claim (la función no lee `uid()`).
+        return try await client.enTransaccionSistema(logger: logger) { conn in
+            let rows = try await conn.query(
+                "SELECT private.caducar_settlements_pendientes(\(ahora))", logger: self.logger)
+            for try await (n) in rows.decode(Int.self) { return n }
+            return 0
+        }
     }
 
     /// UNA sola query por estado (Gemini P1: antes era N+1 — un SELECT de ids + un SELECT

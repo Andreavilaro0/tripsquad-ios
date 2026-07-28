@@ -161,10 +161,16 @@ begin
     -- Revalida EL CÓDIGO CONCRETO (no "alguna invitación del viaje"): si el código enviado se
     -- revoca en la carrera READ COMMITTED entre `invitacion_por_codigo` y aquí, no debe colar
     -- porque exista OTRA invitación viva del mismo viaje (P1 Codex #63). Filtra por `i.code`.
-    if not exists (
-        select 1 from public.trip_invites i
+    -- `FOR UPDATE` sobre la fila del código (P1 Codex #63): bloquea la invitación hasta que
+    -- la escritura de membresía haga commit, de modo que una `revocarInvitacion` concurrente
+    -- (UPDATE de esa misma fila) se SERIALICE con el join. Sin el lock, bajo READ COMMITTED el
+    -- EXISTS vería la versión viva previa (o la revocación empezaría justo después) y el alta
+    -- colaría sin contender por la fila. Postgres re-evalúa el WHERE tras tomar el lock, así
+    -- que si la revocación commiteó primero, `revoked_at is null` deja de casar → not found.
+    perform 1 from public.trip_invites i
         where i.code = p_code and i.trip_id = p_trip and i.revoked_at is null and i.expires_at > p_ahora
-    ) then
+        for update;
+    if not found then
         return false;   -- el código enviado ya no está vivo a `p_ahora`: no escribe (carrera).
     end if;
     -- Reingreso: reactiva la fila del que salió (PK (trip_id, member_id)).

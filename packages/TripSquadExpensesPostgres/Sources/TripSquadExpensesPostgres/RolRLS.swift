@@ -77,6 +77,23 @@ extension PostgresClient {
         }
     }
 
+    /// Transacción para OPERACIONES DE SISTEMA sin usuario (cron `caducarPendientes`, borrado
+    /// RGPD `olvidarRevisionesDe`): asume el rol `authenticated` (`SET LOCAL role`) para poder
+    /// EJECUTAR las funciones `security definer` de 0015, cuyo `GRANT EXECUTE` es a
+    /// `authenticated`. Bajo `app_user` (`NOINHERIT`, ADR-0030) el rol de conexión NO hereda los
+    /// privilegios de `authenticated` sin `SET ROLE`, así que sin esto la llamada daría
+    /// `permission denied` (P1 Codex #63). NO fija `request.jwt.claims`: estas funciones no leen
+    /// `private.uid()`; son barridos de sistema, no acciones por-usuario.
+    public func enTransaccionSistema<Result: Sendable>(
+        logger: Logger,
+        _ cuerpo: (PostgresConnection) async throws -> Result
+    ) async throws -> Result {
+        try await withTransaction(logger: logger) { conn in
+            _ = try await conn.query("SELECT set_config('role', 'authenticated', true)", logger: logger)
+            return try await cuerpo(conn)
+        }
+    }
+
     /// Fija rol + claims en una conexión que YA está en transacción (para reusar desde un
     /// `withTransaction` existente sin anidar). Idempotente dentro de la misma transacción.
     static func fijarContextoRLS(_ conn: PostgresConnection, actor: MiembroId, logger: Logger) async throws {
