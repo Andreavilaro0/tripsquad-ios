@@ -57,7 +57,9 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
         let (kind, splitJSON, shares) = try RepartoCodec.aSQL(gasto.reparto)
         let etag = UUID().uuidString
 
-        return try await client.withTransaction(logger: logger) { conn in
+        // enTransaccionConRol (ADR-0028): fija SET LOCAL role=authenticated + claim sub=actor
+        // para que la RLS por-usuario se evalúe. Mismo BEGIN/COMMIT que withTransaction.
+        return try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
             // Reclamar la clave ANTES de mutar (hallazgo P1 de Codex): dos peticiones
             // concurrentes con la misma (actor,key) se serializan en el índice único;
             // la perdedora ve el replay tras el commit de la ganadora.
@@ -100,7 +102,7 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
         let (kind, splitJSON, shares) = try RepartoCodec.aSQL(gasto.reparto)
         let nuevoEtag = UUID().uuidString
 
-        return try await client.withTransaction(logger: logger) { conn in
+        return try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
             switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
             case .replay(let r): return r
             case .enVuelo: return .rechazado(razon: "in_flight")
@@ -159,7 +161,7 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
     // MARK: - Eliminar
 
     public func eliminar(id: String, en tripId: String, por actor: MiembroId, ifMatch etag: String, idempotencyKey: String) async throws -> ResultadoEscritura {
-        return try await client.withTransaction(logger: logger) { conn in
+        return try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
             switch try await self.reclamar(conn, actor: actor, key: idempotencyKey) {
             case .replay(let r): return r
             case .enVuelo: return .rechazado(razon: "in_flight")

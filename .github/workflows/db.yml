@@ -40,3 +40,6 @@ jobs:
 
       - name: Aserciones de esquema (G3 + dedupe)
         run: psql -v ON_ERROR_STOP=1 -f db/tests/schema_assertions.sql
+
+      - name: Aserciones de RLS (ADR-0028: no-miembro cortado bajo rol de servicio)
+        run: psql -v ON_ERROR_STOP=1 -f db/tests/rls_assertions.sql

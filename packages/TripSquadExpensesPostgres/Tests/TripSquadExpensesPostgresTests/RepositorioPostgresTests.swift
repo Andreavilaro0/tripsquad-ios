@@ -317,6 +317,13 @@ struct RepositorioPostgresTests {
     @Test func olvidarRevisionesDeBorraSoloLasDelAutorGlobalmente() async throws {
         try await conRepo { repo, trip in
             let autorQueOlvida = MiembroId("olvido-" + UUID().uuidString)
+            // (ADR-0028) Con RLS activa en las escrituras (`actualizar` va por
+            // `enTransaccionConRol`), editar exige ser MIEMBRO del viaje: si el autor no lo
+            // fuera, la policy de `expenses` cortaría el UPDATE (0 filas) y no habría
+            // revisiones que olvidar. Se le da membresía (id único -> sin contaminación
+            // cruzada con `olvidarRevisionesDe`, que es GLOBAL).
+            try await repo.client.query(
+                "INSERT INTO trip_members (trip_id, member_id, role) VALUES (\(trip), \(autorQueOlvida.raw), 'member')")
             let id1 = nuevoId()
             let id2 = nuevoId()
             _ = try await repo.guardar(gasto(id1), en: trip, por: ana, idempotencyKey: "\(id1)-k1")
