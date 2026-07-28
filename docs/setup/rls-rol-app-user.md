@@ -15,10 +15,18 @@ Para poder hacer `SET ROLE authenticated`, el rol de conexión debe ser **miembr
 
 ## SQL a ejecutar (una vez, como superusuario / en el editor SQL de Supabase)
 
+> ⚠️ **La contraseña debe ser URL-safe** (P2 Codex #61). El servicio construye la conexión
+> parseando `DATABASE_URL` con `URLComponents` (ver `configPostgres` en `main.swift`). Si la
+> contraseña lleva caracteres reservados de URI (`#`, `/`, `?`, `@`, `:`, `%`), `URLComponents`
+> NO parsea el host y el servicio cae **en silencio** a los defaults (`PG*`/localhost) → no
+> conecta a tu BD. Usa una contraseña **sin esos caracteres**, o **percent-encódéala** antes de
+> ponerla en `DATABASE_URL` (p. ej. `#` → `%23`, `/` → `%2F`, `@` → `%40`).
+
 ```sql
 -- 1. Rol de conexión del servicio. LOGIN, sin BYPASSRLS, sin superuser.
---    Cambia la contraseña por una fuerte y guárdala en el gestor de secretos (NO en git).
-create role app_user with login password '<PON_UNA_CONTRASEÑA_FUERTE>' nobypassrls noinherit;
+--    Cambia la contraseña por una fuerte y URL-safe (ver aviso de arriba); guárdala en el
+--    gestor de secretos (NO en git).
+create role app_user with login password '<PON_UNA_CONTRASEÑA_FUERTE_URL_SAFE>' nobypassrls noinherit;
 
 -- 2. Puede asumir 'authenticated' (creado por la migración 0014) → SET ROLE authenticated.
 grant authenticated to app_user;
