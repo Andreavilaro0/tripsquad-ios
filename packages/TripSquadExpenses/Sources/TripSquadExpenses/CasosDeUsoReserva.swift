@@ -49,15 +49,25 @@ public struct CasosDeUsoReserva: Sendable {
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
 
         let miembros = Set(try await viajes.miembros(de: tripId).map { $0.0 })
+        // 9bz (decisión Andrea 2026-07-28, ADR-0024 §9bz): redefinir CONSERVA el progreso.
+        // Antes el upsert reseteaba TODO a `.pendiente`, borrando el `.reservado` de quien ya
+        // había reservado — sorprendente si solo cambias el kind o añades un participante. Ahora
+        // se arrastra el estado de quien sigue en la definición; solo arrancan `.pendiente` los
+        // participantes nuevos, o todos si cambia el modo / el responsable de `unoParaTodos`.
+        let previa = try await repo.reserva(activityId: activityId, en: tripId)
         let mode: ModoReserva
         switch modo {
         case .cadaUnoElSuyo(let participantes):
             guard !participantes.isEmpty else { return .failure(.reglaViolada("sin_participantes")) }
             guard participantes.allSatisfy({ miembros.contains($0) }) else { return .failure(.reglaViolada("participante_no_miembro")) }
-            mode = .cadaUnoElSuyo(estados: Dictionary(uniqueKeysWithValues: participantes.map { ($0, .pendiente) }))
+            var previos: [MiembroId: EstadoReserva] = [:]
+            if case .cadaUnoElSuyo(let est)? = previa?.mode { previos = est }
+            mode = .cadaUnoElSuyo(estados: Dictionary(uniqueKeysWithValues: participantes.map { ($0, previos[$0] ?? .pendiente) }))
         case .unoParaTodos(let responsable):
             if let resp = responsable, !miembros.contains(resp) { return .failure(.reglaViolada("responsable_no_miembro")) }
-            mode = .unoParaTodos(responsable: responsable, estado: .pendiente)
+            var estado: EstadoReserva = .pendiente
+            if case .unoParaTodos(let respPrev, let estPrev)? = previa?.mode, respPrev == responsable { estado = estPrev }
+            mode = .unoParaTodos(responsable: responsable, estado: estado)
         }
         let reserva = Reserva(activityId: activityId, tripId: tripId, kind: kind, mode: mode)
         try await repo.upsert(reserva, ahora: ahora)
