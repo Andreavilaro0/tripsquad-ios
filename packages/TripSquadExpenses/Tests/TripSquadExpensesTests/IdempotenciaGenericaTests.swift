@@ -53,4 +53,31 @@ struct IdempotenciaGenericaTests {
             Issue.record("la clave de ivan es independiente de la de ana"); return
         }
     }
+
+    // 4. (bead 5ln) Misma clave + request_hash DISTINTO = payload distinto → `.payloadDistinto`
+    // (el llamante hará 422). Mismo hash → replay normal. Vale tanto en vuelo como ya congelada.
+    @Test func mismaKeyOtroHashEsPayloadDistinto() async throws {
+        let r = IdempotenciaEnMemoria()
+        // 1ª reclamación con hash "h1".
+        guard case .reclamado = try await r.reclamar(actor: ana, key: "k", requestHash: "h1") else {
+            Issue.record("la primera vez debe reclamar"); return
+        }
+        // En VUELO (sin congelar aún): mismo hash → enVuelo; otro hash → payloadDistinto.
+        guard case .enVuelo = try await r.reclamar(actor: ana, key: "k", requestHash: "h1") else {
+            Issue.record("mismo hash en vuelo → enVuelo"); return
+        }
+        guard case .payloadDistinto = try await r.reclamar(actor: ana, key: "k", requestHash: "h2") else {
+            Issue.record("otro hash en vuelo → payloadDistinto"); return
+        }
+        // Ya congelada: mismo hash → replay; otro hash → payloadDistinto.
+        let resp = RespuestaCongelada(code: 201, body: Array(#"{"id":1}"#.utf8))
+        try await r.congelar(actor: ana, key: "k", respuesta: resp)
+        guard case .replay(let reproducida) = try await r.reclamar(actor: ana, key: "k", requestHash: "h1") else {
+            Issue.record("mismo hash congelada → replay"); return
+        }
+        #expect(reproducida == resp)
+        guard case .payloadDistinto = try await r.reclamar(actor: ana, key: "k", requestHash: "h2") else {
+            Issue.record("otro hash congelada → payloadDistinto (no replay a ciegas)"); return
+        }
+    }
 }

@@ -72,7 +72,7 @@ struct ItinerarioRoutesTests {
             var etag = ""
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-1"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-1", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in
                 #expect(res.status == .created)
                 let body = String(buffer: res.body)
@@ -105,7 +105,7 @@ struct ItinerarioRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k-auto-2"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("sara"), HTTPField.Name("idempotency-key")!: "k-auto-2", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in
                 #expect(res.status == .forbidden)
             }
@@ -128,7 +128,7 @@ struct ItinerarioRoutesTests {
             var etag = ""
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-3"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-3", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in
                 let body = String(buffer: res.body)
                 itemId = idDe(body)
@@ -160,7 +160,7 @@ struct ItinerarioRoutesTests {
             var itemId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-4"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-4", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in itemId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -184,7 +184,7 @@ struct ItinerarioRoutesTests {
             var etagOriginal = ""
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-5"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-5", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in
                 let body = String(buffer: res.body)
                 itemId = idDe(body)
@@ -229,7 +229,7 @@ struct ItinerarioRoutesTests {
             var itemId = ""
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-6"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-6", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in itemId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -257,7 +257,7 @@ struct ItinerarioRoutesTests {
             // ana crea (es la creadora); ivan es solo miembro.
             try await client.execute(
                 uri: "/trips/\(trip)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-7"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-7", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in itemId = idDe(String(buffer: res.body)) }
 
             try await client.execute(
@@ -305,7 +305,7 @@ struct ItinerarioRoutesTests {
             // ivan (member, no owner) crea -> es el creador de la actividad.
             try await client.execute(
                 uri: "/trips/\(viaje.id)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ivan"), HTTPField.Name("idempotency-key")!: "k-auto-8"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ivan"), HTTPField.Name("idempotency-key")!: "k-auto-8", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in
                 let body = String(buffer: res.body)
                 itemId = idDe(body)
@@ -357,7 +357,7 @@ struct ItinerarioRoutesTests {
             var etag = ""
             try await client.execute(
                 uri: "/trips/\(viaje.id)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-9"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-9", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in
                 let body = String(buffer: res.body)
                 itemId = idDe(body)
@@ -408,7 +408,7 @@ struct ItinerarioRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(viaje.id)/itinerary", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-10"], body: crearItemJSON()
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-10", HTTPField.Name("idempotency-first-sent")!: isoReciente()], body: crearItemJSON()
             ) { res in
                 #expect(res.status.code == 409)
                 #expect(String(buffer: res.body).contains("trip_closed"))
@@ -434,7 +434,7 @@ struct ItinerarioRoutesTests {
             for titulo in ["Coliseo", "Foro", "Vaticano"] {
                 try await client.execute(
                     uri: "/trips/\(trip)/itinerary", method: .post,
-                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-11-\(titulo)"],
+                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-11-\(titulo)", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                     body: crearItemJSON(title: titulo)
                 ) { res in #expect(res.status == .created) }
             }
@@ -473,7 +473,7 @@ struct ItinerarioRoutesTests {
             for titulo in ["Coliseo", "Foro", "Vaticano"] {
                 try await client.execute(
                     uri: "/trips/\(trip)/itinerary", method: .post,
-                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-12"],
+                    headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k-auto-12", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                     body: crearItemJSON(title: titulo)
                 ) { res in
                     let body = String(buffer: res.body)

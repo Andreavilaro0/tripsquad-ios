@@ -101,6 +101,22 @@ struct BrujulaRoutesTests {
         }
     }
 
+    // 5. Body desproporcionado -> 413 ANTES de decodificar (Codex M8 #2). Se
+    //    corta en el middleware por Content-Length, no llega al caso de uso.
+    @Test func bodyDemasiadoGrande413() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            let queryEnorme = String(repeating: "a", count: 5000)   // body > 4 KiB
+            try await client.execute(
+                uri: "/trips/\(trip)/brujula", method: .post,
+                headers: [.authorization: try await bearer("ana")], body: queryJSON(queryEnorme)
+            ) { res in
+                #expect(res.status.code == 413)
+                #expect(String(buffer: res.body).contains("payload_too_large"))
+            }
+        }
+    }
+
     // Extra: sin token, 401 (misma frontera de auth que gastos/settle/trips/polls/chat).
     @Test func sinTokenBrujula401() async throws {
         let (app, _) = await app()

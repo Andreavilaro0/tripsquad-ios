@@ -77,6 +77,26 @@ struct FotoRoutesTests {
         }
     }
 
+    // 1b. contrato de subida: el presign devuelve method PUT + los headers
+    // OBLIGATORIOS (Content-Type y Content-Length = sizeBytes) que R2 exige firmados
+    // (ADR-0022 §cap — antes era un envelope {url, fields} para POST, que R2 no soporta).
+    @Test func presignDevuelveContratoPutConHeadersObligatorios() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/trips/\(trip)/photos/presign", method: .post,
+                headers: [.authorization: try await bearer("ana")],
+                body: presignJSON(contentType: "image/png", sizeBytes: 4096)
+            ) { res in
+                #expect(res.status == .created)
+                let body = String(buffer: res.body)
+                #expect(body.contains("\"uploadMethod\":\"PUT\""))
+                #expect(body.contains("\"Content-Type\":\"image\\/png\""))
+                #expect(body.contains("\"Content-Length\":\"4096\""))
+            }
+        }
+    }
+
     // 2. presign con content-type inválido -> 422.
     @Test func presignConContentTypeInvalido422() async throws {
         let (app, _) = await app()
@@ -88,6 +108,24 @@ struct FotoRoutesTests {
             ) { res in
                 #expect(res.status.code == 422)
                 #expect(String(buffer: res.body).contains("content_type_invalido"))
+            }
+        }
+    }
+
+    // 2b. presign SIN sizeBytes en el body -> 422 missing_size_bytes (bead 8fd): el
+    // tamaño es OBLIGATORIO porque el adaptador real lo firma como Content-Length exacto
+    // (que R2 exige). Un cuerpo sin la clave (no "null") es un fallo de contrato, no
+    // de decode -> 422 con code, no 400.
+    @Test func presignSinSizeBytes422() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/trips/\(trip)/photos/presign", method: .post,
+                headers: [.authorization: try await bearer("ana")],
+                body: ByteBuffer(string: #"{"contentType":"image/jpeg"}"#)
+            ) { res in
+                #expect(res.status.code == 422)
+                #expect(String(buffer: res.body).contains("missing_size_bytes"))
             }
         }
     }

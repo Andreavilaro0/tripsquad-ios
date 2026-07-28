@@ -75,11 +75,15 @@ public struct CasosDeUsoFoto: Sendable {
     }
 
     /// Solo miembros piden presign (plan §Endpoints, "403 sin fuga"). Valida
-    /// `contentType` (solo image/jpeg|png|heic) y `sizeBytes` (si se declara,
-    /// > 0 y ≤ 20 MB) → `reglaViolada` si no cumple. Genera `id` (UUID) y
-    /// `storageKey = "tripId/id"`, crea la `Foto` en `pending` y devuelve la
-    /// URL prefirmada de subida que da el `storage` (stub o adaptador real).
-    public func presignSubida(tripId: String, contentType: String, sizeBytes: Int64?, caption: String? = nil, actor: MiembroId, ahora: Date) async throws -> Result<PresignSubida, ErrorFoto> {
+    /// `contentType` (solo image/jpeg|png|heic) y `sizeBytes` (> 0 y ≤ 20 MB) →
+    /// `reglaViolada` si no cumple. `sizeBytes` es OBLIGATORIO (bead 8fd): el tope
+    /// de 20 MB era inaplicable mientras el puerto no recibía el tamaño; ahora se
+    /// propaga hasta `FotoStorage.urlDeSubida`, donde el adaptador real lo firma como
+    /// `Content-Length` exacto de una URL PUT prefirmada (R2 exige ese tamaño; el techo
+    /// de 20 MB lo impone ESTE 422 `size_invalido`, ANTES de firmar — ADR-0022 §cap).
+    /// Genera `id` (UUID) y `storageKey = "tripId/id"`, crea la `Foto` en `pending`
+    /// y devuelve la credencial de subida que da el `storage` (stub o adaptador real).
+    public func presignSubida(tripId: String, contentType: String, sizeBytes: Int64, caption: String? = nil, actor: MiembroId, ahora: Date) async throws -> Result<PresignSubida, ErrorFoto> {
         guard try await membresia.esMiembro(actor, de: tripId) else { return .failure(.noAutorizado) }
         // Viaje cerrado bloquea SUBIR (revisión integrada): fotos era el único módulo
         // mutante sin este gate, y sin documentar si era deliberado. Se adopta el mismo
@@ -87,9 +91,7 @@ public struct CasosDeUsoFoto: Sendable {
         // limpieza terminal, ver `borrar`).
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         guard Self.tiposPermitidos.contains(contentType) else { return .failure(.reglaViolada("content_type_invalido")) }
-        if let sizeBytes {
-            guard sizeBytes > 0, sizeBytes <= Self.tamanoMaximoBytes else { return .failure(.reglaViolada("size_invalido")) }
-        }
+        guard sizeBytes > 0, sizeBytes <= Self.tamanoMaximoBytes else { return .failure(.reglaViolada("size_invalido")) }
         if let caption {
             guard caption.unicodeScalars.count <= Self.longitudMaximaCaption else { return .failure(.reglaViolada("caption_muy_larga")) }
         }
@@ -97,7 +99,8 @@ public struct CasosDeUsoFoto: Sendable {
         let storageKey = "\(tripId)/\(id)"
         let foto = Foto(id: id, tripId: tripId, uploadedBy: actor, storageKey: storageKey, contentType: contentType, sizeBytes: sizeBytes, caption: caption, status: .pending, createdAt: ahora)
         try await repo.crearPendiente(foto)
-        let url = try await storage.urlDeSubida(storageKey: storageKey, contentType: contentType, expiraEn: Self.expiraSubida)
+        // `sizeBytes` ya está validado ≤ 20 MB → `Int(_:)` no puede desbordar.
+        let url = try await storage.urlDeSubida(storageKey: storageKey, contentType: contentType, sizeBytes: Int(sizeBytes), expiraEn: Self.expiraSubida)
         return .success(PresignSubida(fotoId: id, urlSubida: url, expiraEn: Self.expiraSubida))
     }
 

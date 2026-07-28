@@ -67,7 +67,7 @@ struct GastosRevisionesRoutesTests {
             var etag = ""
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in
                 #expect(res.status == .created)
@@ -77,7 +77,7 @@ struct GastosRevisionesRoutesTests {
 
             try await client.execute(
                 uri: "/trips/\(trip)/expenses/g1", method: .patch,
-                headers: [.authorization: try await bearer("ivan"), HTTPField.Name("idempotency-key")!: "k2",
+                headers: [.authorization: try await bearer("ivan"), HTTPField.Name("idempotency-key")!: "k2", HTTPField.Name("idempotency-first-sent")!: isoReciente(),
                           HTTPField.Name("if-match")!: etag],
                 body: gastoJSON(id: "g1", amount: "40.00")
             ) { res in #expect(res.status == .ok) }
@@ -101,7 +101,7 @@ struct GastosRevisionesRoutesTests {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/trips/\(trip)/expenses", method: .post,
-                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1"],
+                headers: [.authorization: try await bearer("ana"), HTTPField.Name("idempotency-key")!: "k1", HTTPField.Name("idempotency-first-sent")!: isoReciente()],
                 body: gastoJSON(id: "g1")
             ) { res in #expect(res.status == .created) }
 

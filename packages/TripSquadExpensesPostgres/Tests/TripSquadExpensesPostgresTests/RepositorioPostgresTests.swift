@@ -92,6 +92,57 @@ struct RepositorioPostgresTests {
         }
     }
 
+    // bead 5ln (ADR-0012 §2): idempotencia GENÉRICA con `request_hash` DISTINTO → payloadDistinto
+    // (el llamante hará 422), tanto en vuelo como ya congelada. Mismo hash → replay/enVuelo normal.
+    @Test func idempotenciaGenericaOtroHashEsPayloadDistintoPostgres() async throws {
+        try await conRepo { repo, _ in
+            let k = nuevaKey()
+            guard case .reclamado = try await repo.reclamar(actor: ana, key: k, requestHash: "h1") else {
+                Issue.record("primer reclamo con h1"); return
+            }
+            // En vuelo (sin congelar), otro hash → payloadDistinto.
+            guard case .payloadDistinto = try await repo.reclamar(actor: ana, key: k, requestHash: "h2") else {
+                Issue.record("otro hash en vuelo → payloadDistinto"); return
+            }
+            // Ya congelada: mismo hash → replay; otro hash → payloadDistinto (no replay a ciegas).
+            let resp = RespuestaCongelada(code: 201, body: Array(#"{"id":"x"}"#.utf8))
+            try await repo.congelar(actor: ana, key: k, respuesta: resp)
+            guard case .replay = try await repo.reclamar(actor: ana, key: k, requestHash: "h1") else {
+                Issue.record("mismo hash congelada → replay"); return
+            }
+            guard case .payloadDistinto = try await repo.reclamar(actor: ana, key: k, requestHash: "h2") else {
+                Issue.record("otro hash congelada → payloadDistinto"); return
+            }
+        }
+    }
+
+    // bead 5ln: camino de Gastos con `request_hash` DISTINTO para la MISMA (actor,key) → 422
+    // (idempotency_key_mismatch), por `respuestaPrevia` (corto-circuito) y por `guardar`
+    // (reclamar). Mismo hash → replay normal. Sin duplicar.
+    @Test func mismaClaveOtroHashEs422Postgres() async throws {
+        try await conRepo { repo, trip in
+            let id = nuevoId()
+            let key = "\(id)-k1"
+            let creado = try await repo.guardar(gasto(id), en: trip, por: ana, idempotencyKey: key, requestHash: "h1")
+            guard case .creado = creado else { Issue.record("esperaba creado, obtuve \(creado)"); return }
+
+            // respuestaPrevia con MISMO hash → replay; con OTRO hash → mismatch.
+            let mismo = try await repo.respuestaPrevia(actor: ana, idempotencyKey: key, requestHash: "h1")
+            guard case .reproducido = mismo else { Issue.record("mismo hash → replay, obtuve \(String(describing: mismo))"); return }
+            let previaOtro = try await repo.respuestaPrevia(actor: ana, idempotencyKey: key, requestHash: "h2")
+            guard case .rechazado(let r1) = previaOtro else {
+                Issue.record("otro hash respuestaPrevia → mismatch, obtuve \(String(describing: previaOtro))"); return
+            }
+            #expect(r1 == "idempotency_key_mismatch")
+
+            // guardar (camino reclamar) con OTRO hash → mismatch, sin duplicar.
+            let guardarOtro = try await repo.guardar(gasto(nuevoId()), en: trip, por: ana, idempotencyKey: key, requestHash: "h2")
+            guard case .rechazado(let r2) = guardarOtro else { Issue.record("otro hash guardar → mismatch, obtuve \(guardarOtro)"); return }
+            #expect(r2 == "idempotency_key_mismatch")
+            #expect(try await repo.gastos(de: trip).count == 1)
+        }
+    }
+
     @Test func crearYLeer() async throws {
         try await conRepo { repo, trip in
             let id = nuevoId()
@@ -317,6 +368,13 @@ struct RepositorioPostgresTests {
     @Test func olvidarRevisionesDeBorraSoloLasDelAutorGlobalmente() async throws {
         try await conRepo { repo, trip in
             let autorQueOlvida = MiembroId("olvido-" + UUID().uuidString)
+            // (ADR-0030) Con RLS activa en las escrituras (`actualizar` va por
+            // `enTransaccionConRol`), editar exige ser MIEMBRO del viaje: si el autor no lo
+            // fuera, la policy de `expenses` cortaría el UPDATE (0 filas) y no habría
+            // revisiones que olvidar. Se le da membresía (id único -> sin contaminación
+            // cruzada con `olvidarRevisionesDe`, que es GLOBAL).
+            try await repo.client.query(
+                "INSERT INTO trip_members (trip_id, member_id, role) VALUES (\(trip), \(autorQueOlvida.raw), 'member')")
             let id1 = nuevoId()
             let id2 = nuevoId()
             _ = try await repo.guardar(gasto(id1), en: trip, por: ana, idempotencyKey: "\(id1)-k1")

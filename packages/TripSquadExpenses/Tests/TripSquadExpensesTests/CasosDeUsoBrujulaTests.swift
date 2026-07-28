@@ -40,7 +40,7 @@ struct CasosDeUsoBrujulaTests {
     @Test func pagoConfirmadoSeDescuentaDelResumen() async throws {
         let (casos, repo) = await nuevoEntorno()
         // ana paga 4000, split igual ana/ivan → ivan debe 2000 a ana.
-        _ = await repo.guardar(
+        _ = try await repo.guardar(
             Gasto(id: "g1", pagadoPor: ana, importeMinor: 4000, reparto: .igual(entre: [ana, ivan])),
             en: trip, por: ana, idempotencyKey: "k1")
 
@@ -109,7 +109,7 @@ struct CasosDeUsoBrujulaTests {
     @Test func resumenSaldosReflejaDeudaEnElContexto() async throws {
         let (casos, repo) = await nuevoEntorno()
         let gasto = Gasto(id: "g1", pagadoPor: ana, importeMinor: 2000, reparto: .igual(entre: [ana, ivan]))
-        _ = await repo.guardar(gasto, en: trip, por: ana, idempotencyKey: "k1")
+        _ = try await repo.guardar(gasto, en: trip, por: ana, idempotencyKey: "k1")
 
         guard case .success(let respuesta) = try await casos.consultar(tripId: trip, query: "¿quién debe?", actor: ana) else {
             Issue.record("esperaba consultar exitoso"); return

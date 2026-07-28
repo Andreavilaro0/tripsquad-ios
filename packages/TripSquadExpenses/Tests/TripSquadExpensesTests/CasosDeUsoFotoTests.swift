@@ -390,7 +390,7 @@ struct CasosDeUsoFotoTests {
 /// tope de `listar` acota las llamadas al proveedor, no solo el tamaño de la respuesta.
 private actor ContadorDeLecturas: FotoStorage {
     private(set) var lecturas = 0
-    func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String { "stub://subida/\(storageKey)" }
+    func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String { "stub://subida/\(storageKey)" }
     func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String {
         lecturas += 1
         return "stub://lectura/\(storageKey)"
@@ -402,7 +402,7 @@ private actor ContadorDeLecturas: FotoStorage {
 /// probar el orden binario→metadato de `CasosDeUsoFoto.borrar`.
 private struct StorageQueLanzaAlBorrar: FotoStorage {
     struct BorradoFallido: Error {}
-    func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String { "stub://subida/\(storageKey)" }
+    func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String { "stub://subida/\(storageKey)" }
     func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String { "stub://lectura/\(storageKey)" }
     func borrar(storageKey: String) async throws { throw BorradoFallido() }
 }

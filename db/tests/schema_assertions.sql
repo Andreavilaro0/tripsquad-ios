@@ -95,6 +95,10 @@ end $$;
 -- cuota negativa debe ser rechazada por el check.
 insert into expense_shares (expense_id, member_id, amount_minor) values ('g1','m1', 1000)
 on conflict do nothing;
+-- m2 debe ser miembro de t1 para que este test AÍSLE el rechazo por importe negativo:
+-- desde 0012 el trigger de membresía se dispara antes que el CHECK, así que un
+-- member_id no-miembro daría foreign_key_violation en vez de check_violation.
+insert into trip_members (trip_id, member_id) values ('t1','m2') on conflict do nothing;
 do $$
 begin
     begin
@@ -103,4 +107,71 @@ begin
     exception when check_violation then
         raise notice 'OK: expense_shares rechaza cuotas negativas';
     end;
+end $$;
+
+-- Defensa en profundidad de membresía (bead epb, migración 0012 + 0013) --------------
+--
+-- El FK compuesto de expenses.paid_by debe existir y estar VALIDADO (0013 corre el
+-- VALIDATE), y el trigger de membresía de expense_shares debe existir.
+do $$
+begin
+    if not exists (
+        select 1 from pg_constraint
+         where conname = 'fk_expenses_paid_by_miembro'
+           and contype = 'f'
+           and convalidated = true
+    ) then
+        raise exception 'falta el FK validado fk_expenses_paid_by_miembro (expenses.paid_by -> trip_members)';
+    end if;
+
+    if not exists (
+        select 1 from pg_trigger
+         where tgname = 'trg_expense_shares_member_es_miembro'
+           and not tgisinternal
+    ) then
+        raise exception 'falta el trigger trg_expense_shares_member_es_miembro (membresía de expense_shares)';
+    end if;
+
+    raise notice 'OK: FK de paid_by validado + trigger de membresía de expense_shares presentes';
+end $$;
+
+-- Funcional (positivo): un share de un miembro real (m1) se acepta -> ya insertado
+-- arriba (g1,m1) sin error, lo que prueba que el trigger no rechaza a los miembros.
+
+-- Funcional (negativo, expense_shares): un share cuyo member_id NO es miembro del
+-- viaje del gasto debe ser rechazado por el trigger.
+do $$
+begin
+    begin
+        insert into expense_shares (expense_id, member_id, amount_minor) values ('g1','fantasma', 500);
+        raise exception 'un share de un NO-miembro NO debería aceptarse';
+    exception when foreign_key_violation then
+        raise notice 'OK: expense_shares rechaza member_id que no es miembro del viaje';
+    end;
+end $$;
+
+-- Funcional (negativo, expenses.paid_by): un gasto cuyo paid_by NO es miembro del
+-- viaje debe ser rechazado por el FK compuesto (aplica a filas nuevas aun con NOT
+-- VALID; aquí además ya está validado por 0013).
+do $$
+begin
+    begin
+        insert into expenses (id, trip_id, paid_by, amount_reference, amount_original, currency_original, split_kind, split, etag)
+        values ('g_bad','t1','fantasma', 1000, 1000, 'EUR', 'equal', '{"among":["m1"]}', 'v1');
+        raise exception 'un gasto con paid_by NO-miembro NO debería aceptarse';
+    exception when foreign_key_violation then
+        raise notice 'OK: expenses rechaza paid_by que no es miembro del viaje';
+    end;
+end $$;
+
+-- Funcional (positivo, miembro que ya salió): un miembro con left_at != null sigue
+-- siendo miembro del viaje y sus shares deben aceptarse (membresía = existencia).
+insert into trip_members (trip_id, member_id, left_at) values ('t1','m_ex', now()) on conflict do nothing;
+insert into expense_shares (expense_id, member_id, amount_minor) values ('g1','m_ex', 250) on conflict do nothing;
+do $$
+declare n int;
+begin
+    select count(*) into n from expense_shares where expense_id='g1' and member_id='m_ex';
+    if n <> 1 then raise exception 'un miembro que salió del viaje (left_at) debería poder tener shares'; end if;
+    raise notice 'OK: membresía = existencia (un miembro con left_at sigue siendo válido)';
 end $$;

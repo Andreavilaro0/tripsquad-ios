@@ -132,13 +132,21 @@ public struct CasosDeUsoReserva: Sendable {
     /// `unoParaTodos` el actor debe ser el responsable o el owner. Sin fuga
     /// de existencia (no-miembro/no-reserva → `noAutorizado`).
     ///
-    /// Idempotente por `(activityId, actor)`: si ya hay una confirmación
-    /// guardada, la devuelve SIN volver a llamar al `EstructuradorConfirmacion`
-    /// (evita coste/reintento del LLM en reenvíos). Si no, redacta el texto
-    /// (RGPD — minimización, ver spec §RGPD), lo manda al extractor, guarda
-    /// los datos extraídos y marca el estado del actor como `.reservado`.
-    /// El fallo del extractor (texto ilegible) es `reglaViolada("confirmacion_ilegible")`,
-    /// nunca fuga el error interno del LLM (mismo criterio "sin fuga").
+    /// Idempotente por la CLAVE CANÓNICA de la confirmación (ADR-0029): si ya
+    /// hay una guardada, la devuelve SIN volver a llamar al
+    /// `EstructuradorConfirmacion` (evita coste/reintento del LLM en reenvíos).
+    /// En `cadaUnoElSuyo` la clave es `(activityId, actor)` — cada participante
+    /// confirma la suya. En `unoParaTodos` es **por-actividad**: la clave es
+    /// `(activityId, responsable)` sin importar quién suba (responsable u owner),
+    /// de modo que ambos subiendo el mismo billete = UNA sola llamada al LLM
+    /// (resuelve el deferido de ADR-0026 §Consecuencias). Si no hay confirmación,
+    /// redacta el texto (RGPD — minimización, ver spec §RGPD), lo manda al
+    /// extractor, y guarda+marca `.reservado` ATÓMICAMENTE
+    /// (`guardarConfirmacionYMarcarReservado`, endurecimiento a62): un fallo
+    /// entre el guardado y el marcado no puede dejar estado inconsistente en el
+    /// adaptador Postgres. El fallo del extractor (texto ilegible) es
+    /// `reglaViolada("confirmacion_ilegible")`, nunca fuga el error interno del
+    /// LLM (mismo criterio "sin fuga").
     ///
     /// Cap de coste (endurecimiento post-dy5): si `textoConfirmacion` supera
     /// `maxLongitudConfirmacion` (20_000 chars) se rechaza con
@@ -153,15 +161,20 @@ public struct CasosDeUsoReserva: Sendable {
         guard try await !membresia.viajeCerrado(tripId) else { return .failure(.viajeCerrado) }
         let esOwner = (try await viajes.rol(de: actor, en: tripId)) == .owner
 
+        // Clave canónica de la confirmación: por-actor en cadaUnoElSuyo;
+        // por-actividad (el responsable) en unoParaTodos — ver doc arriba (ADR-0029).
+        let miembroConfirmacion: MiembroId
         switch reserva.mode {
         case .cadaUnoElSuyo(let estados):
             guard estados[actor] != nil else { return .failure(.reglaViolada("miembro_no_incluido")) }
+            miembroConfirmacion = actor
         case .unoParaTodos(let responsable, _):
-            guard responsable != nil else { return .failure(.reglaViolada("sin_responsable")) }
+            guard let responsable else { return .failure(.reglaViolada("sin_responsable")) }
             guard actor == responsable || esOwner else { return .failure(.noAutorizado) }
+            miembroConfirmacion = responsable
         }
 
-        if let existente = try await repo.confirmacion(activityId: activityId, en: tripId, miembro: actor) {
+        if let existente = try await repo.confirmacion(activityId: activityId, en: tripId, miembro: miembroConfirmacion) {
             return .success(existente)
         }
 
@@ -179,8 +192,8 @@ public struct CasosDeUsoReserva: Sendable {
 
         let confirmacion = Confirmacion(tipo: datos.tipo, fechaISO: datos.fechaISO,
                                         numeroConfirmacion: datos.numeroConfirmacion, proveedor: datos.proveedor)
-        try await repo.guardarConfirmacion(activityId: activityId, en: tripId, miembro: actor, confirmacion)
-        try await repo.marcarEstado(activityId: activityId, en: tripId, miembro: actor, estado: .reservado)
+        try await repo.guardarConfirmacionYMarcarReservado(
+            activityId: activityId, en: tripId, miembro: miembroConfirmacion, confirmacion)
         return .success(confirmacion)
     }
 

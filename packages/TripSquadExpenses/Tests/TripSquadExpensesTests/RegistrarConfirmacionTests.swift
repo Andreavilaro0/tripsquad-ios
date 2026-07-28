@@ -140,19 +140,39 @@ struct RegistrarConfirmacionTests {
         #expect(r == .failure(.noAutorizado))
     }
 
-    /// Documenta el comportamiento ACTUAL: la idempotencia está indexada por
-    /// actor (`repo.confirmacion(activityId, tripId, actor)`), no por la
-    /// reserva compartida de `unoParaTodos`. Para el MISMO actor (`b`), la
-    /// segunda llamada no vuelve a invocar el LLM — igual que en
-    /// `cadaUnoElSuyo`. El caso borde de que un actor DISTINTO (p.ej. el
-    /// owner) pudiera re-disparar el LLM sobre la misma reserva compartida
-    /// queda fuera de este test — decisión pendiente de Andrea, no se toca
-    /// aquí el keying de producción.
+    /// La segunda subida del MISMO actor (`b`, responsable) no vuelve a invocar
+    /// el LLM — igual que en `cadaUnoElSuyo`.
     @Test func segundaVezMismoActorNoRellamaLLM() async throws {
         let f = try await fixtureUnoParaTodos()
         _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "v1", actor: f.b, ahora: Date())
         let antes = f.fake.llamadas
         _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "v2", actor: f.b, ahora: Date())
         #expect(f.fake.llamadas == antes)   // no volvió a llamar
+    }
+
+    /// Idempotencia POR-ACTIVIDAD en `unoParaTodos` (endurecimiento a62,
+    /// ADR-0029 — resuelve el deferido de ADR-0026): la confirmación se indexa
+    /// por la reserva (canónicamente el responsable), no por quien la sube. Si
+    /// primero sube el OWNER (`a`) y luego el RESPONSABLE (`b`), el LLM se llama
+    /// UNA sola vez — no dos — porque conceptualmente hay un único estado
+    /// compartido. Este era el borde de doble-coste que ADR-0026 dejó abierto.
+    @Test func unoParaTodosIdempotentePorActividadOwnerLuegoResponsable() async throws {
+        let f = try await fixtureUnoParaTodos()   // a = owner, b = responsable
+        _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "sube el owner", actor: f.a, ahora: Date())
+        let antes = f.fake.llamadas
+        _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "sube el responsable", actor: f.b, ahora: Date())
+        #expect(f.fake.llamadas == antes)   // una sola llamada al LLM por actividad
+    }
+
+    /// Simétrico del anterior: RESPONSABLE (`b`) primero, OWNER (`a`) después →
+    /// también una sola llamada al LLM (la clave canónica es el responsable en
+    /// ambos órdenes).
+    @Test func unoParaTodosIdempotentePorActividadResponsableLuegoOwner() async throws {
+        let f = try await fixtureUnoParaTodos()   // a = owner, b = responsable
+        _ = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "sube el responsable", actor: f.b, ahora: Date())
+        let antes = f.fake.llamadas
+        let r = try await f.casos.registrarConfirmacion(tripId: "t1", activityId: "act1", textoConfirmacion: "sube el owner", actor: f.a, ahora: Date())
+        #expect(f.fake.llamadas == antes)               // no re-llama
+        #expect(try r.get().numeroConfirmacion == "XYZ789")   // devuelve la confirmación ya guardada
     }
 }

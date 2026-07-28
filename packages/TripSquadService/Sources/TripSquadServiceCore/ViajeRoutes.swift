@@ -56,8 +56,10 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     // Idempotente (bead 379): un reintento con la misma Idempotency-Key reproduce el viaje
     // creado sin crear un segundo.
     router.post("trips") { req, ctx -> Response in
+        var req = req
+        let requestHash = try await req.hashDelCuerpo()   // hash del cuerpo crudo (bead 5ln)
         let dto = try await req.decode(as: CrearViajeDTO.self, context: ctx)
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora(), requestHash: requestHash) {
             switch try await deps.casosViaje.crear(
                 name: dto.name, baseCurrency: dto.baseCurrency ?? "EUR", actor: ctx.actor, ahora: deps.ahora()) {
             case .success(let viaje):
@@ -100,8 +102,11 @@ func montarViajes(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Dep
     // Idempotente (bead 379): un reintento con la misma Idempotency-Key reproduce la misma
     // invitación en vez de generar un segundo código.
     router.post("trips/:tripId/invites") { req, ctx -> Response in
+        var req = req
         let tripId = try ctx.parameters.require("tripId")
-        return try await conIdempotencia(req, ctx, deps.idempotencia) {
+        // Sin body: `hashDelCuerpo` da el hash del cuerpo vacío (estable en cada reintento).
+        let requestHash = try await req.hashDelCuerpo()
+        return try await conIdempotencia(req, ctx, deps.idempotencia, deps.ahora(), requestHash: requestHash) {
             let ahora = deps.ahora()
             switch try await deps.casosViaje.invitar(tripId: tripId, actor: ctx.actor, ahora: ahora) {
             case .success(let invitacion):

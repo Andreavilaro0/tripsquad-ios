@@ -223,6 +223,55 @@ extension RepositorioPostgres: ReservaRepositorio {
             """, logger: logger)
     }
 
+    /// Endurecimiento a62 (atomicidad, ADR-0029): guarda la confirmación Y marca
+    /// el estado `.reservado` en la MISMA transacción, de modo que un fallo entre
+    /// medias no pueda dejar "confirmación guardada + estado pendiente" (antes
+    /// eran dos llamadas de puerto con transacción propia cada una). El UPSERT de
+    /// la confirmación es idéntico a `guardarConfirmacion`; el marcado replica
+    /// `marcarEstado` (rama por modo GUARDADO, leído dentro de la misma
+    /// transacción). El actor sube su propia confirmación, así que se usa
+    /// `miembro` para el marcado — en `uno_para_todos` la rama lo ignora y fija
+    /// `single_estado` (mismo criterio que `marcarEstado`).
+    public func guardarConfirmacionYMarcarReservado(activityId: String, en tripId: String, miembro: MiembroId, _ c: Confirmacion) async throws {
+        try await client.withTransaction(logger: logger) { conn in
+            // 1. Guarda la confirmación (upsert por PK (activity_id, member_id)).
+            _ = try await conn.query("""
+                INSERT INTO itinerary_reservation_confirmations
+                    (activity_id, member_id, tipo, fecha_iso, numero_confirmacion, proveedor, created_at)
+                VALUES
+                    (\(activityId), \(miembro.raw), \(c.tipo.rawValue), \(c.fechaISO), \(c.numeroConfirmacion), \(c.proveedor), \(Date()))
+                ON CONFLICT (activity_id, member_id) DO UPDATE SET
+                    tipo = EXCLUDED.tipo,
+                    fecha_iso = EXCLUDED.fecha_iso,
+                    numero_confirmacion = EXCLUDED.numero_confirmacion,
+                    proveedor = EXCLUDED.proveedor,
+                    created_at = EXCLUDED.created_at
+                """, logger: self.logger)
+
+            // 2. Marca `.reservado` en la MISMA transacción (rama por modo
+            //    GUARDADO, réplica de `marcarEstado`).
+            let rows = try await conn.query("""
+                SELECT mode FROM itinerary_reservations
+                WHERE activity_id = \(activityId) AND trip_id = \(tripId)
+                """, logger: self.logger)
+            var modoGuardado: String?
+            for try await (m) in rows.decode(String.self) { modoGuardado = m }
+            guard let modoGuardado else { return }   // no existe -> no-op (mismo criterio que memoria)
+
+            if modoGuardado == "cada_uno" {
+                _ = try await conn.query("""
+                    UPDATE itinerary_reservation_members SET estado = \(EstadoReserva.reservado.rawValue)
+                    WHERE activity_id = \(activityId) AND member_id = \(miembro.raw)
+                    """, logger: self.logger)
+            } else {
+                _ = try await conn.query("""
+                    UPDATE itinerary_reservations SET single_estado = \(EstadoReserva.reservado.rawValue)
+                    WHERE activity_id = \(activityId) AND trip_id = \(tripId)
+                    """, logger: self.logger)
+            }
+        }
+    }
+
     public func confirmacion(activityId: String, en tripId: String, miembro: MiembroId) async throws -> Confirmacion? {
         let rows = try await client.query("""
             SELECT c.tipo, c.fecha_iso, c.numero_confirmacion, c.proveedor

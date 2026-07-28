@@ -19,8 +19,13 @@ public struct FotoStorageStub: FotoStorage {
         self.bucket = bucket
     }
 
-    public func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String {
-        "stub://\(bucket)/\(storageKey)?exp=\(Int(expiraEn))"
+    public func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String {
+        // URL de SUBIDA determinista (análoga a la URL PUT prefirmada del adaptador
+        // real). El stub NO firma ni impone nada: `sizeBytes` viaja en el query solo
+        // para dejar la URL trazable en tests. En R2 la subida es un PUT con
+        // Content-Type/Content-Length FIRMADOS (que R2 exige exactos) y el techo de
+        // 20 MB lo impone la capa app antes de firmar (ADR-0022 §cap), no este stub.
+        "stub://\(bucket)/\(storageKey)?exp=\(Int(expiraEn))&size=\(sizeBytes)"
     }
 
     public func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String {
