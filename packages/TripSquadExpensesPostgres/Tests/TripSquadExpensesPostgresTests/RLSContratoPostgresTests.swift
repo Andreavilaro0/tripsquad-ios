@@ -1,4 +1,4 @@
-// Test de contrato de la RLS (ADR-0028, bead 5n3) desde la capa de datos: usa el helper
+// Test de contrato de la RLS (ADR-0030, bead 5n3) desde la capa de datos: usa el helper
 // `enTransaccionConRol(actor:)` (mecanismo A+B) para demostrar que un usuario NO-MIEMBRO
 // no puede leer ni escribir filas de un viaje ajeno, aunque el rol de servicio tenga GRANT.
 //
@@ -13,7 +13,7 @@ import TripSquadDomain
 import TripSquadExpenses
 @testable import TripSquadExpensesPostgres
 
-@Suite("RLS por-usuario bajo rol de servicio (ADR-0028)", .enabled(if: pgHabilitado))
+@Suite("RLS por-usuario bajo rol de servicio (ADR-0030)", .enabled(if: pgHabilitado))
 struct RLSContratoPostgresTests {
 
     let ana = MiembroId("ana"), ivan = MiembroId("ivan"), sara = MiembroId("sara")

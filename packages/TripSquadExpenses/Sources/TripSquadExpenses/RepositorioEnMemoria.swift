@@ -713,7 +713,7 @@ extension RepositorioEnMemoria: ReservaRepositorio {
         confirmaciones[claveConfirmacion(tripId, activityId, miembro)]
     }
 
-    /// Endurecimiento a62 (atomicidad, ADR-0028): el adaptador Postgres hace
+    /// Endurecimiento a62 (atomicidad, ADR-0029): el adaptador Postgres hace
     /// estas dos escrituras en UNA transacción. Aquí, sin transacciones reales,
     /// se hacen secuencialmente — aceptable a propósito: `RepositorioEnMemoria`
     /// es un doble de test/dev que no persiste, así que no hay durabilidad que

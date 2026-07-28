@@ -1,4 +1,4 @@
--- Test de contrato de la RLS (ADR-0028, bead 5n3). Demuestra que, al asumir el rol
+-- Test de contrato de la RLS (ADR-0030, bead 5n3). Demuestra que, al asumir el rol
 -- `authenticated` + claim `sub` (mecanismo A+B), un usuario NO-MIEMBRO no puede
 -- leer ni escribir filas de un viaje ajeno, aunque el rol tenga GRANT sobre la tabla.
 --
@@ -108,4 +108,4 @@ begin;
     end $$;
 commit;
 
-select 'OK: RLS por-usuario (A+B, ADR-0028) verificada — no-miembro cortado, miembro pasa' as resultado;
+select 'OK: RLS por-usuario (A+B, ADR-0030) verificada — no-miembro cortado, miembro pasa' as resultado;

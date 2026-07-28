@@ -223,7 +223,7 @@ extension RepositorioPostgres: ReservaRepositorio {
             """, logger: logger)
     }
 
-    /// Endurecimiento a62 (atomicidad, ADR-0028): guarda la confirmación Y marca
+    /// Endurecimiento a62 (atomicidad, ADR-0029): guarda la confirmación Y marca
     /// el estado `.reservado` en la MISMA transacción, de modo que un fallo entre
     /// medias no pueda dejar "confirmación guardada + estado pendiente" (antes
     /// eran dos llamadas de puerto con transacción propia cada una). El UPSERT de

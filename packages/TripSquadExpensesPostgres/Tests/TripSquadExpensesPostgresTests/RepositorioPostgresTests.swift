@@ -368,7 +368,7 @@ struct RepositorioPostgresTests {
     @Test func olvidarRevisionesDeBorraSoloLasDelAutorGlobalmente() async throws {
         try await conRepo { repo, trip in
             let autorQueOlvida = MiembroId("olvido-" + UUID().uuidString)
-            // (ADR-0028) Con RLS activa en las escrituras (`actualizar` va por
+            // (ADR-0030) Con RLS activa en las escrituras (`actualizar` va por
             // `enTransaccionConRol`), editar exige ser MIEMBRO del viaje: si el autor no lo
             // fuera, la policy de `expenses` cortaría el UPDATE (0 filas) y no habría
             // revisiones que olvidar. Se le da membresía (id único -> sin contaminación

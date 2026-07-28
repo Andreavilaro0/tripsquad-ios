@@ -1,7 +1,7 @@
--- Migración 0012 — mecanismo de RLS con rol de servicio (ADR-0028, bead 5n3).
+-- Migración 0014 — mecanismo de RLS con rol de servicio (ADR-0030, bead 5n3).
 -- CIERRA el PENDIENTE que dejaba 0001_expenses.sql:140-143.
 --
--- Decisión FIRMADA por Andrea (2026-07-28, ADR-0028): mecanismo A+B del doc de
+-- Decisión FIRMADA por Andrea (2026-07-28, ADR-0030): mecanismo A+B del doc de
 -- investigación docs/design/rls-mecanismo-investigacion-5n3.md:
 --   A) el servicio emula a PostgREST por transacción: SET LOCAL role = authenticated
 --      + set_config('request.jwt.claims', {sub: userId}, true) (helper Swift
@@ -139,7 +139,7 @@ grant execute on all functions in schema private to authenticated;
 -- RLS se aplica ENCIMA de los grants: sin grant, `permission denied` antes de evaluar
 -- policies. Con grant + policies, el filtro real es la policy. (El rol de CONEXIÓN de
 -- la app es OTRO — un rol propio sin BYPASSRLS, miembro de `authenticated`; su GRANT y
--- config son un gate de entorno para Andrea, ver ADR-0028 §Consecuencias.)
+-- config son un gate de entorno para Andrea, ver ADR-0030 §Consecuencias.)
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant usage, select on all sequences in schema public to authenticated;

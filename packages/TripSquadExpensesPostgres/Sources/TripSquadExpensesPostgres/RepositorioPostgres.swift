@@ -60,7 +60,7 @@ public struct RepositorioPostgres: GastoRepositorio, Membresia, Idempotencia {
         let (kind, splitJSON, shares) = try RepartoCodec.aSQL(gasto.reparto)
         let etag = UUID().uuidString
 
-        // enTransaccionConRol (ADR-0028): fija SET LOCAL role=authenticated + claim sub=actor
+        // enTransaccionConRol (ADR-0030): fija SET LOCAL role=authenticated + claim sub=actor
         // para que la RLS por-usuario se evalúe. Mismo BEGIN/COMMIT que withTransaction.
         return try await client.enTransaccionConRol(actor: actor, logger: logger) { conn in
             // Reclamar la clave ANTES de mutar (hallazgo P1 de Codex): dos peticiones

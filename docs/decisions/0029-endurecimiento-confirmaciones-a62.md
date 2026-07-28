@@ -1,4 +1,4 @@
-# ADR-0028 — Endurecimiento de confirmaciones antes de encender DeepSeek (a62)
+# ADR-0029 — Endurecimiento de confirmaciones antes de encender DeepSeek (a62)
 
 - **Fecha:** 2026-07-28
 - **Estado:** accepted

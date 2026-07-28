@@ -1,4 +1,4 @@
-// Mecanismo de RLS bajo el rol de servicio (ADR-0028, bead 5n3). Único seam por el que
+// Mecanismo de RLS bajo el rol de servicio (ADR-0030, bead 5n3). Único seam por el que
 // debe pasar TODO camino de datos por-usuario: abre una transacción y fija el contexto
 // RLS (Opción A) antes de ejecutar las queries del cuerpo, de modo que las policies
 // `private.*` (Opción B) se evalúen contra ESTE usuario.
@@ -14,7 +14,7 @@ import TripSquadDomain
 
 extension PostgresClient {
 
-    /// Abre una transacción y fija el contexto RLS por-usuario (mecanismo A+B, ADR-0028)
+    /// Abre una transacción y fija el contexto RLS por-usuario (mecanismo A+B, ADR-0030)
     /// antes de correr `cuerpo`:
     ///   - `set_config('role', 'authenticated', true)` ≡ `SET LOCAL ROLE authenticated`
     ///     (Postgres trata `role` como GUC especial que conmuta el rol activo, igual que
@@ -23,7 +23,7 @@ extension PostgresClient {
     ///     (claim `sub`) identifique al actor en las policies.
     /// El `true` es transaction-local (`SET LOCAL`): se revierte al COMMIT/ROLLBACK, seguro
     /// con pooling. El rol de conexión de la app debe poder `SET ROLE authenticated` y NO
-    /// tener `BYPASSRLS` (gate de entorno, ADR-0028 §Consecuencias).
+    /// tener `BYPASSRLS` (gate de entorno, ADR-0030 §Consecuencias).
     public func enTransaccionConRol<Result: Sendable>(
         actor: MiembroId,
         logger: Logger,

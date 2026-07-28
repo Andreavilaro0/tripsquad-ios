@@ -1,4 +1,4 @@
-# ADR-0028 — Mecanismo de RLS bajo rol de servicio (SET LOCAL role + claims + funciones `private`)
+# ADR-0030 — Mecanismo de RLS bajo rol de servicio (SET LOCAL role + claims + funciones `private`)
 
 - **Fecha:** 2026-07-28
 - **Estado:** accepted

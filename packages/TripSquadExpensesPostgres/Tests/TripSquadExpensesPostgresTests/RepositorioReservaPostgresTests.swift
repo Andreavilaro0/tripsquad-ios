@@ -261,7 +261,7 @@ struct RepositorioReservaPostgresTests {
         }
     }
 
-    /// Endurecimiento a62 (atomicidad, ADR-0028): `guardarConfirmacionYMarcarReservado`
+    /// Endurecimiento a62 (atomicidad, ADR-0029): `guardarConfirmacionYMarcarReservado`
     /// guarda la confirmación Y marca `.reservado` en UNA sola llamada (una sola
     /// transacción). En `cadaUnoElSuyo` marca la fila del miembro.
     @Test func guardarConfirmacionYMarcarReservadoAtomicoCadaUno() async throws {

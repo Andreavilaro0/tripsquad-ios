@@ -151,7 +151,7 @@ struct RegistrarConfirmacionTests {
     }
 
     /// Idempotencia POR-ACTIVIDAD en `unoParaTodos` (endurecimiento a62,
-    /// ADR-0028 — resuelve el deferido de ADR-0026): la confirmación se indexa
+    /// ADR-0029 — resuelve el deferido de ADR-0026): la confirmación se indexa
     /// por la reserva (canónicamente el responsable), no por quien la sube. Si
     /// primero sube el OWNER (`a`) y luego el RESPONSABLE (`b`), el LLM se llama
     /// UNA sola vez — no dos — porque conceptualmente hay un único estado

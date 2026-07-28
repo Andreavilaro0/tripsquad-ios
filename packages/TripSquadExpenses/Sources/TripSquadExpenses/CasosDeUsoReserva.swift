@@ -132,7 +132,7 @@ public struct CasosDeUsoReserva: Sendable {
     /// `unoParaTodos` el actor debe ser el responsable o el owner. Sin fuga
     /// de existencia (no-miembro/no-reserva → `noAutorizado`).
     ///
-    /// Idempotente por la CLAVE CANÓNICA de la confirmación (ADR-0028): si ya
+    /// Idempotente por la CLAVE CANÓNICA de la confirmación (ADR-0029): si ya
     /// hay una guardada, la devuelve SIN volver a llamar al
     /// `EstructuradorConfirmacion` (evita coste/reintento del LLM en reenvíos).
     /// En `cadaUnoElSuyo` la clave es `(activityId, actor)` — cada participante
@@ -162,7 +162,7 @@ public struct CasosDeUsoReserva: Sendable {
         let esOwner = (try await viajes.rol(de: actor, en: tripId)) == .owner
 
         // Clave canónica de la confirmación: por-actor en cadaUnoElSuyo;
-        // por-actividad (el responsable) en unoParaTodos — ver doc arriba (ADR-0028).
+        // por-actividad (el responsable) en unoParaTodos — ver doc arriba (ADR-0029).
         let miembroConfirmacion: MiembroId
         switch reserva.mode {
         case .cadaUnoElSuyo(let estados):
