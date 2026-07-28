@@ -17,18 +17,29 @@ import Foundation
 /// dominio), no texto libre de usuario — el riesgo de prompt-injection aquí
 /// es bajo (plan §Dominio, nota de seguridad). Cuando el RAG incluya
 /// chat/notas, el adaptador real debe tratarlos como input NO confiable.
+///
+/// `actorId` es la identidad OPACA (UUID) del miembro que consulta. NO es PII
+/// (el dominio nunca la interpreta, ADR-0011). El adaptador real la usa para
+/// (a) el rate-limit por usuario/viaje/día que acota el gasto y (b) el
+/// `user_id` de abuso/seguridad que expone DeepSeek — nunca para mostrarla al
+/// modelo como instrucción. El stub la ignora.
 public struct ContextoViaje: Equatable, Sendable {
     public let tripId: String
+    public let actorId: String
     public let resumenSaldos: String
-    public init(tripId: String, resumenSaldos: String) {
+    public init(tripId: String, actorId: String, resumenSaldos: String) {
         self.tripId = tripId
+        self.actorId = actorId
         self.resumenSaldos = resumenSaldos
     }
 }
 
 /// Puerto del asistente IA: la única frontera con el LLM externo. El
-/// adaptador real (Anthropic recomendado, ADR-0023 provisional) implementará
-/// este mismo protocolo sin que dominio ni casos de uso cambien.
+/// adaptador real (DeepSeek — decisión Andrea 2026-07-28, sustituye el
+/// "Anthropic recomendado" provisional del ADR-0023 borrador) implementa este
+/// mismo protocolo sin que dominio ni casos de uso cambien. GATED: el default
+/// sigue siendo `AsistenteStub` (cero gasto); el real solo se cablea cuando
+/// Andrea activa la key.
 public protocol AsistenteIA: Sendable {
     func responder(query: String, contexto: ContextoViaje) async throws -> String
 }

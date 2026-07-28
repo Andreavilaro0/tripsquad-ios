@@ -134,7 +134,10 @@ public func construirRouter(_ deps: Dependencias) -> Router<ContextoTripSquad> {
     montarBrujula(
         router.group()
             .add(middleware: AuthMiddleware(verificador: deps.verificador, respuesta: respuestaAuthAPI))
-            .group(context: ContextoAutenticado.self),
+            .group(context: ContextoAutenticado.self)
+            // Corta el body grande ANTES de decodificar (Codex M8 #2). Solo la
+            // brújula lo lleva: es la ruta que dispara coste en el LLM real.
+            .add(middleware: LimiteTamanoBodyMiddleware()),
         deps
     )
 

@@ -138,6 +138,24 @@ if let r2Account = env["R2_ACCOUNT_ID"], !r2Account.isEmpty,
     fotoStorage = FotoStorageStub()
 }
 
+// asistente Brújula: STUB por defecto (cero gasto, cero red). El adaptador real
+// DeepSeek (bead 3dk) solo se activa si `DEEPSEEK_ASISTENTE_API_KEY` está en el
+// entorno — key SEPARADA de la del estructurador para que activar una no encienda
+// la otra. GATED: activar requiere OK de Andrea + tope de presupuesto.
+let asistente: AsistenteIA
+if let asistenteKey = env["DEEPSEEK_ASISTENTE_API_KEY"], !asistenteKey.isEmpty {
+    let topeDiario = env["DEEPSEEK_BRUJULA_TOPE_DIARIO"].flatMap(Int.init) ?? AsistenteDeepSeek.topeDiarioPorDefecto
+    logger.info("brújula: asistente = DeepSeek (real), tope=\(topeDiario)/usuario/viaje/día")
+    asistente = AsistenteDeepSeek(
+        apiKey: asistenteKey,
+        modelo: env["DEEPSEEK_MODEL"] ?? "deepseek-v4-flash",
+        topeDiario: topeDiario,
+        httpClient: ClienteHTTPDeepSeekReal(cliente: http))
+} else {
+    logger.info("brújula: asistente = stub (DEEPSEEK_ASISTENTE_API_KEY no está en el entorno)")
+    asistente = AsistenteStub()
+}
+
 let deps = Dependencias(
     casos: CasosDeUsoGastos(repo: repo, membresia: repo),
     casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
@@ -148,7 +166,7 @@ let deps = Dependencias(
         estructurador: estructurador),
     casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
     casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: fotoStorage),
-    casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
+    casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: asistente),
     repo: repo,
     pingBD: {
         do { _ = try await client.query("SELECT 1", logger: logger); return true }
