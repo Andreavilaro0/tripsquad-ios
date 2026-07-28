@@ -120,6 +120,24 @@ if let deepSeekKey = env["DEEPSEEK_API_KEY"], !deepSeekKey.isEmpty {
         tipo: .vuelo, fechaISO: nil, numeroConfirmacion: nil, proveedor: nil))
 }
 
+// storage de fotos: STUB por defecto. El adaptador real R2 (bead 7n3, ADR-0022)
+// solo se activa si TODAS las credenciales R2 están en el entorno.
+// GATED: activar requiere que Andrea cree el bucket + las API tokens de R2.
+let fotoStorage: FotoStorage
+if let r2Account = env["R2_ACCOUNT_ID"], !r2Account.isEmpty,
+   let r2Access = env["R2_ACCESS_KEY"], !r2Access.isEmpty,
+   let r2Secret = env["R2_SECRET"], !r2Secret.isEmpty,
+   let r2Bucket = env["R2_BUCKET"], !r2Bucket.isEmpty {
+    logger.info("fotos: storage = R2 (real), bucket=\(r2Bucket)")
+    fotoStorage = FotoStorageR2(
+        accountId: r2Account, accessKey: r2Access, secretKey: r2Secret, bucket: r2Bucket,
+        region: env["R2_REGION"] ?? "auto",
+        httpCliente: ClienteHTTPR2Real(cliente: http))
+} else {
+    logger.info("fotos: storage = stub (credenciales R2 no están en el entorno)")
+    fotoStorage = FotoStorageStub()
+}
+
 let deps = Dependencias(
     casos: CasosDeUsoGastos(repo: repo, membresia: repo),
     casosSettle: CasosDeUsoSettle(repo: repo, membresia: repo),
@@ -129,7 +147,7 @@ let deps = Dependencias(
     casosReserva: CasosDeUsoReserva(repo: repo, itinerario: repo, membresia: repo, viajes: repo,
         estructurador: estructurador),
     casosChat: CasosDeUsoChat(repo: repo, membresia: repo),
-    casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: FotoStorageStub()),
+    casosFoto: CasosDeUsoFoto(repo: repo, membresia: repo, viajes: repo, storage: fotoStorage),
     casosBrujula: CasosDeUsoBrujula(repo: repo, membresia: repo, settlements: repo, asistente: AsistenteStub()),
     repo: repo,
     pingBD: {

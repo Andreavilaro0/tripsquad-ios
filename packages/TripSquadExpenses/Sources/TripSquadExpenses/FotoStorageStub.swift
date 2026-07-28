@@ -19,8 +19,11 @@ public struct FotoStorageStub: FotoStorage {
         self.bucket = bucket
     }
 
-    public func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String {
-        "stub://\(bucket)/\(storageKey)?exp=\(Int(expiraEn))"
+    public func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String {
+        // El stub NO impone el tope: `sizeBytes` viaja en el query solo para dejar
+        // la URL determinista y trazable en tests. El cap real (content-length-range)
+        // lo aplica el adaptador R2 (ADR-0022 §cap), no este stub.
+        "stub://\(bucket)/\(storageKey)?exp=\(Int(expiraEn))&size=\(sizeBytes)"
     }
 
     public func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String {

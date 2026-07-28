@@ -371,8 +371,16 @@ public protocol FotoRepositorio: Sendable {
 /// real (proveedor por decidir, `docs/design/fotos-scope.md`) es un swap-in
 /// sin tocar dominio ni rutas.
 public protocol FotoStorage: Sendable {
-    /// URL prefirmada de SUBIDA (PUT directo del cliente al storage).
-    func urlDeSubida(storageKey: String, contentType: String, expiraEn: TimeInterval) async throws -> String
+    /// Credencial de SUBIDA prefirmada. `sizeBytes` es el tamaño declarado por el
+    /// cliente (bytes) y es OBLIGATORIO (bead 8fd): sin él no se puede acotar la
+    /// subida, así que el contrato lo exige (422 en el DTO si falta). El adaptador
+    /// REAL (R2, ADR-0022) lo codifica en un `content-length-range` de la policy de
+    /// un presigned POST SigV4 — el mecanismo de S3/R2 que DE VERDAD rechaza en el
+    /// borde una subida que exceda el tope (el stub, que nada impone, lo ignora).
+    /// El `contentType` se mantiene y también se fija en la policy real.
+    /// El String devuelto es opaco para el dominio: el stub devuelve `stub://…`; el
+    /// adaptador R2 devuelve el descriptor JSON del presigned POST (endpoint+campos).
+    func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String
     /// URL prefirmada de LECTURA (temporal).
     func urlDeLectura(storageKey: String, expiraEn: TimeInterval) async throws -> String
     func borrar(storageKey: String) async throws
