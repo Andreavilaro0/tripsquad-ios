@@ -70,23 +70,41 @@ extension RepositorioPostgres: ReservaRepositorio {
                     kind = EXCLUDED.kind,
                     mode = EXCLUDED.mode,
                     responsible_id = EXCLUDED.responsible_id,
-                    single_estado = EXCLUDED.single_estado
+                    -- 9bz (ADR-0031) ATÓMICO (P1 Codex #62): conservar el single_estado si el
+                    -- modo y el responsable NO cambian; solo resetear si cambia el modo o el
+                    -- responsable. Se hace en el propio UPSERT (no un read-modify-write en el
+                    -- caso de uso, que era racy contra un `marcar` concurrente).
+                    single_estado = CASE
+                        WHEN itinerary_reservations.mode = EXCLUDED.mode
+                         AND itinerary_reservations.responsible_id IS NOT DISTINCT FROM EXCLUDED.responsible_id
+                        THEN itinerary_reservations.single_estado
+                        ELSE EXCLUDED.single_estado END
                 """, logger: self.logger)
 
-            // Reemplazo total de participantes: borra e inserta, nunca mergea
-            // (si el nuevo modo es uno_para_todos, esto también limpia los
-            // miembros que hubiera de un cada_uno anterior).
-            _ = try await conn.query(
-                "DELETE FROM itinerary_reservation_members WHERE activity_id = \(r.activityId)",
-                logger: self.logger)
-
             if case .cadaUnoElSuyo(let estados) = r.mode {
+                // 9bz ATÓMICO: NO borrar+reinsertar (perdería el estado de quien ya reservó y
+                // pisaría un `marcar` concurrente). Se borran solo los miembros que YA NO están
+                // en la definición, y los nuevos se insertan `DO NOTHING` — los que siguen
+                // conservan su estado actual, incluido el que otra transacción acabe de marcar.
+                let ids = estados.keys.map { $0.raw }
+                _ = try await conn.query(
+                    "DELETE FROM itinerary_reservation_members WHERE activity_id = \(r.activityId) AND member_id != ALL(\(ids))",
+                    logger: self.logger)
                 for (miembro, estado) in estados {
+                    // El estado PASADO se usa solo para miembros NUEVOS; los que ya existían
+                    // conservan el suyo (DO NOTHING). `definir` pasa `.pendiente`; un miembro
+                    // nuevo con estado explícito (p.ej. seed de test) lo mantiene.
                     _ = try await conn.query("""
                         INSERT INTO itinerary_reservation_members (activity_id, member_id, estado)
                         VALUES (\(r.activityId), \(miembro.raw), \(estado.rawValue))
+                        ON CONFLICT (activity_id, member_id) DO NOTHING
                         """, logger: self.logger)
                 }
+            } else {
+                // uno_para_todos: sin miembros por-persona → limpia los de un cada_uno anterior.
+                _ = try await conn.query(
+                    "DELETE FROM itinerary_reservation_members WHERE activity_id = \(r.activityId)",
+                    logger: self.logger)
             }
         }
     }
