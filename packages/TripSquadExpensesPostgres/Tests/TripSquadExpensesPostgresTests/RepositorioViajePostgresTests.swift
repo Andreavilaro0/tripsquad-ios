@@ -27,7 +27,15 @@ struct RepositorioViajePostgresTests {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { await client.run() }
             let repo = RepositorioPostgres(client: client)
-            try await body(repo)
+            // (ADR-0030, enrutado RLS) Los métodos SIN actor en su firma (revocarInvitacion,
+            // cerrar, quitarMiembro, miembros) van por task-local: se fija ActorRLS.actual a
+            // `ana`, que es OWNER en los tests que crean el viaje con ella (crearViaje deja al
+            // creador como owner), y así puede revocar/cerrar/expulsar. Los métodos que llevan
+            // el actor en la firma (crearViaje, crearInvitacion, unirsePorCodigo, rol, viajesDe)
+            // usan su propio actor y no dependen de este valor.
+            try await ActorRLS.$actual.withValue(ana) {
+                try await body(repo)
+            }
             group.cancelAll()
         }
     }

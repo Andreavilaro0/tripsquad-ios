@@ -34,7 +34,12 @@ struct RepositorioPostgresTests {
             try await client.query("INSERT INTO trips (id, currency_reference) VALUES (\(trip), 'EUR')")
             try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(trip), \(ana.raw))")
             try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(trip), \(ivan.raw))")
-            try await body(repo, trip)
+            // (ADR-0030, enrutado RLS) Las LECTURAS por-usuario (gastos/gasto/revisiones)
+            // van por `enTransaccionConRolActual`, que exige `ActorRLS.actual`. Se fija a un
+            // miembro sembrado (ana) para todo el cuerpo, emulando al `AuthMiddleware`.
+            try await ActorRLS.$actual.withValue(ana) {
+                try await body(repo, trip)
+            }
             group.cancelAll()
         }
     }
@@ -197,19 +202,21 @@ struct RepositorioPostgresTests {
                 try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(t), \(ivan.raw))")
             }
 
-            let id = nuevoId()
-            let enA = try await repo.guardar(gasto(id), en: tripA, por: ana, idempotencyKey: "\(id)-kA")
-            guard case .creado = enA else { Issue.record("esperaba creado en A, obtuve \(enA)"); return }
+            try await ActorRLS.$actual.withValue(ana) {
+                let id = nuevoId()
+                let enA = try await repo.guardar(gasto(id), en: tripA, por: ana, idempotencyKey: "\(id)-kA")
+                guard case .creado = enA else { Issue.record("esperaba creado en A, obtuve \(enA)"); return }
 
-            // El MISMO id desde el viaje B: choca con la PK global del gasto de A.
-            let enB = try await repo.guardar(gasto(id), en: tripB, por: ana, idempotencyKey: "\(id)-kB")
-            guard case .rechazado(let razon) = enB else {
-                Issue.record("un id ocupado en otro viaje debe rechazarse sin filtrar; obtuve \(enB)"); return
+                // El MISMO id desde el viaje B: choca con la PK global del gasto de A.
+                let enB = try await repo.guardar(gasto(id), en: tripB, por: ana, idempotencyKey: "\(id)-kB")
+                guard case .rechazado(let razon) = enB else {
+                    Issue.record("un id ocupado en otro viaje debe rechazarse sin filtrar; obtuve \(enB)"); return
+                }
+                #expect(razon == "id_conflict")
+                // Y el viaje B sigue vacío: no se coló ni se "reprodujo" nada de A.
+                #expect(try await repo.gastos(de: tripB).isEmpty)
+                #expect(try await repo.gastos(de: tripA).count == 1)
             }
-            #expect(razon == "id_conflict")
-            // Y el viaje B sigue vacío: no se coló ni se "reprodujo" nada de A.
-            #expect(try await repo.gastos(de: tripB).isEmpty)
-            #expect(try await repo.gastos(de: tripA).count == 1)
             group.cancelAll()
         }
     }
@@ -295,9 +302,12 @@ struct RepositorioPostgresTests {
             guard case .igual = leido.gasto.reparto else {
                 Issue.record("esperaba reparto igual tras editar, obtuve \(leido.gasto.reparto)"); return
             }
-            // Y las shares del exacto ya no cuelgan (leerShares interno vacío).
-            let shares = try await repo.leerShares(id: id)
-            #expect(shares.isEmpty, "las shares del reparto exacto deberían haberse limpiado")
+            // Y las shares del exacto ya no cuelgan (se leen crudas como postgres, bypass RLS).
+            var quedanShares = false
+            let sharesRows = try await repo.client.query(
+                "SELECT 1 FROM expense_shares WHERE expense_id = \(id)")
+            for try await _ in sharesRows { quedanShares = true }
+            #expect(!quedanShares, "las shares del reparto exacto deberían haberse limpiado")
         }
     }
 
@@ -338,16 +348,18 @@ struct RepositorioPostgresTests {
                 try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(t), \(ana.raw))")
                 try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(t), \(ivan.raw))")
             }
-            let id = nuevoId()
-            _ = try await repo.guardar(gasto(id), en: tripA, por: ana, idempotencyKey: "\(id)-k1")
-            let etag = try #require(await repo.gasto(id: id, en: tripA)).etag
-            _ = try await repo.actualizar(gasto(id, importe: 5000), en: tripA, por: ana, ifMatch: etag, idempotencyKey: "\(id)-k2")
+            try await ActorRLS.$actual.withValue(ana) {
+                let id = nuevoId()
+                _ = try await repo.guardar(gasto(id), en: tripA, por: ana, idempotencyKey: "\(id)-k1")
+                let etag = try #require(await repo.gasto(id: id, en: tripA)).etag
+                _ = try await repo.actualizar(gasto(id, importe: 5000), en: tripA, por: ana, ifMatch: etag, idempotencyKey: "\(id)-k2")
 
-            // Mismo expenseId, pero consultado desde tripB: NO debe ver el historial de A.
-            let revisionesDesdeB = try await repo.revisiones(deGasto: id, en: tripB, limit: 50)
-            #expect(revisionesDesdeB.isEmpty, "el historial de un gasto de OTRO viaje no debe filtrarse")
-            let revisionesDesdeA = try await repo.revisiones(deGasto: id, en: tripA, limit: 50)
-            #expect(revisionesDesdeA.count == 1)
+                // Mismo expenseId, pero consultado desde tripB: NO debe ver el historial de A.
+                let revisionesDesdeB = try await repo.revisiones(deGasto: id, en: tripB, limit: 50)
+                #expect(revisionesDesdeB.isEmpty, "el historial de un gasto de OTRO viaje no debe filtrarse")
+                let revisionesDesdeA = try await repo.revisiones(deGasto: id, en: tripA, limit: 50)
+                #expect(revisionesDesdeA.count == 1)
+            }
             group.cancelAll()
         }
     }

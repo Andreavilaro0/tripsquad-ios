@@ -32,7 +32,11 @@ struct RepositorioItinerarioPostgresTests {
             let trip = "trip-i-" + UUID().uuidString.prefix(8)
             try await client.query("INSERT INTO trips (id, currency_reference) VALUES (\(trip), 'EUR')")
             try await client.query("INSERT INTO trip_members (trip_id, member_id) VALUES (\(trip), \(ana.raw))")
-            try await body(repo, trip)
+            // (ADR-0030, enrutado RLS) Las lecturas (listar/item) van por task-local: se fija
+            // ActorRLS.actual a un miembro sembrado (ana), como el AuthMiddleware.
+            try await ActorRLS.$actual.withValue(ana) {
+                try await body(repo, trip)
+            }
             group.cancelAll()
         }
     }
@@ -192,7 +196,13 @@ struct RepositorioItinerarioPostgresTests {
 
             let borrado = try await repo.borrar(id: id, en: trip, por: ana)
             #expect(borrado == false)                                  // membresía revocada -> no autoriza
-            #expect(try await repo.item(id: id, en: trip) != nil)      // la actividad SIGUE (atómico)
+            // La actividad SIGUE (atómico). Se comprueba en CRUDO (como postgres, bypass RLS):
+            // vía `item` no serviría, porque ana ya no es miembro y la RLS le ocultaría la fila.
+            var sigue = false
+            let filaRows = try await repo.client.query(
+                "SELECT 1 FROM itinerary_items WHERE id = \(id) AND trip_id = \(trip)")
+            for try await _ in filaRows { sigue = true }
+            #expect(sigue, "la actividad SIGUE existiendo (el borrado no autorizado no la tocó)")
         }
     }
 
