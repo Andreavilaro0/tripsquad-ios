@@ -190,9 +190,15 @@ extension RepositorioPostgres: ViajeRepositorio {
             // la policy usaría `now()`; la secdef unifica ambos con `p_ahora`. `existeFila` ya no
             // decide el camino (la secdef distingue reactivar vs insertar), pero se conserva en el
             // resolver para los estados `yaMiembro`/`caducado`.
-            _ = try await conn.query(
+            let filas = try await conn.query(
                 "SELECT private.unirse_por_invitacion(\(tripId), \(actor.raw), \(ahora))",
                 logger: self.logger)
+            var escrito = false
+            for try await (b) in filas.decode(Bool.self) { escrito = b }
+            // Si NO escribió membresía, la invitación se revocó/caducó en la carrera (READ
+            // COMMITTED) entre `invitacion_por_codigo` y la escritura → no se unió (P2 Codex #63):
+            // devolver un fallo en vez de `.unido` a ciegas.
+            guard escrito else { return .revocado }
             return .unido
         }
     }

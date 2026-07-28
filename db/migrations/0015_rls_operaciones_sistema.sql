@@ -146,8 +146,12 @@ $$;
 -- caducidad: un alta nueva daba violación RLS/5xx, un reingreso omitía el UPDATE en silencio.
 -- Aquí ambos usan `expires_at > p_ahora`, coherente con `invitacion_por_codigo` y con el doble
 -- en memoria. security definer + `unirsePorCodigo` ya validó el código: esto es la escritura.
+-- Devuelve TRUE si escribió membresía (alta o reingreso), FALSE si NO (la invitación se
+-- revocó/caducó en la carrera entre `invitacion_por_codigo` y esta escritura, READ COMMITTED
+-- — P2 Codex #63): sin este booleano, `unirsePorCodigo` devolvería `.unido` a ciegas dejando
+-- al cliente creyendo que entró cuando no. El llamante mapea FALSE a un resultado de fallo.
 create or replace function private.unirse_por_invitacion(p_trip text, p_usuario text, p_ahora timestamptz)
-returns void
+returns boolean
 language plpgsql
 volatile
 security definer
@@ -158,18 +162,20 @@ begin
         select 1 from public.trip_invites i
         where i.trip_id = p_trip and i.revoked_at is null and i.expires_at > p_ahora
     ) then
-        return;   -- sin invitación viva a `p_ahora`: no escribe (defensa en profundidad).
+        return false;   -- sin invitación viva a `p_ahora`: no escribe (defensa/carrera).
     end if;
     -- Reingreso: reactiva la fila del que salió (PK (trip_id, member_id)).
     update public.trip_members
         set left_at = null, joined_at = p_ahora
         where trip_id = p_trip and member_id = p_usuario and left_at is not null;
-    if not found then
-        -- Alta nueva.
-        insert into public.trip_members (trip_id, member_id, role, joined_at)
-            values (p_trip, p_usuario, 'member', p_ahora)
-            on conflict (trip_id, member_id) do nothing;
+    if found then
+        return true;
     end if;
+    -- Alta nueva.
+    insert into public.trip_members (trip_id, member_id, role, joined_at)
+        values (p_trip, p_usuario, 'member', p_ahora)
+        on conflict (trip_id, member_id) do nothing;
+    return found;   -- true si el INSERT escribió; false si otra tx la insertó a la vez.
 end;
 $$;
 
