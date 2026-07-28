@@ -22,6 +22,11 @@ import TripSquadExpenses
 
 struct PresignFotoDTO: Decodable {
     let contentType: String
+    // Decodable-opcional a propósito: un `sizeBytes` ausente NO es un fallo de decode
+    // (que Hummingbird traduciría a 400 genérico) sino una validación de contrato que
+    // damos como 422 `missing_size_bytes` (bead 8fd) — mismo criterio que los demás 422
+    // de validación del repo. Presente pero fuera de rango lo valida el caso de uso
+    // (`size_invalido`). Sin tamaño no se puede acotar la subida (content-length-range).
     let sizeBytes: Int64?
     let caption: String?
 }
@@ -77,8 +82,14 @@ func montarFotos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Depe
     router.post("trips/:tripId/photos/presign") { req, ctx -> Response in
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: PresignFotoDTO.self, context: ctx)
+        // `sizeBytes` es OBLIGATORIO (bead 8fd): sin él el adaptador real no puede
+        // firmar el content-length-range que impone el tope. Ausente → 422, sin tocar
+        // el caso de uso ni crear la foto pending.
+        guard let sizeBytes = dto.sizeBytes else {
+            return errorJSON(HTTPResponse.Status(code: 422), "missing_size_bytes")
+        }
         switch try await deps.casosFoto.presignSubida(
-            tripId: tripId, contentType: dto.contentType, sizeBytes: dto.sizeBytes,
+            tripId: tripId, contentType: dto.contentType, sizeBytes: sizeBytes,
             caption: dto.caption, actor: ctx.actor, ahora: deps.ahora()
         ) {
         case .success(let presign):

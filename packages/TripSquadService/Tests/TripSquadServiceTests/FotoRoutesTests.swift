@@ -92,6 +92,24 @@ struct FotoRoutesTests {
         }
     }
 
+    // 2b. presign SIN sizeBytes en el body -> 422 missing_size_bytes (bead 8fd): el
+    // tamaño es OBLIGATORIO porque el adaptador real lo firma en el content-length-range
+    // que impone el cap. Un cuerpo sin la clave (no "null") es un fallo de contrato, no
+    // de decode -> 422 con code, no 400.
+    @Test func presignSinSizeBytes422() async throws {
+        let (app, _) = await app()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/trips/\(trip)/photos/presign", method: .post,
+                headers: [.authorization: try await bearer("ana")],
+                body: ByteBuffer(string: #"{"contentType":"image/jpeg"}"#)
+            ) { res in
+                #expect(res.status.code == 422)
+                #expect(String(buffer: res.body).contains("missing_size_bytes"))
+            }
+        }
+    }
+
     // 3. no-miembro no presign ni lista -> 403 sin fuga.
     @Test func noMiembroNoPresignNiLista403() async throws {
         let (app, _) = await app()
