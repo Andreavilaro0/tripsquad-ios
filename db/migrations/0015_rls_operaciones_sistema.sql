@@ -98,7 +98,9 @@ begin
     end if;
     -- Caducidad con el `ahora` INYECTADO por el llamante (no el reloj de la BD): determinismo
     -- en tests y consistencia si los relojes del servicio y de la BD difieren (P2 Codex #63).
-    if v_expires < p_ahora then
+    -- `<= p_ahora`: caducada EN el instante exacto de `expires_at` (P2 Codex #63), coherente
+    -- con `unirse_por_invitacion` (`> p_ahora`) y con el doble en memoria (`expiresAt > ahora`).
+    if v_expires <= p_ahora then
         return query select v_trip, null::timestamptz, 0, false, false, 'caducado'::text;
         return;
     end if;
@@ -136,11 +138,15 @@ $$;
 -- definer. El INSERT de un miembro NUEVO sí va como el actor (rama de invitación de
 -- `trip_members_insert`); solo la reactivación necesita este seam.
 --
--- Se exige invitación vigente (misma condición que la rama de invitación de la policy):
--- un reingreso legítimo por código. `unirsePorCodigo` ya validó el código antes de llegar
--- aquí; esta comprobación es defensa en profundidad para que la función no reactive a nadie
--- sin una invitación viva.
-create or replace function private.reactivar_miembro(p_trip text, p_usuario text, p_ahora timestamptz)
+-- Alta por invitación (nueva O reingreso), TODO con el `p_ahora` INYECTADO. Consolida el
+-- INSERT de miembro nuevo y la reactivación de quien salió (P1/P2 Codex #63): ambos caminos
+-- validaban la caducidad con DISTINTO reloj —el INSERT vía la policy `trip_members_insert`
+-- (que llama a `hay_invitacion_valida` con `now()`), la reactivación aparte— y podían diverger
+-- de `invitacion_por_codigo` (que ya validó con `p_ahora`) por desfase de reloj cerca de la
+-- caducidad: un alta nueva daba violación RLS/5xx, un reingreso omitía el UPDATE en silencio.
+-- Aquí ambos usan `expires_at > p_ahora`, coherente con `invitacion_por_codigo` y con el doble
+-- en memoria. security definer + `unirsePorCodigo` ya validó el código: esto es la escritura.
+create or replace function private.unirse_por_invitacion(p_trip text, p_usuario text, p_ahora timestamptz)
 returns void
 language plpgsql
 volatile
@@ -148,17 +154,21 @@ security definer
 set search_path = ''
 as $$
 begin
-    -- Caducidad con el `p_ahora` INYECTADO (P1 Codex #63, 2ª ronda): `hay_invitacion_valida`
-    -- compara con `now()` de la BD, así que si `p_ahora` va por detrás/delante del reloj de
-    -- Postgres, `invitacion_por_codigo` aceptaba el código (con p_ahora) pero esta comprobación
-    -- podía omitir el UPDATE en silencio y dejar al usuario inactivo. Se usa p_ahora en ambas.
-    if exists (
+    if not exists (
         select 1 from public.trip_invites i
         where i.trip_id = p_trip and i.revoked_at is null and i.expires_at > p_ahora
     ) then
-        update public.trip_members
-            set left_at = null, joined_at = p_ahora
-            where trip_id = p_trip and member_id = p_usuario and left_at is not null;
+        return;   -- sin invitación viva a `p_ahora`: no escribe (defensa en profundidad).
+    end if;
+    -- Reingreso: reactiva la fila del que salió (PK (trip_id, member_id)).
+    update public.trip_members
+        set left_at = null, joined_at = p_ahora
+        where trip_id = p_trip and member_id = p_usuario and left_at is not null;
+    if not found then
+        -- Alta nueva.
+        insert into public.trip_members (trip_id, member_id, role, joined_at)
+            values (p_trip, p_usuario, 'member', p_ahora)
+            on conflict (trip_id, member_id) do nothing;
     end if;
 end;
 $$;
@@ -196,9 +206,9 @@ $$;
 -- las llama el sistema con un rol de app que hereda `authenticated`). Se revoca de PUBLIC.
 revoke all on function private.caducar_settlements_pendientes(timestamptz) from public;
 revoke all on function private.invitacion_por_codigo(text, timestamptz) from public;
-revoke all on function private.reactivar_miembro(text, text, timestamptz) from public;
+revoke all on function private.unirse_por_invitacion(text, text, timestamptz) from public;
 revoke all on function private.olvidar_revisiones_de(text) from public;
 grant execute on function private.caducar_settlements_pendientes(timestamptz) to authenticated;
 grant execute on function private.invitacion_por_codigo(text, timestamptz) to authenticated;
-grant execute on function private.reactivar_miembro(text, text, timestamptz) to authenticated;
+grant execute on function private.unirse_por_invitacion(text, text, timestamptz) to authenticated;
 grant execute on function private.olvidar_revisiones_de(text) to authenticated;

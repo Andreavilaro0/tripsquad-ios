@@ -181,22 +181,18 @@ extension RepositorioPostgres: ViajeRepositorio {
             if esActivo { return .yaMiembro }
             if activos >= tope { return .lleno }
 
-            // Fila previa (miembro que salió: left_at != nil) -> reactivar en vez de
-            // insertar, la PK es (trip_id, member_id). La reactivación (UPDATE left_at=NULL)
-            // NO la puede hacer el propio usuario bajo la RLS (rol_en_viaje es NULL mientras
-            // está inactivo -> WITH CHECK falla), así que va por `private.reactivar_miembro`
-            // (security definer, 0015), que exige invitación vigente. El INSERT de un miembro
-            // NUEVO sí va como el actor (rama de invitación de trip_members_insert).
-            if existeFila {
-                _ = try await conn.query(
-                    "SELECT private.reactivar_miembro(\(tripId), \(actor.raw), \(ahora))",
-                    logger: self.logger)
-            } else {
-                _ = try await conn.query("""
-                    INSERT INTO trip_members (trip_id, member_id, role, joined_at)
-                    VALUES (\(tripId), \(actor.raw), 'member', \(ahora))
-                    """, logger: self.logger)
-            }
+            // Alta nueva O reingreso (miembro que salió), TODO por `private.unirse_por_invitacion`
+            // (security definer, 0015) con el `ahora` INYECTADO (P1/P2 Codex #63): así el reloj de
+            // la validación de caducidad coincide con el de `invitacion_por_codigo` (que ya validó
+            // el código) y no diverge del `now()` de la BD que usaría la policy en el INSERT/UPDATE.
+            // La reactivación (left_at=NULL) el propio usuario NO la puede hacer bajo la RLS
+            // (rol_en_viaje es NULL mientras está inactivo → WITH CHECK falla), y el alta nueva por
+            // la policy usaría `now()`; la secdef unifica ambos con `p_ahora`. `existeFila` ya no
+            // decide el camino (la secdef distingue reactivar vs insertar), pero se conserva en el
+            // resolver para los estados `yaMiembro`/`caducado`.
+            _ = try await conn.query(
+                "SELECT private.unirse_por_invitacion(\(tripId), \(actor.raw), \(ahora))",
+                logger: self.logger)
             return .unido
         }
     }
@@ -213,19 +209,19 @@ extension RepositorioPostgres: ViajeRepositorio {
         // las policies `trip_members`/`trip_invites`/`itinerary_reservations*` permiten al
         // owner gestionar y al propio miembro salir.
         try await client.enTransaccionConRolActual(logger: logger) { conn in
-            _ = try await conn.query("""
-                UPDATE trip_members SET left_at = \(ahora)
-                WHERE trip_id = \(tripId) AND member_id = \(memberId.raw) AND left_at IS NULL
-                """, logger: self.logger)
+            // ORDEN (P1 Codex #63): las limpiezas van ANTES de desactivar la membresía. En una
+            // AUTO-SALIDA (actor == memberId) el UPDATE de `left_at` haría `es_miembro(self)`
+            // falso, y las policies RLS de trip_invites/reservas filtrarían a CERO las limpiezas
+            // siguientes → las invitaciones propias seguirían vivas (reingreso con el propio
+            // código) y la huella de reservas no se limpiaría. Ejecutándolas primero, el actor
+            // (que sale, o el owner que expulsa) SIGUE siendo miembro y la RLS las permite; el
+            // `left_at` se pone al final. Todo en la MISMA transacción (atómico).
             _ = try await conn.query("""
                 UPDATE trip_invites SET revoked_at = \(ahora)
                 WHERE trip_id = \(tripId) AND created_by = \(memberId.raw) AND revoked_at IS NULL
                 """, logger: self.logger)
-            // Limpia el estado de reserva de ese miembro en ESE viaje (Task 5, wedge
-            // "quién ya reservó", migración 0008): mismo criterio "expulsar revoca huella"
-            // que arriba con las invitaciones, en la MISMA transacción. `cada_uno` pierde
-            // su fila en itinerary_reservation_members; si era el responsable de un
-            // uno_para_todos, vuelve a quedar sin asignar (pendiente, no "de nadie").
+            // `cada_uno` pierde su fila en itinerary_reservation_members; si era el responsable
+            // de un uno_para_todos, vuelve a quedar sin asignar (pendiente, no "de nadie").
             _ = try await conn.query("""
                 DELETE FROM itinerary_reservation_members
                 WHERE member_id = \(memberId.raw)
@@ -234,6 +230,11 @@ extension RepositorioPostgres: ViajeRepositorio {
             _ = try await conn.query("""
                 UPDATE itinerary_reservations SET responsible_id = NULL, single_estado = 'pendiente'
                 WHERE trip_id = \(tripId) AND responsible_id = \(memberId.raw)
+                """, logger: self.logger)
+            // Desactivación de la membresía AL FINAL (ver nota de orden arriba).
+            _ = try await conn.query("""
+                UPDATE trip_members SET left_at = \(ahora)
+                WHERE trip_id = \(tripId) AND member_id = \(memberId.raw) AND left_at IS NULL
                 """, logger: self.logger)
         }
     }
