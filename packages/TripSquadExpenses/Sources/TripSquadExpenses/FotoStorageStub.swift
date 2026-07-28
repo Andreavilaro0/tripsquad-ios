@@ -20,9 +20,11 @@ public struct FotoStorageStub: FotoStorage {
     }
 
     public func urlDeSubida(storageKey: String, contentType: String, sizeBytes: Int, expiraEn: TimeInterval) async throws -> String {
-        // El stub NO impone el tope: `sizeBytes` viaja en el query solo para dejar
-        // la URL determinista y trazable en tests. El cap real (content-length-range)
-        // lo aplica el adaptador R2 (ADR-0022 §cap), no este stub.
+        // URL de SUBIDA determinista (análoga a la URL PUT prefirmada del adaptador
+        // real). El stub NO firma ni impone nada: `sizeBytes` viaja en el query solo
+        // para dejar la URL trazable en tests. En R2 la subida es un PUT con
+        // Content-Type/Content-Length FIRMADOS (que R2 exige exactos) y el techo de
+        // 20 MB lo impone la capa app antes de firmar (ADR-0022 §cap), no este stub.
         "stub://\(bucket)/\(storageKey)?exp=\(Int(expiraEn))&size=\(sizeBytes)"
     }
 

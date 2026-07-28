@@ -26,16 +26,23 @@ struct PresignFotoDTO: Decodable {
     // (que Hummingbird traduciría a 400 genérico) sino una validación de contrato que
     // damos como 422 `missing_size_bytes` (bead 8fd) — mismo criterio que los demás 422
     // de validación del repo. Presente pero fuera de rango lo valida el caso de uso
-    // (`size_invalido`). Sin tamaño no se puede acotar la subida (content-length-range).
+    // (`size_invalido`). Sin tamaño no se puede acotar la subida (Content-Length firmado).
     let sizeBytes: Int64?
     let caption: String?
 }
 
 // MARK: - DTOs de salida (Encodable) — SIEMPRE serializados con JSONEncoder.
 
+// Contrato de subida (ADR-0022 §cap, bead 7n3): el cliente hace un **PUT** a
+// `uploadUrl` con los headers `Content-Type` y `Content-Length` de `uploadHeaders`
+// EXACTOS — van firmados en la URL prefirmada, así que R2 rechaza (403) si el
+// cliente envía otro valor. (Antes era un envelope `{url, fields}` para un
+// multipart POST; R2 no soporta POST.)
 private struct PresignCreadoDTO: Encodable {
     let photoId: String
     let uploadUrl: String
+    let uploadMethod: String
+    let uploadHeaders: [String: String]
     let expiresIn: TimeInterval
 }
 
@@ -60,6 +67,10 @@ private struct FotosListDTO: Encodable {
 private let jsonEncoderFoto: JSONEncoder = {
     let e = JSONEncoder()
     e.dateEncodingStrategy = .iso8601
+    // `.sortedKeys`: salida DETERMINISTA (mismo criterio db0). Importa para
+    // `uploadHeaders` ([String:String]), que sin esto Swift serializa en orden no
+    // determinista por proceso.
+    e.outputFormatting = .sortedKeys
     return e
 }()
 
@@ -83,7 +94,7 @@ func montarFotos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Depe
         let tripId = try ctx.parameters.require("tripId")
         let dto = try await req.decode(as: PresignFotoDTO.self, context: ctx)
         // `sizeBytes` es OBLIGATORIO (bead 8fd): sin él el adaptador real no puede
-        // firmar el content-length-range que impone el tope. Ausente → 422, sin tocar
+        // firmar el Content-Length exacto que R2 exige. Ausente → 422, sin tocar
         // el caso de uso ni crear la foto pending.
         guard let sizeBytes = dto.sizeBytes else {
             return errorJSON(HTTPResponse.Status(code: 422), "missing_size_bytes")
@@ -93,9 +104,16 @@ func montarFotos(_ router: some RouterMethods<ContextoAutenticado>, _ deps: Depe
             caption: dto.caption, actor: ctx.actor, ahora: deps.ahora()
         ) {
         case .success(let presign):
+            // `uploadHeaders` = los headers FIRMADOS que R2 exige exactos. Se derivan de
+            // los MISMOS `contentType`/`sizeBytes` que se firmaron (vía el caso de uso →
+            // `FotoStorage.urlDeSubida`), así que coinciden con la firma por construcción.
             return try respuestaJSON(
                 .created,
-                PresignCreadoDTO(photoId: presign.fotoId, uploadUrl: presign.urlSubida, expiresIn: presign.expiraEn))
+                PresignCreadoDTO(
+                    photoId: presign.fotoId, uploadUrl: presign.urlSubida,
+                    uploadMethod: "PUT",
+                    uploadHeaders: ["Content-Type": dto.contentType, "Content-Length": String(sizeBytes)],
+                    expiresIn: presign.expiraEn))
         case .failure(let error):
             return respuestaErrorFoto(error)
         }
